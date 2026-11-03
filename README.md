@@ -103,9 +103,10 @@ that crosses the boundary goes through the composed neuron's own interface.
 
 The first working example is `npm run demo:composed`: a Rust program
 `music` with a tiny inner network (tracks, artist and lyrics neurons) that
-the outer network sees as one neuron. It shows the sealed boundary (inner
-neurons are not in the outer network, so nothing can address them, and a
-handler inside can only return an answer), and a trace that exists inside
+the outer network sees as one neuron. The boundary is sealed by
+construction: `music` is a separate process, its inner handlers can only
+return text, and the outer network has no way to name an inner neuron (a
+test checks that no inner id appears outside). The trace exists inside
 only: the outer signals are one request and one answer, while
 `music --inspect` run on its own prints the inner signals. Running it
 standalone is looking inside, not the outer network reaching in. It does
@@ -252,7 +253,7 @@ npm run demo:composed
 The search box sends every keystroke to one neuron, `music`: a Rust program
 (`rust/music`, standard library only) wrapped by the shell adapter. Inside
 it is its own network of tracks, artist and lyrics neurons. The output
-shows answers combining all three and stale work dropped, then the inside
+shows answers combining all three and stale work dropped (the inner lyrics neuron takes 250 ms once it acts, as in the typing demo), then the inside
 view: one standalone `music --inspect` run printing the inner trace. Needs
 a Rust toolchain.
 

@@ -119,17 +119,18 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
   literal. Signals from `Neuron.query` start their own trace.
 - The `replaceable` map in `network.ts` keeps one abort controller per
   sender and `replaces` key and is never pruned.
-- `test/rust.test.ts` runs `rust/target/release/catalogue` and fails (on
+- `test/rust.test.ts` runs `rust/target/release/catalogue` (and `test/composed.test.ts` `music`) and fail (on
   purpose, with the fix in the message) until `npm run rust:build` has run.
   `verify` builds it before the TS tests. The Rust build is not a `build: true`
   step, so `verify --skip-build` still builds it. Keep the crate std-only, so
   builds never need the network; `rust/target/` is ignored, `Cargo.lock` is not.
 - The made-up catalogue lives twice, in `examples/typing-demo.mjs` and
-  `rust/catalogue/src/main.rs`, and the matching rule must stay the same in
-  both (lowercase, from 3 UTF-16 units, no trimming): change them together.
+  `rust/catalogue/src/lib.rs` (shared by the `catalogue` and `music` binaries),
+  and the matching rule must stay the same in both (lowercase, from 3 UTF-16
+  units, no trimming): change them together.
 - The two typing demos share `examples/typing-demo.mjs`; `npm run demo:typing`
   output must not change when it is edited.
-- The inner rules in `rust/` (the catalogue, tracks from 3 UTF-16 units, artist on an exact name, lyrics from 5) must match the neurons in `examples/typing-demo.mjs`; change both together. `music --inspect` prints the inner trace and is the view from inside: the outer network never gets it.
+- The inner rules in `rust/music` share thresholds and data with the neurons in `examples/typing-demo.mjs` (tracks from 3 UTF-16 units, artist on an exact name, lyrics from 5, with the same 250 ms wait when it acts); change both together. The answer shapes differ (artist as the catalogue name, lyrics as the first match). `MUSIC_NO_LATENCY=1` skips the wait; the tests set it. `music --inspect` prints the inner trace and is the view from inside: the outer network never gets it.
 
 ## Known limits
 

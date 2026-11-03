@@ -1,8 +1,11 @@
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { Network, Neuron, ShellAdapter, text, type Signal } from '../src/index.js';
 
 const binary = fileURLToPath(new URL('../rust/target/release/music', import.meta.url));
+process.env.MUSIC_NO_LATENCY = '1'; // the lyrics neuron's simulated wait is for the demo, not the tests
 
 /** A box wired to the given composed neurons. Records every signal onSignal sees. */
 function setup(...musicIds: string[]) {
@@ -17,6 +20,10 @@ function setup(...musicIds: string[]) {
 }
 
 describe('a composed neuron: the Rust `music` program with its own inner network', () => {
+  it('has been built', () => {
+    expect(existsSync(binary), `${binary} is missing: run \`npm run rust:build\` (needs a Rust toolchain)`).toBe(true);
+  });
+
   it('seals the inside: inner neurons are not in the network and cannot be linked or addressed', async () => {
     const { network } = setup('music');
     for (const inner of ['tracks', 'artist', 'lyrics']) {
@@ -25,6 +32,24 @@ describe('a composed neuron: the Rust `music` program with its own inner network
         `unknown neuron: ${inner}`,
       );
     }
+  });
+
+  it('never lets an inner id reach the outer network or its answers', async () => {
+    const { network, seen } = setup('music');
+    network.emit('box', text('lumen harbor'));
+    await network.idle();
+    // the inner signal ids, as music --inspect prints them for the same query
+    const inside = spawnSync(binary, ['--inspect'], { input: 'lumen harbor', encoding: 'utf8' });
+    const ids = [...inside.stderr.matchAll(/^signal (\d+) /gm)].map((m) => m[1]!);
+    expect(ids.length).toBeGreaterThan(0);
+    const inner = ['in', 'out', 'tracks', 'artist', 'lyrics'];
+    for (const s of seen) {
+      expect(inner).not.toContain(s.from);
+      for (const t of s.to ?? []) expect(inner).not.toContain(t);
+    }
+    const answer = JSON.stringify(seen[1]!.payload);
+    expect(answer).not.toMatch(/trace|replyTo|signal/);
+    for (const id of ids) expect(answer).not.toMatch(new RegExp(`\\b${id}\\b`));
   });
 
   it('shows only a signal in and an answer out, with no inner ids or trace', async () => {

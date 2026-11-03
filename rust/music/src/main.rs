@@ -8,10 +8,14 @@
 //! the neuron. The answer never contains inner ids or the trace. Nothing is
 //! learned or kept between runs: each call is its own process.
 //!
-//! The inner rules match the JavaScript neurons in examples/typing-demo.mjs;
-//! change both together. The catalogue is the `catalogue` library's.
+//! The inner rules share thresholds and data with the JavaScript neurons in
+//! examples/typing-demo.mjs (change both together); the answer shapes differ:
+//! artist is the catalogue name, lyrics is the first matching line or null.
+//! The lyrics neuron also takes as long as the JavaScript one (250 ms) when it
+//! acts, so the demo has slow work to drop; set MUSIC_NO_LATENCY=1 to skip the wait.
+//! The catalogue is the `catalogue` library's.
 use catalogue::{clean, escape, matches, to_json, utf16_len, ARTISTS, LYRICS};
-use std::io::Read;
+use std::io::{Read, Write};
 
 /// An inner signal. `reply_to` is the signal this one answers; `trace` is
 /// shared by all the inner work one query causes.
@@ -87,6 +91,10 @@ fn lyrics(q: &str) -> Option<String> {
     if utf16_len(&q) < 5 {
         return None;
     }
+    // simulated latency, as in the JavaScript lyrics neuron; only when it acts
+    if std::env::var_os("MUSIC_NO_LATENCY").is_none() {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
     Some(LYRICS.iter().find(|l| l.contains(&q)).map_or("null".to_string(), |l| escape(l)))
 }
 
@@ -127,13 +135,16 @@ fn main() {
         std::process::exit(1);
     }
     let (answer, net) = run(&input);
+    let failed = |_| std::process::exit(1);
     if let Some(answer) = &answer {
-        println!("{answer}");
+        writeln!(std::io::stdout().lock(), "{answer}").unwrap_or_else(failed);
     }
     if inspect {
+        let mut err = std::io::stderr().lock();
         for s in &net.log {
             let reply = s.reply_to.map_or("-".to_string(), |r| r.to_string());
-            eprintln!("signal {} from {} to {} replyTo {} trace {}", s.id, s.from, s.to, reply, s.trace);
+            writeln!(err, "signal {} from {} to {} replyTo {} trace {}", s.id, s.from, s.to, reply, s.trace)
+                .unwrap_or_else(failed);
         }
     }
 }
@@ -164,12 +175,13 @@ mod tests {
     fn below_the_threshold_nothing_acts() {
         let (answer, net) = run("lu");
         assert_eq!(answer, None);
-        // the query was delivered, nobody answered
+        // the query was delivered to all three, nobody answered
+        assert_eq!(net.log.len(), 3);
         assert!(net.log.iter().all(|s| s.from == IN));
     }
 
     #[test]
-    fn rules_match_the_javascript_neurons() {
+    fn thresholds_and_answer_shapes() {
         // tracks from 3; artist only on an exact name; lyrics from 5
         let (a, _) = run("lum");
         assert_eq!(a.unwrap(), r#"{"tracks":["Glass Orchard","Ninefold Morning"],"artist":null,"lyrics":null}"#);

@@ -37,6 +37,10 @@ await network.idle();
 // Not the outer network reaching in: a separate run of the program, looking inside.
 console.log(`\nInside view: music --inspect on "${query}" (its own inner trace, not visible from the network above)`);
 const inside = spawnSync(binary, ['--inspect'], { input: query, encoding: 'utf8' });
+if (inside.error || inside.status !== 0) {
+  console.error(`cannot run ${binary}: ${inside.error?.message ?? inside.stderr}\nrun \`npm run rust:build\` first`);
+  process.exit(1);
+}
 console.log(inside.stderr.trimEnd().replace(/^/gm, '  '));
 console.log('Each call is its own process: nothing is learned or shared between calls.');
 process.exit(inside.status ?? 1);
