@@ -29,7 +29,8 @@ interested in new ideas about how agents can be connected.
   neuron can also be told to ignore input from a connection when other
   conditions hold.
 - **Adaptive.** The network can rewire itself, and connections can
-  strengthen and weaken over time.
+  strengthen and weaken over time, within a run: each run starts fresh, and
+  strengths are not carried over to the next.
 - **Configured at the wrapper.** How a neuron listens, when it stops and what
   counts as done are set on each neuron's wrapper, not by a central
   controller.
@@ -84,13 +85,67 @@ Three neurons wrapping three very different things:
 If those three can be connected and exchange signals through the same
 interface, the wrapper idea works.
 
+## A second example (planned)
+
+A search box on a music site, run as a network of neurons in real time:
+
+- **the search box** is a neuron. As someone types, it broadcasts each
+  keystroke, or the query so far, to every neuron it is connected to;
+- **music search** acts once there are a few characters and returns tracks;
+- **artist** acts only when the text matches an artist it knows;
+- **lyrics** acts when the text looks like a line from a song rather than a
+  name;
+- **concerts** listens to the artist neuron, not to the box, and acts once
+  an artist has been named;
+- **links** turns any result into links for each streaming service.
+
+Every neuron hears every keystroke; each one's wrapper decides whether the
+input is worth acting on. Nothing in the middle decides for them. The example
+will use a made-up catalogue.
+
+It needs things the first example does not have: a send that does not wait
+for answers, a way to drop work made stale by a newer keystroke, and a page
+to watch it happen on. It is also a test bed for the open questions below:
+keystrokes are a candidate for passive traffic, the concerts neuron is a
+chain inside the network rather than routing by outside code, and the
+results a person clicks are a candidate signal for strengthening a
+connection.
+
 ## Open questions
 
-These are deliberately undecided; experiments should inform them.
+All of these are up for debate; experiments should inform them.
 
-- What makes a connection strengthen or weaken: how often it is used,
-  whether its answers were useful, or a rule set on the wrapper?
-- What is the difference between a passive and an active channel?
+**Connections**
+
+- What counts as a connection being useful, and who decides: any traffic
+  across it, an answer that came back without an error, or a rating from the
+  sender, the receiver, or an observer (possibly a human)?
+- What does strength change: whether a broadcast reaches a weak link at all,
+  how much a link's input counts toward a threshold, or the order links are
+  tried in?
+- Is strength one number per pair of neurons, one per direction, or each
+  neuron's private rating of its neighbours?
+- What happens to a weak connection: it loses priority, it is muted and can
+  recover, or it is cut and the network tries new ones?
+
+**Channels**
+
+- What is a passive channel, as opposed to an active one: a send that does
+  not wait for an answer, something the receiver pulls or subscribes to, or
+  a signal that is noted without making the neuron act?
+- Is passive or active set on the connection, on the neuron, or by the
+  sender for each signal?
+- Does passive traffic count toward strength and loop limits?
+
+**Flow**
+
+- When a neuron answers, who decides where the answer goes next: code
+  outside the network, the neuron's wrapper (forwarding to some or all of its
+  connections), or only back to whoever asked?
+- When one neuron reaches its idea of done, does the whole run stop, does
+  only that neuron go quiet, or is the caller told and left to decide?
+- Do neurons run in one program, as separate local processes, or across
+  machines?
 
 ## Status
 

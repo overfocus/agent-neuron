@@ -57,6 +57,12 @@ tracked file and every commit message as public from the start:
   settings go in gitignored files (`.claude/settings.local.json`,
   `.env.local`); estate-wide rules stay in `~/.claude/CLAUDE.md`, not here.
 - Fixtures and examples use made-up agents and data.
+- The same goes for GitHub issues, branch names and pull requests: they
+  become public with the repo. Describe Kevin's other sites by what they are
+  ("a music site"), never by name, even when an example is inspired by one.
+- `issues.denylist` in `agent-kit.config.json` is tracked, so it cannot hold
+  the names it would guard; keep those names out by hand and check issue text
+  before filing.
 - If something private is committed, stop and tell Kevin before pushing: it
   has to come out of history, not just out of the next commit.
 
