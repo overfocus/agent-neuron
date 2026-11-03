@@ -1,0 +1,7 @@
+[package]
+name = "catalogue"
+version = "0.0.0"
+edition = "2021"
+description = "A tiny track search over a made-up catalogue, wrapped as a neuron through the shell adapter."
+license = "MIT"
+publish = false

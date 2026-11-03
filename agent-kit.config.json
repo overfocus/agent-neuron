@@ -6,6 +6,8 @@
   "verify": {
     "steps": [
       { "name": "typecheck", "run": "npm run -s typecheck" },
+      { "name": "rust test", "run": "npm run -s rust:test" },
+      { "name": "rust build", "run": "npm run -s rust:build" },
       { "name": "test", "run": "npm run -s test" },
       { "name": "build", "run": "npm run -s build", "build": true }
     ]

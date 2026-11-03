@@ -2,81 +2,9 @@
 // to three neurons with different latencies. Each decides in its own adapter
 // whether to act. A newer prefix replaces the older one, so slow work made
 // stale is aborted and dropped. Run with `npm run demo:typing`.
-// The catalogue is made up.
-import { Network, Neuron, json, serialize, text } from '../dist/index.js';
+// The catalogue is made up. The setup is shared with the Rust demo
+// (`examples/typing-demo.mjs`).
+import { jsTracks, runTyping } from './typing-demo.mjs';
 
-const tracks = [
-  { title: 'Glass Orchard', artist: 'Lumen Harbor' },
-  { title: 'Ninefold Morning', artist: 'Lumen Harbor' },
-  { title: 'Quiet Kettles', artist: 'Tide and Timber' },
-  { title: 'Marrow Road', artist: 'Tide and Timber' },
-];
-const artists = ['Lumen Harbor', 'Tide and Timber'];
-const lyrics = ['carry me home to the lumen harbor', 'quiet kettles on the tide'];
-
-const sleep = (ms, abort) =>
-  new Promise((resolve, reject) => {
-    const stop = () => {
-      clearTimeout(timer);
-      reject(abort.reason);
-    };
-    const timer = setTimeout(() => {
-      abort?.removeEventListener('abort', stop);
-      resolve();
-    }, ms);
-    abort?.addEventListener('abort', stop, { once: true });
-  });
-
-// An adapter that waits `ms` (stopping early if aborted), then asks `look`
-// for hits. `look` returns null to stay quiet.
-const lookup = (ms, look) => ({
-  async handle(payload, _signal, context) {
-    const prefix = payload.text.toLowerCase();
-    await sleep(ms, context?.abort);
-    const hits = look(prefix);
-    return hits ? json(hits) : text('');
-  },
-});
-
-// What the box emitted, by signal id: an answer's `replyTo` finds its prefix here.
-const typed = new Map();
-
-const network = new Network({
-  onSignal: (s) => {
-    if (s.from === 'box' || serialize(s.payload) === '') return; // quiet neurons say nothing
-    const hits = s.payload.data;
-    console.log(`  answer   ${s.from.padEnd(7)} for "${typed.get(s.replyTo)}": ${hits.length ? hits.join(' | ') : 'no hits'}`);
-  },
-  onDrop: (s, id) => console.log(`  dropped  ${id.padEnd(7)} for "${typed.get(s.id)}" (stale)`),
-  onError: (e, s, id) => console.log(`  error    ${id}: ${e.message}`),
-});
-
-network.add(new Neuron('box', lookup(0, () => null)));
 // tracks: fast, acts from 3 characters
-network.add(
-  new Neuron(
-    'tracks',
-    lookup(40, (p) =>
-      p.length < 3 ? null : tracks.filter((t) => `${t.title} ${t.artist}`.toLowerCase().includes(p)).map((t) => t.title),
-    ),
-  ),
-);
-// artist: quickest, acts only on an exact name
-network.add(new Neuron('artist', lookup(20, (p) => (artists.some((a) => a.toLowerCase() === p) ? [p] : null))));
-// lyrics: slow, acts from 5 characters
-network.add(
-  new Neuron(
-    'lyrics',
-    lookup(250, (p) => (p.length < 5 ? null : lyrics.filter((l) => l.includes(p)))),
-  ),
-);
-for (const id of ['tracks', 'artist', 'lyrics']) network.connect('box', id);
-
-const query = 'lumen harbor';
-for (let i = 1; i <= query.length; i++) {
-  const prefix = query.slice(0, i);
-  console.log(`typed "${prefix}"`);
-  typed.set(network.emit('box', text(prefix), { replaces: 'query' }).id, prefix);
-  await sleep(100);
-}
-await network.idle();
+await runTyping({ tracksAdapter: jsTracks() });
