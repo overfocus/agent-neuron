@@ -19,6 +19,7 @@ npm run typecheck   # tsc --noEmit over src/ and test/
 npm test            # vitest run (test/**/*.test.ts)
 npm run build       # tsc -p tsconfig.build.json → dist/
 npm run check       # typecheck, test, build: the gate without agent-kit
+npm run example     # builds, then runs examples/first.mjs (pipe a reply into stdin: echo approve | npm run example)
 npm run verify      # the gate: typecheck, test, build; writes .verify/receipt.json
 npm run verify:receipt  # exit 0 only for a PASSED full verify of this clean tree
 npm run ship -- --approved "<go-ahead>"  # after Kevin's go-ahead (/loop:ship)
@@ -86,6 +87,27 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 
 - ESM with `NodeNext` resolution: relative imports need the `.js` extension
   (`import { x } from './x.js'`), even from `.ts` files.
+- `examples/` imports from `../dist/`, not `src/`, so it needs a build first
+  (`npm run example` builds). The example has no test; run it by hand.
+
+## Known limits
+
+Found in review of the first example and left for later (they become GitHub
+issues once the repo exists):
+
+- `HumanAdapter` opens one readline per question, so lines already buffered
+  after the first answer are dropped (`printf 'a\nb\n'` into two questions).
+- `ShellAdapter` has no timeout and no output size limit: a command that never
+  exits hangs `Network.send`.
+- `HttpAdapter` leaves a non-2xx response body unread and drops it from
+  `HttpError`; only `application/json` (not `+json`) is parsed as JSON.
+- `Network`: `add` silently replaces a neuron with the same id; a neuron can
+  link to itself; one failing target loses the answers already collected.
+- `Neuron.links` is a public mutable set, so callers can make one-way links.
+- `Neuron.query` signals look like the neuron sending to itself and skip
+  `onSignal`.
+- The example's server crashes on a non-JSON body, and empty stdin exits with
+  a raw stack trace.
 
 ## Environment
 

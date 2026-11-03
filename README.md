@@ -76,8 +76,8 @@ Three neurons wrapping three very different things:
 
 - **a website with an API**, wrapped so its requests and responses become
   signals;
-- **a shell script**, wrapped so its arguments, output and exit code become
-  signals;
+- **a shell script**, wrapped so its input and output become signals (a
+  failed exit is reported as an error);
 - **a program waiting for a human response**, wrapped so a person is a
   neuron like any other.
 

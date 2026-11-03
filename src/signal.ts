@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 /** What a signal carries: free text or JSON. */
 export type Payload = { type: 'text'; text: string } | { type: 'json'; data: unknown };
 
-/** One message on the network. `to` is absent for a broadcast. */
+/** One message on the network. `to` lists the neurons it was delivered to (for a broadcast, every linked neuron). */
 export type Signal = { id: string; from: string; to?: string[]; payload: Payload };
 
 export const text = (value: string): Payload => ({ type: 'text', text: value });
