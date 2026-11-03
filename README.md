@@ -29,8 +29,8 @@ interested in new ideas about how agents can be connected.
   neuron can also be told to ignore input from a connection when other
   conditions hold.
 - **Adaptive.** The network can rewire itself, and connections can
-  strengthen and weaken over time, within a run: each run starts fresh, and
-  strengths are not carried over to the next.
+  strengthen and weaken over time. Strengths are meant to carry over from one
+  run to the next, so the network keeps what it learns.
 - **Configured at the wrapper.** How a neuron listens, when it stops and what
   counts as done are set on each neuron's wrapper, not by a central
   controller.
@@ -54,6 +54,14 @@ them.
 Signals start as **free text or JSON**. More data types are expected later;
 which ones, and how a wrapper converts between them and what its contents
 expect, is one of the things to experiment with.
+
+Every signal has an `id` and a `trace`, the id of the first signal of its
+chain. An answer from `send` or `emit` has `replyTo`, the id of the signal it
+answers, and shares that signal's `trace`. Outside code that passes an answer
+on gives the next `send` or `emit` `{ cause: answer }`: the new signal records
+`cause` (the answer's id) and joins its trace. Nothing passes answers on by
+itself yet, and the network does not store signals; keep a map by id if you
+need to look one up.
 
 ## Many inputs, one neuron
 
@@ -128,6 +136,9 @@ All of these are up for debate; experiments should inform them.
   neuron's private rating of its neighbours?
 - What happens to a weak connection: it loses priority, it is muted and can
   recover, or it is cut and the network tries new ones?
+- Where do strengths live between runs: in a file that can be read and
+  edited, or in each neuron's wrapper configuration, so a neuron brings its
+  habits with it?
 
 **Channels**
 
@@ -155,7 +166,10 @@ bidirectional links, and a network that broadcasts or targets signals
 (`src/`). A send that does not wait for answers (`emit`) can replace older work from
 the same sender, and adapters stop when it is dropped. Link strength,
 rewiring, ignore conditions, loop limits and passive/active channels are not
-built yet. Listeners for `emit` work (`onSignal`, `onError`, `onDrop`) are
+built yet. Every signal carries a `trace` shared by everything it leads to;
+answers record the signal they answer (`replyTo`), and `send` and `emit` take
+an optional `cause` to continue a trace. Nothing passes answers on by itself,
+and the network keeps no store of past signals. Listeners for `emit` work (`onSignal`, `onError`, `onDrop`) are
 called safely: if one throws, the error is swallowed. Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md).
 
 ## Run the first example
@@ -176,7 +190,8 @@ npm run demo:typing
 
 A search box types a query one letter at a time; three neurons with
 different latencies answer or stay quiet, and work made stale by the next
-letter is aborted and printed as dropped. Made-up catalogue, no network.
+letter is aborted and printed as dropped. Answers do not repeat the prefix:
+the demo finds it through `replyTo`. Made-up catalogue, no network.
 
 ## Development
 

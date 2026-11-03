@@ -34,17 +34,20 @@ const lookup = (ms, look) => ({
     const prefix = payload.text.toLowerCase();
     await sleep(ms, context?.abort);
     const hits = look(prefix);
-    return hits ? json({ prefix: payload.text, hits }) : text('');
+    return hits ? json(hits) : text('');
   },
 });
+
+// What the box emitted, by signal id: an answer's `replyTo` finds its prefix here.
+const typed = new Map();
 
 const network = new Network({
   onSignal: (s) => {
     if (s.from === 'box' || serialize(s.payload) === '') return; // quiet neurons say nothing
-    const { prefix, hits } = s.payload.data;
-    console.log(`  answer   ${s.from.padEnd(7)} for "${prefix}": ${hits.length ? hits.join(' | ') : 'no hits'}`);
+    const hits = s.payload.data;
+    console.log(`  answer   ${s.from.padEnd(7)} for "${typed.get(s.replyTo)}": ${hits.length ? hits.join(' | ') : 'no hits'}`);
   },
-  onDrop: (s, id) => console.log(`  dropped  ${id.padEnd(7)} for "${s.payload.text}" (stale)`),
+  onDrop: (s, id) => console.log(`  dropped  ${id.padEnd(7)} for "${typed.get(s.id)}" (stale)`),
   onError: (e, s, id) => console.log(`  error    ${id}: ${e.message}`),
 });
 
@@ -73,7 +76,7 @@ const query = 'lumen harbor';
 for (let i = 1; i <= query.length; i++) {
   const prefix = query.slice(0, i);
   console.log(`typed "${prefix}"`);
-  network.emit('box', text(prefix), { replaces: 'query' });
+  typed.set(network.emit('box', text(prefix), { replaces: 'query' }).id, prefix);
   await sleep(100);
 }
 await network.idle();
