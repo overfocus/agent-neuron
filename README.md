@@ -31,9 +31,14 @@ interested in new ideas about how agents can be connected.
 - **Adaptive.** The network can rewire itself, and connections can
   strengthen and weaken over time. Strengths are meant to carry over from one
   run to the next, so the network keeps what it learns.
+- **Simple at the core.** The neuron interface is most valuable the simpler
+  it is: wrapping something should stay a few lines, whatever the network
+  learns to do around it.
 - **Configured at the wrapper.** How a neuron listens, when it stops and what
   counts as done are set on each neuron's wrapper, not by a central
   controller.
+
+Where it could be useful, ranked honestly by fit: [docs/USE-CASES.md](docs/USE-CASES.md).
 
 ## Why "neuron"
 
