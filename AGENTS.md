@@ -24,6 +24,7 @@ npm run check       # typecheck, rust test, rust build, test, build: the gate wi
 npm run demo:rust   # builds both, then runs examples/rust.mjs (tracks neuron in Rust)
 npm run demo:composed # builds both, then the composed `music` neuron: keystrokes in, answers out, then its inner trace
 npm run demo:loop   # builds, then runs examples/loop.mjs (a loop cut by maxHops)
+npm run demo:suggest   # builds, then runs examples/suggest.mjs (the typing demo plus a threshold neuron)
 npm run example     # builds, then runs examples/first.mjs (pipe a reply into stdin: echo approve | npm run example)
 npm run demo:typing # builds, then runs examples/typing.mjs (send without waiting, dropping stale work)
 npm run verify      # the gate: typecheck, rust test, rust build, test, build; writes .verify/receipt.json
@@ -87,7 +88,7 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 | Area | Code | Tests |
 |---|---|---|
 | Core (neuron, network, signals, adapters in `src/adapters/`) | `src/` | `test/` |
-| The demos (`npm run example`, `demo:typing`, `demo:loop`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand |
+| The demos (`npm run example`, `demo:typing`, `demo:loop`, `demo:suggest`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand |
 | Rust neurons (std-only): `catalogue` (library + binary; `npm run demo:rust`) and `music`, a composed neuron with its own inner network (`npm run demo:composed`) | `rust/` | `cargo test` in each crate; `test/rust.test.ts` and `test/composed.test.ts` drive the built binaries |
 
 ## Everywhere
@@ -109,6 +110,10 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 
 - ESM with `NodeNext` resolution: relative imports need the `.js` extension
   (`import { x } from './x.js'`), even from `.ts` files.
+- A neuron with a `threshold` holds inputs inside `Network` (`hold` in `src/network.ts`),
+  not in `pending`, so `idle()` does not wait for them and their `unref`'d timers
+  never keep Node alive: a script that ends right after `idle()` never sees the
+  `'expired'` drop (the suggest demo sleeps past `within` to show it). `send` and `query` skip the threshold.
 - `examples/` imports from `../dist/`, not `src/`, so it needs a build first
   (`npm run example`, `demo:typing` and `demo:rust` build). The demos have no
   tests; run them by hand.
