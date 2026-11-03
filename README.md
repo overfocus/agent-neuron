@@ -55,6 +55,14 @@ Signals start as **free text or JSON**. More data types are expected later;
 which ones, and how a wrapper converts between them and what its contents
 expect, is one of the things to experiment with.
 
+Every signal has an `id` and a `trace`, the id of the first signal of its
+chain. An answer from `send` or `emit` has `replyTo`, the id of the signal it
+answers, and shares that signal's `trace`. Outside code that passes an answer
+on gives the next `send` or `emit` `{ cause: answer }`: the new signal records
+`cause` (the answer's id) and joins its trace. Nothing passes answers on by
+itself yet, and the network does not store signals; keep a map by id if you
+need to look one up.
+
 ## Many inputs, one neuron
 
 When a neuron has many incoming connections, how it responds is an option
@@ -179,7 +187,8 @@ npm run demo:typing
 
 A search box types a query one letter at a time; three neurons with
 different latencies answer or stay quiet, and work made stale by the next
-letter is aborted and printed as dropped. Made-up catalogue, no network.
+letter is aborted and printed as dropped. Answers do not repeat the prefix:
+the demo finds it through `replyTo`. Made-up catalogue, no network.
 
 ## Development
 

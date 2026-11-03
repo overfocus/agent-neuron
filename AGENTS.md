@@ -104,6 +104,11 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 - Listeners on `emit` work (`onSignal`, `onError`, `onDrop`) that throw are
   swallowed, never reported as the neuron's error and never an unhandled
   rejection.
+- `replyTo` is set only on answers the network makes; `cause` only when the
+  caller passes `{ cause }` to `send`/`emit`. Both are ids, and the network
+  keeps no signal store, so a caller that needs the signal behind an id keeps
+  its own map. Every signal has a `trace`; build one by hand with
+  `newSignal`, or include `trace` in a literal.
 - The `replaceable` map in `network.ts` keeps one abort controller per
   sender and `replaces` key and is never pruned.
 

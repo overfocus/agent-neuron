@@ -160,7 +160,7 @@ describe('adapters stop on abort', () => {
     setTimeout(() => controller.abort(), 20);
     return controller.signal;
   };
-  const signal = { id: 'x', from: 'a', payload: text('x') };
+  const signal = { id: 'x', from: 'a', payload: text('x'), trace: 'x' };
 
   it('shell kills the command', async () => {
     const started = Date.now();
