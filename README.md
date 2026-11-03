@@ -83,8 +83,9 @@ crossed it last. Details:
 
 - Each sender counts once; its newer input replaces its older one (the older
   is reported as `onDrop(..., 'replaced')`).
-- Held inputs get no answer of their own. The run's answer is for the input
-  that crossed the threshold.
+- Held inputs get no answer of their own, and no drop once consumed, even if
+  the run is aborted or fails. The run's answer is for the input that crossed
+  the threshold.
 - An input still held after `within` ms (default 10000) is dropped with
   `onDrop(..., 'expired')`. An input whose `emit` is replaced (same `replaces`
   key, newer emit) is dropped as `'replaced'` and stops counting.

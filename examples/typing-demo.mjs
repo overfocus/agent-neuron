@@ -68,8 +68,13 @@ export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7, s
       const hits = s.payload.data;
       console.log(`  answer   ${s.from.padEnd(pad)} for "${typed.get(s.replyTo)}": ${hits.length ? hits.join(' | ') : 'no hits'}`);
     },
-    onDrop: (s, id, reason) =>
-      console.log(`  dropped  ${id.padEnd(pad)} for "${typed.get(s.trace)}" (${reason === 'replaced' ? 'stale' : reason})`),
+    onDrop: (s, id, reason) => {
+      const why =
+        id !== 'suggest'
+          ? reason === 'replaced' ? 'stale' : reason
+          : reason === 'replaced' ? 'stopped waiting: newer answer' : 'gave up waiting';
+      console.log(`  dropped  ${id.padEnd(pad)} for "${typed.get(s.trace)}" (${why})`);
+    },
     onError: (e, s, id) => console.log(`  error    ${id}: ${e.message}`),
   });
 
@@ -107,5 +112,7 @@ export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7, s
   if (suggest) {
     await sleep(450); // idle does not wait for held inputs; let the last one expire
     console.log(`suggest ran ${suggestRuns} time${suggestRuns === 1 ? '' : 's'} for ${query.length} keystrokes`);
+    console.log('only the last keystroke can agree: artist answers only the full name, and lyrics is always replaced before it answers.');
+    console.log('lyrics arrived after suggest had acted, so it started a new hold and gave up waiting.');
   }
 }

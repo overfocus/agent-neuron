@@ -90,7 +90,7 @@ export class Network {
    * senders have sent one on the same trace: a sender's newer input replaces
    * its older one ('replaced'), the sum of senders reaching the threshold runs
    * the adapter once with those inputs in `context.inputs` and answers the
-   * last of them (the others get no answer, no drop), and an input still held
+   * last of them (the others get no answer and no drop, even if that run is aborted or fails), and an input still held
    * after the neuron's `within` is dropped as 'expired'. A held input whose
    * emit is replaced is dropped as 'replaced'. Held inputs are waiting, not
    * working: `idle` does not wait for them, and their timers never keep the
@@ -140,8 +140,10 @@ export class Network {
   /** Hold `signal` for `target`'s threshold. Returns the inputs to act on if it is met, otherwise undefined. */
   private hold(target: Neuron, signal: Signal, abort: AbortSignal): Signal[] | undefined {
     const key = `${target.id}\0${signal.trace}`;
+    // Drop the older input first: its onDrop listener may emit into this neuron and trace, so
+    // no listener may run between reading `held` and writing it below.
+    this.held.get(key)?.get(signal.from)?.drop('replaced');
     const group = this.held.get(key) ?? new Map<string, Held>();
-    group.get(signal.from)?.drop('replaced');
     this.held.set(key, group);
     const settle = () => {
       clearTimeout(timer);
@@ -164,6 +166,7 @@ export class Network {
     group.set(signal.from, entry);
     let total = 0;
     for (const sender of group.keys()) total += weight(target, sender);
+    // shortcut: exact comparison; fractional strengths (0.1 + 0.2 < 0.3) will need a small tolerance.
     if (total < (target.options.threshold as number)) return undefined;
     const inputs = [...group.values()];
     for (const held of inputs) held.settle();
