@@ -59,7 +59,9 @@ describe('cause', () => {
     expect(second.cause).toBe(answer.id);
     expect(second.replyTo).toBeUndefined();
     expect(answers).toHaveLength(2);
-    expect(sent[0]?.replyTo).not.toBe(second.id);
+    const sendRequest = seen.find((s) => s.from === 'b' && s.payload.type === 'text' && s.payload.text === 'again') as Signal;
+    expect(sendRequest.cause).toBe(answer.id);
+    expect(sent.every((s) => s.replyTo === sendRequest.id)).toBe(true);
     const chain = [first, answer, second, ...answers];
     expect(new Set(chain.map((s) => s.trace))).toEqual(new Set([first.id]));
     // send takes cause too

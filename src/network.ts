@@ -10,16 +10,19 @@ export type NetworkOptions = {
   onDrop?: (signal: Signal, neuronId: string) => void;
 };
 
-export type EmitOptions = {
+export type SendOptions = {
   /** Only these neurons (must be linked). Default: every linked neuron. */
   to?: string[];
+  /** A signal that led to this one (usually an answer being passed on): the new signal joins its trace and records its id as `cause`. */
+  cause?: Signal;
+};
+
+export type EmitOptions = SendOptions & {
   /**
    * A key. A newer emit from the same sender with the same key aborts the
    * older one's in-flight work, and the older work's answers are dropped.
    */
   replaces?: string;
-  /** A signal that led to this one (usually an answer being passed on): the new signal joins its trace and records its id as `cause`. */
-  cause?: Signal;
 };
 
 export class Network {
@@ -44,13 +47,13 @@ export class Network {
    * (which must be linked). Delivers in link order, one at a time, and
    * returns each answer as a signal from the neuron that gave it.
    */
-  async send(fromId: string, payload: Payload, { to, cause }: { to?: string[]; cause?: Signal } = {}): Promise<Signal[]> {
+  async send(fromId: string, payload: Payload, { to, cause }: SendOptions = {}): Promise<Signal[]> {
     const { sender, targets } = this.resolve(fromId, to);
-    const signal = newSignal(fromId, payload, targets.map((t) => t.id), cause && { cause });
+    const signal = newSignal(fromId, payload, { to: targets.map((t) => t.id), ...(cause && { cause }) });
     this.options.onSignal?.(signal);
     const answers: Signal[] = [];
     for (const target of targets) {
-      const answer = newSignal(target.id, await target.receive(signal), [sender.id], { replyTo: signal });
+      const answer = newSignal(target.id, await target.receive(signal), { to: [sender.id], replyTo: signal });
       this.options.onSignal?.(answer);
       answers.push(answer);
     }
@@ -66,7 +69,7 @@ export class Network {
    */
   emit(fromId: string, payload: Payload, { to, replaces, cause }: EmitOptions = {}): Signal {
     const { targets } = this.resolve(fromId, to);
-    const signal = newSignal(fromId, payload, targets.map((t) => t.id), cause && { cause });
+    const signal = newSignal(fromId, payload, { to: targets.map((t) => t.id), ...(cause && { cause }) });
     const controller = new AbortController();
     if (replaces !== undefined) {
       const key = `${fromId}\0${replaces}`;
@@ -98,7 +101,7 @@ export class Network {
     // An aborted run is never an error, whatever the adapter threw or returned.
     if (abort.aborted) this.notify(() => this.options.onDrop?.(signal, target.id));
     else if (failure) this.notify(() => this.options.onError?.(failure.error, signal, target.id));
-    else this.notify(() => this.options.onSignal?.(newSignal(target.id, payload as Payload, [signal.from], { replyTo: signal })));
+    else this.notify(() => this.options.onSignal?.(newSignal(target.id, payload as Payload, { to: [signal.from], replyTo: signal })));
   }
 
   /**

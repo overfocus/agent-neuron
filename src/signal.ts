@@ -18,8 +18,12 @@ export type Signal = {
   cause?: string;
 };
 
-/** How a new signal relates to an earlier one: it answers it, or was caused by it. Neither: a new trace. */
-export type Link = { replyTo: Signal } | { cause: Signal };
+/**
+ * Options for a new signal. `replyTo`: the signal it answers. `cause`: the
+ * signal that led to it. With either, it joins that signal's trace; with
+ * neither, it starts a new trace.
+ */
+export type SignalOptions = { to?: string[]; replyTo?: Signal; cause?: Signal };
 
 export const text = (value: string): Payload => ({ type: 'text', text: value });
 
@@ -38,12 +42,12 @@ export function parsePayload(raw: string): Payload {
 export const serialize = (payload: Payload): string =>
   payload.type === 'text' ? payload.text : JSON.stringify(payload.data);
 
-export function newSignal(from: string, payload: Payload, to?: string[], link?: Link): Signal {
+export function newSignal(from: string, payload: Payload, { to, replyTo, cause }: SignalOptions = {}): Signal {
   const id = randomUUID();
-  const origin = link && ('replyTo' in link ? link.replyTo : link.cause);
+  const origin = replyTo ?? cause;
   const signal: Signal = { id, from, payload, trace: origin ? origin.trace : id };
   if (to) signal.to = to;
-  if (link && 'replyTo' in link) signal.replyTo = link.replyTo.id;
-  if (link && 'cause' in link) signal.cause = link.cause.id;
+  if (replyTo) signal.replyTo = replyTo.id;
+  if (cause) signal.cause = cause.id;
   return signal;
 }

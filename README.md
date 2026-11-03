@@ -29,8 +29,8 @@ interested in new ideas about how agents can be connected.
   neuron can also be told to ignore input from a connection when other
   conditions hold.
 - **Adaptive.** The network can rewire itself, and connections can
-  strengthen and weaken over time. Strengths carry over from one run to the
-  next, so the network keeps what it learns.
+  strengthen and weaken over time. Strengths are meant to carry over from one
+  run to the next, so the network keeps what it learns.
 - **Configured at the wrapper.** How a neuron listens, when it stops and what
   counts as done are set on each neuron's wrapper, not by a central
   controller.
@@ -166,7 +166,10 @@ bidirectional links, and a network that broadcasts or targets signals
 (`src/`). A send that does not wait for answers (`emit`) can replace older work from
 the same sender, and adapters stop when it is dropped. Link strength,
 rewiring, ignore conditions, loop limits and passive/active channels are not
-built yet. Listeners for `emit` work (`onSignal`, `onError`, `onDrop`) are
+built yet. Every signal carries a `trace` shared by everything it leads to;
+answers record the signal they answer (`replyTo`), and `send` and `emit` take
+an optional `cause` to continue a trace. Nothing passes answers on by itself,
+and the network keeps no store of past signals. Listeners for `emit` work (`onSignal`, `onError`, `onDrop`) are
 called safely: if one throws, the error is swallowed. Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md).
 
 ## Run the first example
