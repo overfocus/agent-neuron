@@ -142,7 +142,7 @@ describe('threshold', () => {
     first = network.emit('s1', text('old'), { to: ['vote'] });
     network.emit('s1', text('new'), { to: ['vote'], cause: first });
     await network.idle();
-    expect(runs.map((r) => r.map((s) => s.from))).toEqual([['s1', 's2']]);
+    expect(runs.map((r) => r.map((s) => s.from))).toEqual([['s2', 's1']]);
   });
 
   it('without a threshold nothing is held and no timer is made', async () => {
