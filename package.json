@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "example": "npm run -s build && node examples/first.mjs",
+    "demo:typing": "npm run -s build && node examples/typing.mjs",
     "check": "npm run -s typecheck && npm run -s test && npm run -s build",
     "verify": "node scripts/kit.mjs verify",
     "verify:receipt": "node scripts/kit.mjs verify-receipt",

@@ -20,6 +20,7 @@ npm test            # vitest run (test/**/*.test.ts)
 npm run build       # tsc -p tsconfig.build.json → dist/
 npm run check       # typecheck, test, build: the gate without agent-kit
 npm run example     # builds, then runs examples/first.mjs (pipe a reply into stdin: echo approve | npm run example)
+npm run demo:typing # builds, then runs examples/typing.mjs (send without waiting, dropping stale work)
 npm run verify      # the gate: typecheck, test, build; writes .verify/receipt.json
 npm run verify:receipt  # exit 0 only for a PASSED full verify of this clean tree
 npm run ship -- --approved "<go-ahead>"  # after Kevin's go-ahead (/loop:ship)
@@ -79,10 +80,12 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 | Area | Code | Tests |
 |---|---|---|
 | Core (neuron, network, signals, adapters in `src/adapters/`) | `src/` | `test/` |
-| The first example (`npm run example`, builds first) | `examples/` | none: run by hand |
+| The demos (`npm run example`, `npm run demo:typing`; both build first; list in `docs/DEMOS.md`) | `examples/` | none: run by hand |
 
 ## Everywhere
 
+- Every feature that adds or changes visible behaviour adds or updates a demo
+  and its row in `docs/DEMOS.md`.
 - Library code has no side effects on import, and the core takes no
   dependency on one model provider: an agent inside a neuron is whatever the
   caller plugs in.

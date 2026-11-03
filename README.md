@@ -103,9 +103,10 @@ Every neuron hears every keystroke; each one's wrapper decides whether the
 input is worth acting on. Nothing in the middle decides for them. The example
 will use a made-up catalogue.
 
-It needs things the first example does not have: a send that does not wait
-for answers, a way to drop work made stale by a newer keystroke, and a page
-to watch it happen on. It is also a test bed for the open questions below:
+It needs three things the first example does not have. Two are built: a send
+that does not wait for answers (`emit`) and a way to drop work made stale by
+a newer keystroke (`replaces`), shown in a terminal demo,
+`npm run demo:typing`. Still missing: a page to watch it happen on. It is also a test bed for the open questions below:
 keystrokes are a candidate for passive traffic, the concerts neuron is a
 chain inside the network rather than routing by outside code, and the
 results a person clicks are a candidate signal for strengthening a
@@ -151,8 +152,10 @@ All of these are up for debate; experiments should inform them.
 
 The first example works: shell, HTTP and human adapters, neurons with
 bidirectional links, and a network that broadcasts or targets signals
-(`src/`). Link strength, rewiring, ignore conditions, loop limits and
-passive/active channels are not built yet.
+(`src/`). A send that does not wait for answers (`emit`) can replace older work from
+the same sender, and adapters stop when it is dropped. Link strength,
+rewiring, ignore conditions, loop limits and passive/active channels are not
+built yet. Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md).
 
 ## Run the first example
 
@@ -163,6 +166,16 @@ echo "approve" | npm run example
 A shell script summarises some text, then its two linked neurons, a local
 HTTP API and a human on stdin, each receive the summary. Every signal is
 printed as it travels, then the human's reply. Nothing leaves localhost.
+
+## Run the typing demo
+
+```sh
+npm run demo:typing
+```
+
+A search box types a query one letter at a time; three neurons with
+different latencies answer or stay quiet, and work made stale by the next
+letter is aborted and printed as dropped. Made-up catalogue, no network.
 
 ## Development
 

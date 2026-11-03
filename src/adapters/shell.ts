@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import type { Adapter } from '../adapter.js';
-import { parsePayload, serialize, type Payload } from '../signal.js';
+import type { Adapter, AdapterContext } from '../adapter.js';
+import { parsePayload, serialize, type Payload, type Signal } from '../signal.js';
 
 export class ShellError extends Error {
   constructor(
@@ -19,7 +19,7 @@ export class ShellAdapter implements Adapter {
     readonly args: string[] = [],
   ) {}
 
-  handle(payload: Payload): Promise<Payload> {
+  handle(payload: Payload, _signal?: Signal, context?: AdapterContext): Promise<Payload> {
     return new Promise((resolve, reject) => {
       const child = spawn(this.command, this.args, { stdio: ['pipe', 'pipe', 'pipe'] });
       let stdout = '';
@@ -28,7 +28,14 @@ export class ShellAdapter implements Adapter {
       child.stderr.setEncoding('utf8').on('data', (d: string) => (stderr += d));
       child.stdin.on('error', () => {}); // the command may exit without reading stdin
       child.on('error', reject);
+      const stop = () => {
+        child.kill();
+        reject(context?.abort.reason);
+      };
+      if (context?.abort.aborted) stop();
+      else context?.abort.addEventListener('abort', stop, { once: true });
       child.on('close', (code) => {
+        context?.abort.removeEventListener('abort', stop);
         if (code === 0) resolve(parsePayload(stdout.trim()));
         else reject(new ShellError(code, stderr));
       });
