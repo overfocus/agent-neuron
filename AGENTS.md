@@ -92,22 +92,8 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 
 ## Known limits
 
-Found in review of the first example and left for later (they become GitHub
-issues once the repo exists):
-
-- `HumanAdapter` opens one readline per question, so lines already buffered
-  after the first answer are dropped (`printf 'a\nb\n'` into two questions).
-- `ShellAdapter` has no timeout and no output size limit: a command that never
-  exits hangs `Network.send`.
-- `HttpAdapter` leaves a non-2xx response body unread and drops it from
-  `HttpError`; only `application/json` (not `+json`) is parsed as JSON.
-- `Network`: `add` silently replaces a neuron with the same id; a neuron can
-  link to itself; one failing target loses the answers already collected.
-- `Neuron.links` is a public mutable set, so callers can make one-way links.
-- `Neuron.query` signals look like the neuron sending to itself and skip
-  `onSignal`.
-- The example's server crashes on a non-JSON body, and empty stdin exits with
-  a raw stack trace.
+Open problems are GitHub issues with the `loop` label (`npm run issue --
+list`), not lists in this file.
 
 ## Environment
 
