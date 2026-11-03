@@ -18,10 +18,13 @@ Node 22 (`.nvmrc`). Run `nvm use` first.
 npm run typecheck   # tsc --noEmit over src/ and test/
 npm test            # vitest run (test/**/*.test.ts)
 npm run build       # tsc -p tsconfig.build.json → dist/
-npm run check       # typecheck, test, build: the gate without agent-kit
+npm run rust:test   # cargo test over rust/ (needs a Rust toolchain)
+npm run rust:build  # cargo build --release over rust/ → rust/target/release/catalogue
+npm run check       # typecheck, rust test, rust build, test, build: the gate without agent-kit
+npm run demo:rust   # builds both, then runs examples/rust.mjs (tracks neuron in Rust)
 npm run example     # builds, then runs examples/first.mjs (pipe a reply into stdin: echo approve | npm run example)
 npm run demo:typing # builds, then runs examples/typing.mjs (send without waiting, dropping stale work)
-npm run verify      # the gate: typecheck, test, build; writes .verify/receipt.json
+npm run verify      # the gate: typecheck, rust test, rust build, test, build; writes .verify/receipt.json
 npm run verify:receipt  # exit 0 only for a PASSED full verify of this clean tree
 npm run ship -- --approved "<go-ahead>"  # after Kevin's go-ahead (/loop:ship)
 npm run wt -- new <slug>  # a worktree on feat/<slug>; `list`, `gc [--apply]`
@@ -46,7 +49,9 @@ in `.claude/agents/<name>.md` overrides the plugin's agent of the same role.
 
 The loop's scripts and agents come from agent-kit, which is private: outside
 Kevin's machine `npm run verify` cannot find it, and `npm run check` (the same
-typecheck, test and build, without the receipt) is the gate anyone can run.
+steps, without the receipt) is the gate anyone can run. It needs a Rust
+toolchain (`cargo` on PATH, typically rustup's `~/.cargo/bin`), and so does
+`npm test`, because `test/rust.test.ts` runs the release binary.
 
 ## Written to be public
 
@@ -81,6 +86,7 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 |---|---|---|
 | Core (neuron, network, signals, adapters in `src/adapters/`) | `src/` | `test/` |
 | The demos (`npm run example`, `npm run demo:typing`; both build first; list in `docs/DEMOS.md`) | `examples/` | none: run by hand |
+| A Rust program as a neuron (std-only crate `catalogue`; demo `npm run demo:rust`) | `rust/` | `cargo test` in the crate; `test/rust.test.ts` drives the built binary |
 
 ## Everywhere
 
@@ -97,7 +103,7 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 - ESM with `NodeNext` resolution: relative imports need the `.js` extension
   (`import { x } from './x.js'`), even from `.ts` files.
 - `examples/` imports from `../dist/`, not `src/`, so it needs a build first
-  (`npm run example` and `npm run demo:typing` build). The demos have no
+  (`npm run example`, `demo:typing` and `demo:rust` build). The demos have no
   tests; run them by hand.
 - `network.idle()` waits only for `emit` work, not `send`. `onError` and
   `onDrop` fire only for `emit`; `send` still throws.
@@ -112,6 +118,16 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
   literal. Signals from `Neuron.query` start their own trace.
 - The `replaceable` map in `network.ts` keeps one abort controller per
   sender and `replaces` key and is never pruned.
+- `test/rust.test.ts` runs `rust/target/release/catalogue` and fails (on
+  purpose, with the fix in the message) until `npm run rust:build` has run.
+  `verify` builds it before the TS tests. The Rust build is not a `build: true`
+  step, so `verify --skip-build` still builds it. Keep the crate std-only, so
+  builds never need the network; `rust/target/` is ignored, `Cargo.lock` is not.
+- The made-up catalogue lives twice, in `examples/typing-demo.mjs` and
+  `rust/catalogue/src/main.rs`, and the matching rule must stay the same in
+  both (lowercase, from 3 UTF-16 units, no trimming): change them together.
+- The two typing demos share `examples/typing-demo.mjs`; `npm run demo:typing`
+  output must not change when it is edited.
 
 ## Known limits
 

@@ -1,7 +1,7 @@
 # agent-neuron
 
 > **Experimental, concept stage.** This README describes the idea; the code
-> implements two small demos so far (see [docs/DEMOS.md](docs/DEMOS.md)).
+> implements a few small demos so far (see [docs/DEMOS.md](docs/DEMOS.md)).
 
 An **agent-neuron** is a universal wrapper for any piece of software: an AI
 agent, a script, an executable, a plain function, or something else entirely.
@@ -198,7 +198,7 @@ built yet. Every signal carries a `trace` shared by everything it leads to;
 answers record the signal they answer (`replyTo`), and `send` and `emit` take
 an optional `cause` to continue a trace. Nothing passes answers on by itself,
 and the network keeps no store of past signals. Listeners for `emit` work (`onSignal`, `onError`, `onDrop`) are
-called safely: if one throws, the error is swallowed. Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md).
+called safely: if one throws, the error is swallowed. A small Rust program also runs as a neuron through the shell adapter (`npm run demo:rust`), showing the wrapper is not tied to one language. Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md).
 
 ## Run the first example
 
@@ -221,13 +221,24 @@ different latencies answer or stay quiet, and work made stale by the next
 letter is aborted and printed as dropped. Answers do not repeat the prefix:
 the demo finds it through `replyTo`. Made-up catalogue, no network.
 
+## Run the Rust demo
+
+```sh
+npm run demo:rust
+```
+
+The typing demo again, with the tracks neuron replaced by a small Rust
+program (`rust/catalogue`, standard library only) wrapped by the shell
+adapter. The output shows `tracks (rust)` answering the same queries, and
+stale work still dropped. Needs a Rust toolchain (`cargo` on your PATH).
+
 ## Development
 
-Node 22 or later.
+Node 22 or later, and a Rust toolchain (`cargo` on PATH, typically rustup's `~/.cargo/bin`): `npm run check` and `npm test` build and run the Rust example.
 
 ```sh
 npm install
-npm run check   # typecheck, test, build
+npm run check   # typecheck, Rust test and build, test, build
 ```
 
 ## License
