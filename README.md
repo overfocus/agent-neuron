@@ -79,6 +79,17 @@ forever, and something has to say when it has an answer. Both are configured
 per wrapper: each neuron carries its own limits and its own idea of done,
 rather than the network having one global rule.
 
+## Composition
+
+A network of neurons is itself a piece of software, so it can be wrapped as
+a neuron. Neurons compose: a neuron can contain a whole network, and from
+outside it looks and behaves like any other neuron.
+
+The wrapper of a composed neuron is a **boundary**. It works like a force
+field: the neurons inside it cannot be reached from outside. Other neurons
+connect to the composed neuron, never to what is inside it, and everything
+that crosses the boundary goes through the composed neuron's own interface.
+
 ## The first example
 
 Three neurons wrapping three very different things:
@@ -148,6 +159,16 @@ All of these are up for debate; experiments should inform them.
 - Is passive or active set on the connection, on the neuron, or by the
   sender for each signal?
 - Does passive traffic count toward strength and loop limits?
+
+**Composition**
+
+- Does the boundary hold in both directions: can neurons inside reach out
+  past it, or only through the composed neuron?
+- Can a trace be followed across the boundary, even though the neurons
+  inside cannot be reached?
+- Do connection strengths learned inside a composed neuron stay inside it?
+- When one composed network is used in two places, does each use learn on
+  its own, or do they share what they learn?
 
 **Flow**
 
