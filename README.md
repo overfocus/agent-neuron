@@ -90,6 +90,17 @@ field: the neurons inside it cannot be reached from outside. Other neurons
 connect to the composed neuron, never to what is inside it, and everything
 that crosses the boundary goes through the composed neuron's own interface.
 
+- **Sealed both ways.** Neurons inside cannot reach out past the boundary
+  either; whatever leaves goes out through the composed neuron.
+- **Traceable from inside only.** A signal can be traced through the
+  neurons inside, but only from within the composed neuron. From outside,
+  the trace shows a signal going in and an answer coming out.
+- **Learning stays inside.** Connections that strengthen inside a composed
+  neuron stay inside it. What shows outside is the result: the composed
+  neuron as a whole becomes more capable.
+- **Each use learns on its own.** The same composed network used in two
+  places becomes two neurons that learn separately.
+
 ## The first example
 
 Three neurons wrapping three very different things:
@@ -162,13 +173,9 @@ All of these are up for debate; experiments should inform them.
 
 **Composition**
 
-- Does the boundary hold in both directions: can neurons inside reach out
-  past it, or only through the composed neuron?
-- Can a trace be followed across the boundary, even though the neurons
-  inside cannot be reached?
-- Do connection strengths learned inside a composed neuron stay inside it?
-- When one composed network is used in two places, does each use learn on
-  its own, or do they share what they learn?
+- How does a composed neuron's learning show outside: only in better
+  answers, or also as something its neighbours can see, such as a stronger
+  connection to it or a capability it declares?
 
 **Flow**
 
