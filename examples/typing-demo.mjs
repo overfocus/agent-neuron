@@ -1,8 +1,8 @@
 // Shared setup for the typing demos (typing.mjs, rust.mjs): a made-up
-// catalogue, the neurons around the tracks neuron, and the printing.
+// catalogue (also in rust/catalogue/src/main.rs; change both together), the neurons around the tracks neuron, and the printing.
 import { Network, Neuron, json, serialize, text } from '../dist/index.js';
 
-export const tracks = [
+const tracks = [
   { title: 'Glass Orchard', artist: 'Lumen Harbor' },
   { title: 'Ninefold Morning', artist: 'Lumen Harbor' },
   { title: 'Quiet Kettles', artist: 'Tide and Timber' },
@@ -11,7 +11,7 @@ export const tracks = [
 const artists = ['Lumen Harbor', 'Tide and Timber'];
 const lyrics = ['carry me home to the lumen harbor', 'quiet kettles on the tide'];
 
-export const sleep = (ms, abort) =>
+const sleep = (ms, abort) =>
   new Promise((resolve, reject) => {
     const stop = () => {
       clearTimeout(timer);
@@ -26,7 +26,7 @@ export const sleep = (ms, abort) =>
 
 // An adapter that waits `ms` (stopping early if aborted), then asks `look`
 // for hits. `look` returns null to stay quiet.
-export const lookup = (ms, look) => ({
+const lookup = (ms, look) => ({
   async handle(payload, _signal, context) {
     const prefix = payload.text.toLowerCase();
     await sleep(ms, context?.abort);

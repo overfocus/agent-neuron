@@ -230,11 +230,11 @@ npm run demo:rust
 The typing demo again, with the tracks neuron replaced by a small Rust
 program (`rust/catalogue`, standard library only) wrapped by the shell
 adapter. The output shows `tracks (rust)` answering the same queries, and
-stale work still dropped. Needs a Rust toolchain (`cargo`).
+stale work still dropped. Needs a Rust toolchain (`cargo` on your PATH).
 
 ## Development
 
-Node 22 or later, and a Rust toolchain (`cargo`) for the Rust example.
+Node 22 or later, and a Rust toolchain (`cargo` on PATH, typically rustup's `~/.cargo/bin`): `npm run check` and `npm test` build and run the Rust example.
 
 ```sh
 npm install

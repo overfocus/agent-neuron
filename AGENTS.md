@@ -49,7 +49,9 @@ in `.claude/agents/<name>.md` overrides the plugin's agent of the same role.
 
 The loop's scripts and agents come from agent-kit, which is private: outside
 Kevin's machine `npm run verify` cannot find it, and `npm run check` (the same
-typecheck, test and build, without the receipt) is the gate anyone can run.
+steps, without the receipt) is the gate anyone can run. It needs a Rust
+toolchain (`cargo` on PATH, typically rustup's `~/.cargo/bin`), and so does
+`npm test`, because `test/rust.test.ts` runs the release binary.
 
 ## Written to be public
 
@@ -116,12 +118,14 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
   literal. Signals from `Neuron.query` start their own trace.
 - The `replaceable` map in `network.ts` keeps one abort controller per
   sender and `replaces` key and is never pruned.
-
 - `test/rust.test.ts` runs `rust/target/release/catalogue` and fails (on
   purpose, with the fix in the message) until `npm run rust:build` has run.
   `verify` builds it before the TS tests. The Rust build is not a `build: true`
   step, so `verify --skip-build` still builds it. Keep the crate std-only, so
   builds never need the network; `rust/target/` is ignored, `Cargo.lock` is not.
+- The made-up catalogue lives twice, in `examples/typing-demo.mjs` and
+  `rust/catalogue/src/main.rs`, and the matching rule must stay the same in
+  both (lowercase, from 3 UTF-16 units, no trimming): change them together.
 - The two typing demos share `examples/typing-demo.mjs`; `npm run demo:typing`
   output must not change when it is edited.
 

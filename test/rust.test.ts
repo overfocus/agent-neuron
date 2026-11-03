@@ -15,9 +15,13 @@ describe('a Rust program wrapped by the shell adapter', () => {
     expect(answer).toEqual(json(['Glass Orchard', 'Ninefold Morning']));
   });
 
-  it('answers [] for a short query and for no match', async () => {
+  it('stays quiet for a short query', async () => {
+    expect(await new ShellAdapter(binary).handle(text('lu'))).toEqual(text(''));
+  });
+
+  it('answers [] for no match, and keeps spaces in the query', async () => {
     const adapter = new ShellAdapter(binary);
-    expect(await adapter.handle(text('lu'))).toEqual(json([]));
     expect(await adapter.handle(text('zzzz'))).toEqual(json([]));
+    expect(await adapter.handle(text(' lum '))).toEqual(json([]));
   });
 });
