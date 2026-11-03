@@ -101,6 +101,17 @@ that crosses the boundary goes through the composed neuron's own interface.
 - **Each use learns on its own.** The same composed network used in two
   places becomes two neurons that learn separately.
 
+The first working example is `npm run demo:composed`: a Rust program
+`music` with a tiny inner network (tracks, artist and lyrics neurons) that
+the outer network sees as one neuron. It shows the sealed boundary (inner
+neurons are not in the outer network, so nothing can address them, and a
+handler inside can only return an answer), and a trace that exists inside
+only: the outer signals are one request and one answer, while
+`music --inspect` run on its own prints the inner signals. Running it
+standalone is looking inside, not the outer network reaching in. It does
+not show learning, which does not exist yet: each call is its own process,
+so "each use learns on its own" holds only because nothing is kept.
+
 ## The first example
 
 Three neurons wrapping three very different things:
@@ -231,6 +242,19 @@ The typing demo again, with the tracks neuron replaced by a small Rust
 program (`rust/catalogue`, standard library only) wrapped by the shell
 adapter. The output shows `tracks (rust)` answering the same queries, and
 stale work still dropped. Needs a Rust toolchain (`cargo` on your PATH).
+
+## Run the composed demo
+
+```sh
+npm run demo:composed
+```
+
+The search box sends every keystroke to one neuron, `music`: a Rust program
+(`rust/music`, standard library only) wrapped by the shell adapter. Inside
+it is its own network of tracks, artist and lyrics neurons. The output
+shows answers combining all three and stale work dropped, then the inside
+view: one standalone `music --inspect` run printing the inner trace. Needs
+a Rust toolchain.
 
 ## Development
 
