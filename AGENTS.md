@@ -71,7 +71,8 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 
 | Area | Code | Tests |
 |---|---|---|
-| Core (the neuron container, links, messages) | `src/` | `test/` |
+| Core (neuron, network, signals, adapters in `src/adapters/`) | `src/` | `test/` |
+| The first example (`npm run example`, builds first) | `examples/` | none: run by hand |
 
 ## Everywhere
 

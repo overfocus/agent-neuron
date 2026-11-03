@@ -1,5 +1,14 @@
-// agent-neuron: a universal container each agent runs in, linked many-to-many
-// with other neurons. The core model is not designed yet: frame it with
-// /loop:feature before building here.
+// agent-neuron: a universal wrapper that adapts any software to one interface,
+// linked many-to-many with other neurons.
 
 export const VERSION = '0.0.0';
+
+export { json, newSignal, parsePayload, serialize, text } from './signal.js';
+export type { Payload, Signal } from './signal.js';
+export type { Adapter } from './adapter.js';
+export { Neuron } from './neuron.js';
+export { Network } from './network.js';
+export type { NetworkOptions } from './network.js';
+export { ShellAdapter, ShellError } from './adapters/shell.js';
+export { HttpAdapter, HttpError } from './adapters/http.js';
+export { HumanAdapter } from './adapters/human.js';
