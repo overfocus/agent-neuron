@@ -1,4 +1,4 @@
-import type { Adapter } from './adapter.js';
+import type { Adapter, AdapterContext } from './adapter.js';
 import { newSignal, type Payload, type Signal } from './signal.js';
 
 /** A wrapper around anything, reachable through one interface. */
@@ -21,7 +21,7 @@ export class Neuron {
     return this.receive(newSignal(this.id, payload));
   }
 
-  receive(signal: Signal): Promise<Payload> {
-    return this.adapter.handle(signal.payload, signal);
+  receive(signal: Signal, context?: AdapterContext): Promise<Payload> {
+    return this.adapter.handle(signal.payload, signal, context);
   }
 }
