@@ -50,10 +50,9 @@ them.
 
 ## Signals
 
-What travels between neurons is expected to take different data types
-rather than one fixed format. Which types, and how a wrapper converts between
-them and what its contents expect, is one of the first things to experiment
-with.
+Signals start as **free text or JSON**. More data types are expected later;
+which ones, and how a wrapper converts between them and what its contents
+expect, is one of the things to experiment with.
 
 ## Many inputs, one neuron
 
@@ -87,10 +86,11 @@ interface, the wrapper idea works.
 
 ## Open questions
 
+These are deliberately undecided; experiments should inform them.
+
 - What makes a connection strengthen or weaken: how often it is used,
   whether its answers were useful, or a rule set on the wrapper?
 - What is the difference between a passive and an active channel?
-- Which data types should signals start with?
 
 ## Status
 
