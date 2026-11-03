@@ -18,6 +18,7 @@
     "example": "npm run -s build && node examples/first.mjs",
     "demo:typing": "npm run -s build && node examples/typing.mjs",
     "demo:suggest": "npm run -s build && node examples/suggest.mjs",
+    "demo:alerts": "npm run -s build && node examples/alerts.mjs",
     "demo:loop": "npm run -s build && node examples/loop.mjs",
     "rust:build": "cargo build --release --manifest-path rust/Cargo.toml",
     "rust:test": "cargo test --manifest-path rust/Cargo.toml",

@@ -27,6 +27,7 @@ npm run demo:loop   # builds, then runs examples/loop.mjs (a loop cut by maxHops
 npm run demo:suggest   # builds, then runs examples/suggest.mjs (the typing demo plus a threshold neuron)
 npm run example     # builds, then runs examples/first.mjs (pipe a reply into stdin: echo approve | npm run example)
 npm run demo:typing # builds, then runs examples/typing.mjs (send without waiting, dropping stale work)
+npm run demo:alerts # builds, then runs the alert storm triage demo (about 6 s)
 npm run verify      # the gate: typecheck, rust test, rust build, test, build; writes .verify/receipt.json
 npm run verify:receipt  # exit 0 only for a PASSED full verify of this clean tree
 npm run ship -- --approved "<go-ahead>"  # after Kevin's go-ahead (/loop:ship)
@@ -88,7 +89,7 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 | Area | Code | Tests |
 |---|---|---|
 | Core (neuron, network, signals, adapters in `src/adapters/`) | `src/` | `test/` |
-| The demos (`npm run example`, `demo:typing`, `demo:loop`, `demo:suggest`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand |
+| The demos (`npm run example`, `demo:typing`, `demo:loop`, `demo:suggest`, `demo:alerts`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand, except `demo:alerts`: `test/alerts.test.ts` |
 | Rust neurons (std-only): `catalogue` (library + binary; `npm run demo:rust`) and `music`, a composed neuron with its own inner network (`npm run demo:composed`) | `rust/` | `cargo test` in each crate; `test/rust.test.ts` and `test/composed.test.ts` drive the built binaries |
 
 ## Everywhere
@@ -114,9 +115,11 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
   not in `pending`, so `idle()` does not wait for them and their `unref`'d timers
   never keep Node alive: a script that ends right after `idle()` never sees the
   `'expired'` drop (the suggest demo sleeps past `within` to show it). `send` and `query` skip the threshold.
+- `examples/alerts-demo.mjs` takes the library as an argument (`runAlerts(lib)`), so the demo passes `dist/` and `test/alerts.test.ts` passes `src/`, with no build needed first. Its test asserts invariants only: the exact numbers (alerts for one service 150 ms apart or 900+ ms apart; a shell detector must finish in about 150 ms) hold only on an idle machine. `examples/alerts-demo.d.mts` types it for the test.
 - `examples/` imports from `../dist/`, not `src/`, so it needs a build first
   (`npm run example`, `demo:typing` and `demo:rust` build). The demos have no
-  tests; run them by hand.
+  tests (run them by hand), except `demo:alerts`: `test/alerts.test.ts` imports
+  `examples/alerts-demo.mjs` with `src/`.
 - `network.idle()` waits only for `emit` work, not `send`. `onError` and
   `onDrop` fire only for `emit`; `send` still throws.
 - Listeners on `emit` work (`onSignal`, `onError`, `onDrop`) that throw are

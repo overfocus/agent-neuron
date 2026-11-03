@@ -1,0 +1,11 @@
+09:41:02 INFO gateway rolled config reload
+09:41:09 WARN search slow shard response
+09:42:15 ERROR checkout upstream timeout calling gateway
+09:42:16 ERROR checkout upstream timeout calling gateway
+09:42:31 ERROR payments gateway returned 502 on authorise
+09:42:44 INFO search reindex finished
+09:43:05 ERROR checkout order submit failed: connection reset
+09:43:12 ERROR payments ledger write retry exhausted
+09:43:40 ERROR inventory feed parse error line 88
+09:44:03 WARN gateway slow upstream handshake
+09:44:20 ERROR inventory reservation conflict sku-204

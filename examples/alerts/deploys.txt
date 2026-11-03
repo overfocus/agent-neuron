@@ -1,0 +1,5 @@
+gateway dep-8b21 14
+checkout dep-3c90 22
+search dep-71aa 9
+payments dep-0f12 300
+inventory dep-9d44 1500

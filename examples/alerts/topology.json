@@ -1,0 +1,7 @@
+{
+  "gateway": null,
+  "checkout": "gateway",
+  "payments": "gateway",
+  "search": "gateway",
+  "inventory": "gateway"
+}

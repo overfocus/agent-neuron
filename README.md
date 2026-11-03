@@ -242,7 +242,7 @@ All of these are up for debate; experiments should inform them.
 The first example works: shell, HTTP and human adapters, neurons with
 bidirectional links, and a network that broadcasts or targets signals
 (`src/`). A send that does not wait for answers (`emit`) can replace older work from
-the same sender, and adapters stop when it is dropped. A neuron can wait for a `threshold` of distinct senders on one trace (`npm run demo:suggest`). Link strength,
+the same sender, and adapters stop when it is dropped. A neuron can wait for a `threshold` of distinct senders on one trace (`npm run demo:suggest`). An alert storm demo (`npm run demo:alerts`) puts threshold, stale-work dropping, wrapped scripts and a composed diagnosis neuron together. Link strength,
 rewiring, ignore conditions, limits other than `maxHops`, and passive/active channels are not
 built yet. Every signal carries a `trace` shared by everything it leads to;
 answers record the signal they answer (`replyTo`), and `send` and `emit` take
@@ -294,6 +294,18 @@ it is its own network of tracks, artist and lyrics neurons. The output
 shows answers combining all three and stale work dropped (the inner lyrics neuron takes 250 ms once it acts, as in the typing demo), then the inside
 view: one standalone `music --inspect` run printing the inner trace. Needs
 a Rust toolchain.
+
+## Run the alert storm demo
+
+```sh
+npm run demo:alerts
+```
+
+Forty invented alerts arrive in about six seconds. Two shell scripts and a
+JavaScript function look at each one; a stand-in for a model runs only when
+two of them agree, and a composed neuron answers with one diagnosis. The
+output ends with how many expensive calls were avoided and how much stale
+work was dropped; the numbers are the same on an idle machine.
 
 ## Development
 
