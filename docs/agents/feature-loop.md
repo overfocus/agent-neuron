@@ -45,11 +45,12 @@ here. One line each:
   tests. When a UI lands (a graph visualiser), add `check:browser` and fill
   `browser.md`.
 - **Dev server:** none. Use `npm run test:watch` while building.
-- **Branches:** `feat/` branches stay local (no remote yet); only `main` is
-  the release line.
+- **Branches:** `feat/` branches may be pushed to the private GitHub repo as
+  a backup (no previews); only `main` is the release line.
 - **Production:** nothing deploys; `origin` is unset in
-  `agent-kit.config.json`. TODO(Kevin): a remote, and whether this becomes an
-  npm package or a deployed service.
+  `agent-kit.config.json`, so `npm run ship` stops at its config check: merge
+  `--no-ff` and push by hand after Kevin's go-ahead. TODO(Kevin): whether this
+  becomes an npm package or a deployed service.
 - **Acceptance checks** here are tests: each check is a Vitest case that
   fails before the change and passes after it.
 - **Analytics, facts, shared files:** none; no files are shared with portfolio.

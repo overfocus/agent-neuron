@@ -26,7 +26,7 @@ kill a server you didn't start; stop yours by its PID.
 
 ## Shipping
 
-- `feat/` branches stay local (no remote yet); never push `main` without Kevin's go-ahead for that change. The
+- `feat/` branches may be pushed to `origin` as a backup (no previews); never push `main` without Kevin's go-ahead for that change. The
   `guard-main` hook asks before any push to `main`.
 - `/loop:ship` merges `--no-ff` after the go-ahead, pauses at the push (run the
   printed command so the hook asks) and again after the deploy for the live

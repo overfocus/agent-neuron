@@ -4,8 +4,8 @@ An experimental agent graph. An **agent-neuron** is a universal wrapper, or
 container, that a single agent runs in. Neurons connect to each other
 many-to-many: any neuron can send to and receive from any number of others,
 so agents form a graph rather than a tree or a pipeline. A TypeScript (ESM, strict) library on
-Node 22, tested with Vitest. There is no website and no deploy yet.
-TODO(Kevin): the GitHub repo (`overfocus/agent-neuron` assumed, not created).
+Node 22, tested with Vitest. There is no website and no deploy yet. The code
+lives at `github.com/overfocus/agent-neuron`, private for now.
 
 This is not one of the sibling Next.js sites and shares no files with
 portfolio (`portfolio/docs/shared-files.json` does not list it).
@@ -24,7 +24,7 @@ npm run verify:receipt  # exit 0 only for a PASSED full verify of this clean tre
 npm run ship -- --approved "<go-ahead>"  # after Kevin's go-ahead (/loop:ship)
 npm run wt -- new <slug>  # a worktree on feat/<slug>; `list`, `gc [--apply]`
 npm run ships -- summary  # what shipped this week
-npm run issue -- add --title "..." --kind bug|debt|idea --source human --body-file <f>  # needs the GitHub repo
+npm run issue -- add --title "..." --kind bug|debt|idea --source human --body-file <f>  # `list` shows the open ones
 ```
 
 `verify`, `verify:receipt`, `ship`, `wt`, `ships` and `issue` are the agent-kit
@@ -63,8 +63,9 @@ tracked file and every commit message as public from the start:
 
 Nothing deploys yet. Treat `main` as the release line anyway: never push or
 merge to `main` without Kevin's go-ahead for that change; the global
-`guard-main` hook asks before any push to it. `feat/` branches stay local
-until there is a remote.
+`guard-main` hook asks before any push to it. `feat/` and `fix/` branches
+may be pushed to `origin` as a backup: there are no preview deployments.
+TODO(Kevin): whether this becomes an npm package or a deployed service.
 
 ## Areas
 
