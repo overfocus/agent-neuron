@@ -1,6 +1,12 @@
 import type { Adapter, AdapterContext } from './adapter.js';
 import { newSignal, type Payload, type Signal } from './signal.js';
 
+/** Per-neuron settings. Everything is optional; a neuron with none behaves as it always did. */
+export type NeuronOptions = {
+  /** Refuse any signal with more hops than this (see `hops` on `Signal`). Default: no limit. */
+  maxHops?: number;
+};
+
 /** A wrapper around anything, reachable through one interface. */
 export class Neuron {
   readonly links = new Set<Neuron>();
@@ -8,6 +14,7 @@ export class Neuron {
   constructor(
     readonly id: string,
     readonly adapter: Adapter,
+    readonly options: NeuronOptions = {},
   ) {}
 
   /** Link both ways. */

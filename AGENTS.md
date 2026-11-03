@@ -23,6 +23,7 @@ npm run rust:build  # cargo build --release over rust/ → rust/target/release/{
 npm run check       # typecheck, rust test, rust build, test, build: the gate without agent-kit
 npm run demo:rust   # builds both, then runs examples/rust.mjs (tracks neuron in Rust)
 npm run demo:composed # builds both, then the composed `music` neuron: keystrokes in, answers out, then its inner trace
+npm run demo:loop   # builds, then runs examples/loop.mjs (a loop cut by maxHops)
 npm run example     # builds, then runs examples/first.mjs (pipe a reply into stdin: echo approve | npm run example)
 npm run demo:typing # builds, then runs examples/typing.mjs (send without waiting, dropping stale work)
 npm run verify      # the gate: typecheck, rust test, rust build, test, build; writes .verify/receipt.json
@@ -86,7 +87,7 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 | Area | Code | Tests |
 |---|---|---|
 | Core (neuron, network, signals, adapters in `src/adapters/`) | `src/` | `test/` |
-| The demos (`npm run example`, `npm run demo:typing`; both build first; list in `docs/DEMOS.md`) | `examples/` | none: run by hand |
+| The demos (`npm run example`, `demo:typing`, `demo:loop`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand |
 | Rust neurons (std-only): `catalogue` (library + binary; `npm run demo:rust`) and `music`, a composed neuron with its own inner network (`npm run demo:composed`) | `rust/` | `cargo test` in each crate; `test/rust.test.ts` and `test/composed.test.ts` drive the built binaries |
 
 ## Everywhere

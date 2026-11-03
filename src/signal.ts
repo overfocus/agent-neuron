@@ -16,6 +16,8 @@ export type Signal = {
   trace: string;
   replyTo?: string;
   cause?: string;
+  /** Links in this signal's chain: 0 for a root, one more than the signal it answers or follows (`replyTo`, `cause`). */
+  hops: number;
 };
 
 /**
@@ -45,7 +47,7 @@ export const serialize = (payload: Payload): string =>
 export function newSignal(from: string, payload: Payload, { to, replyTo, cause }: SignalOptions = {}): Signal {
   const id = randomUUID();
   const origin = replyTo ?? cause;
-  const signal: Signal = { id, from, payload, trace: origin ? origin.trace : id };
+  const signal: Signal = { id, from, payload, trace: origin ? origin.trace : id, hops: origin ? origin.hops + 1 : 0 };
   if (to) signal.to = to;
   if (replyTo) signal.replyTo = replyTo.id;
   if (cause) signal.cause = cause.id;

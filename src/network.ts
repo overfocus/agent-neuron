@@ -6,8 +6,8 @@ export type NetworkOptions = {
   onSignal?: (signal: Signal) => void;
   /** Called when a neuron fails while handling an `emit`. Never called for work that was replaced. */
   onError?: (error: unknown, signal: Signal, neuronId: string) => void;
-  /** Called when a neuron's work for `signal` was dropped because a newer emit replaced it. */
-  onDrop?: (signal: Signal, neuronId: string) => void;
+  /** Called when a neuron's work for `signal` was dropped: 'replaced' by a newer emit, or refused for too many 'hops' (its `maxHops`). */
+  onDrop?: (signal: Signal, neuronId: string, reason: 'replaced' | 'hops') => void;
 };
 
 export type SendOptions = {
@@ -24,6 +24,10 @@ export type EmitOptions = SendOptions & {
    */
   replaces?: string;
 };
+
+/** A neuron's limits refuse a signal that is too deep in its chain. `Neuron.query` is a direct ask and skips them. */
+const refuses = (target: Neuron, signal: Signal): boolean =>
+  target.options.maxHops !== undefined && signal.hops > target.options.maxHops;
 
 export class Network {
   private readonly neurons = new Map<string, Neuron>();
@@ -45,7 +49,9 @@ export class Network {
   /**
    * Send from one neuron to everything it is linked to, or only to `to`
    * (which must be linked). Delivers in link order, one at a time, and
-   * returns each answer as a signal from the neuron that gave it.
+   * returns each answer as a signal from the neuron that gave it. A target
+   * whose `maxHops` the signal exceeds is skipped: its answer is left out,
+   * with no `onDrop` (the signal itself is still reported to `onSignal`).
    */
   async send(fromId: string, payload: Payload, { to, cause }: SendOptions = {}): Promise<Signal[]> {
     const { sender, targets } = this.resolve(fromId, to);
@@ -53,6 +59,7 @@ export class Network {
     this.options.onSignal?.(signal);
     const answers: Signal[] = [];
     for (const target of targets) {
+      if (refuses(target, signal)) continue;
       const answer = newSignal(target.id, await target.receive(signal), { to: [sender.id], replyTo: signal });
       this.options.onSignal?.(answer);
       answers.push(answer);
@@ -65,7 +72,8 @@ export class Network {
    * Targets work in parallel; answers arrive through `onSignal`, failures
    * through `onError`. With `replaces`, a newer emit under the same key from
    * the same sender aborts the older one's work (adapters get an abort
-   * signal) and nothing more is reported for it except `onDrop`.
+   * signal) and nothing more is reported for it except `onDrop`. A target
+   * whose `maxHops` the signal exceeds never runs: `onDrop` with 'hops'.
    */
   emit(fromId: string, payload: Payload, { to, replaces, cause }: EmitOptions = {}): Signal {
     const { targets } = this.resolve(fromId, to);
@@ -90,6 +98,7 @@ export class Network {
   }
 
   private async run(target: Neuron, signal: Signal, abort: AbortSignal): Promise<void> {
+    if (refuses(target, signal)) return this.notify(() => this.options.onDrop?.(signal, target.id, 'hops'));
     let payload: Payload | undefined;
     let failure: { error: unknown } | undefined;
     try {
@@ -99,7 +108,7 @@ export class Network {
     }
     // Listeners run outside the try, so a listener's bug is never blamed on the neuron.
     // An aborted run is never an error, whatever the adapter threw or returned.
-    if (abort.aborted) this.notify(() => this.options.onDrop?.(signal, target.id));
+    if (abort.aborted) this.notify(() => this.options.onDrop?.(signal, target.id, 'replaced'));
     else if (failure) this.notify(() => this.options.onError?.(failure.error, signal, target.id));
     else this.notify(() => this.options.onSignal?.(newSignal(target.id, payload as Payload, { to: [signal.from], replyTo: signal })));
   }

@@ -39,7 +39,7 @@ The plugin's agents are generic and read this section for what is true only
 here. One line each:
 
 - **Gates:** `npm run verify` is the kit's verify over the config's
-  `verify.steps`: typecheck, test (Vitest), build (`tsc` to `dist/`); it
+  `verify.steps`: typecheck, Rust test and build, test (Vitest), build (`tsc` to `dist/`); it
   writes `.verify/receipt.json`.
 - **Browser gate:** none yet. This is a library with no UI; the gate is the
   tests. When a UI lands (a graph visualiser), add `check:browser` and fill
