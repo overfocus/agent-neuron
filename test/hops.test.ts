@@ -12,12 +12,12 @@ describe('hops', () => {
     expect([root, reply, next, last].map((s) => s.hops)).toEqual([0, 1, 2, 3]);
   });
 
-  /** a and b ping-pong: every answer is forwarded back with `cause`. Returns the chain of signals seen. */
+  /** a and b ping-pong: every answer is passed on by its answerer to whoever it answered, with `cause`. Returns the chain of signals seen. */
   function pingPong(options?: { maxHops: number }) {
     const network = new Network({
       onSignal: (s) => {
         seen.push(s);
-        if (s.replyTo && seen.length < 60) network.emit(s.to?.[0] as string, s.payload, { to: [s.from], cause: s });
+        if (s.replyTo && seen.length < 60) network.emit(s.from, s.payload, { to: s.to, cause: s });
       },
       onDrop: (s, id, reason) => drops.push([s, id, reason]),
     });

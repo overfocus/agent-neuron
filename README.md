@@ -90,9 +90,9 @@ The first limit is built: every signal carries `hops`, its place in its chain
 refuses a signal with more than 3 hops: `emit` reports it through
 `onDrop(signal, id, 'hops')` and the adapter never runs, and a waiting `send`
 leaves that neuron's answer out. Without `maxHops` there is no limit.
-`Neuron.query` is a direct ask and skips it. Hops only count along a trace:
+A refused signal is still reported to `onSignal` (refusal is per neuron, and on a broadcast others may accept it), and `send` leaves the refusing neuron's answer out without an `onDrop`. `Neuron.query` is a direct ask and skips it. Hops only count along a trace:
 code that passes an answer on without `{ cause }` starts a new trace at 0, so
-forward with `cause` if you want the limit to see the loop. Run
+forward with `cause` if you want the limit to see the loop. The idiom: an answerer passes its answer on with `network.emit(answer.from, answer.payload, { to: answer.to, cause: answer })`. Run
 `npm run demo:loop` to watch one being cut.
 
 ## Composition
@@ -221,7 +221,7 @@ The first example works: shell, HTTP and human adapters, neurons with
 bidirectional links, and a network that broadcasts or targets signals
 (`src/`). A send that does not wait for answers (`emit`) can replace older work from
 the same sender, and adapters stop when it is dropped. Link strength,
-rewiring, ignore conditions, other limits (`maxHops` is built) and passive/active channels are not
+rewiring, ignore conditions, limits other than `maxHops`, and passive/active channels are not
 built yet. Every signal carries a `trace` shared by everything it leads to;
 answers record the signal they answer (`replyTo`), and `send` and `emit` take
 an optional `cause` to continue a trace. Nothing passes answers on by itself,

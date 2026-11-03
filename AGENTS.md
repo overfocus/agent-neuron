@@ -87,7 +87,7 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 | Area | Code | Tests |
 |---|---|---|
 | Core (neuron, network, signals, adapters in `src/adapters/`) | `src/` | `test/` |
-| The demos (`npm run example`, `npm run demo:typing`; both build first; list in `docs/DEMOS.md`) | `examples/` | none: run by hand |
+| The demos (`npm run example`, `demo:typing`, `demo:loop`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand |
 | Rust neurons (std-only): `catalogue` (library + binary; `npm run demo:rust`) and `music`, a composed neuron with its own inner network (`npm run demo:composed`) | `rust/` | `cargo test` in each crate; `test/rust.test.ts` and `test/composed.test.ts` drive the built binaries |
 
 ## Everywhere

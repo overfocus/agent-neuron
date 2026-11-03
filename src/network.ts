@@ -49,7 +49,9 @@ export class Network {
   /**
    * Send from one neuron to everything it is linked to, or only to `to`
    * (which must be linked). Delivers in link order, one at a time, and
-   * returns each answer as a signal from the neuron that gave it.
+   * returns each answer as a signal from the neuron that gave it. A target
+   * whose `maxHops` the signal exceeds is skipped: its answer is left out,
+   * with no `onDrop` (the signal itself is still reported to `onSignal`).
    */
   async send(fromId: string, payload: Payload, { to, cause }: SendOptions = {}): Promise<Signal[]> {
     const { sender, targets } = this.resolve(fromId, to);

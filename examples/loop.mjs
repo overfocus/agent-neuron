@@ -9,9 +9,9 @@ const adder = (name) => ({ handle: async (payload) => text(`${serialize(payload)
 const network = new Network({
   onSignal: (s) => {
     console.log(`hop ${s.hops}: ${s.from} -> ${s.to?.join(', ')}: ${serialize(s.payload)}`);
-    // An answer goes back to its asker; forward it onward to whoever answered, keeping the trace.
+    // The answerer passes its answer on to whoever it answered, so the two take turns, keeping the trace.
     // Without `cause` this would start a new trace at hop 0 and the limit would never be reached.
-    if (s.replyTo && s.to) network.emit(s.to[0], s.payload, { to: [s.from], cause: s });
+    if (s.replyTo && s.to) network.emit(s.from, s.payload, { to: s.to, cause: s });
   },
   onDrop: (s, id, reason) => console.log(`cut: ${id} refused hop ${s.hops} (${reason}); the loop ends here`),
 });
