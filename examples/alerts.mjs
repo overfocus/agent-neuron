@@ -1,4 +1,4 @@
-// Alert storm triage: 40 invented alerts in under four seconds, cheap detectors
+// Alert storm triage: 40 invented alerts in about six seconds, cheap detectors
 // (two wrapped shell scripts, one JavaScript), a `hypothesis` neuron standing in for
 // an expensive model that acts only when two detectors agree, and a composed
 // `diagnosis` neuron. Scenario in alerts-demo.mjs, data in alerts/.

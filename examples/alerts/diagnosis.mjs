@@ -12,7 +12,8 @@ const read = (name) => readFile(new URL(name, import.meta.url), 'utf8');
 
 export function composedDiagnosis({ Network, Neuron, json }) {
   return {
-    async handle(payload) {
+    async handle(payload, _signal, context) {
+      const live = () => context?.abort.throwIfAborted(); // stop inner work when the outer emit is replaced
       const { service } = payload.data;
       const inner = new Network();
       inner.add(new Neuron('door', { handle: async () => json({}) }));
@@ -20,6 +21,7 @@ export function composedDiagnosis({ Network, Neuron, json }) {
       inner.add(
         new Neuron('topology', {
           handle: async (p) => {
+            live();
             const topology = JSON.parse(await read('topology.json'));
             let root = p.data.service;
             while (topology[root]) root = topology[root];
@@ -31,6 +33,7 @@ export function composedDiagnosis({ Network, Neuron, json }) {
       inner.add(
         new Neuron('check', {
           handle: async (p) => {
+            live();
             const line = (await read('deploys.txt')).split('\n').find((l) => l.startsWith(`${p.data.root} `));
             const [, deploy, minutes] = line?.split(' ') ?? [];
             return json({ deploy, minutes: Number(minutes) });

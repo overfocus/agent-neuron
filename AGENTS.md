@@ -115,10 +115,11 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
   not in `pending`, so `idle()` does not wait for them and their `unref`'d timers
   never keep Node alive: a script that ends right after `idle()` never sees the
   `'expired'` drop (the suggest demo sleeps past `within` to show it). `send` and `query` skip the threshold.
-- `examples/alerts-demo.mjs` takes the library as an argument (`runAlerts(lib)`), so the demo passes `dist/` and `test/alerts.test.ts` passes `src/`, with no build needed first. Its numbers depend on timing (alerts for one service 150 ms apart or 900+ ms apart; a shell detector must finish in about 150 ms): under heavy machine load they can change. `examples/alerts-demo.d.mts` types it for the test.
+- `examples/alerts-demo.mjs` takes the library as an argument (`runAlerts(lib)`), so the demo passes `dist/` and `test/alerts.test.ts` passes `src/`, with no build needed first. Its test asserts invariants only: the exact numbers (alerts for one service 150 ms apart or 900+ ms apart; a shell detector must finish in about 150 ms) hold only on an idle machine. `examples/alerts-demo.d.mts` types it for the test.
 - `examples/` imports from `../dist/`, not `src/`, so it needs a build first
   (`npm run example`, `demo:typing` and `demo:rust` build). The demos have no
-  tests; run them by hand.
+  tests (run them by hand), except `demo:alerts`: `test/alerts.test.ts` imports
+  `examples/alerts-demo.mjs` with `src/`.
 - `network.idle()` waits only for `emit` work, not `send`. `onError` and
   `onDrop` fire only for `emit`; `send` still throws.
 - Listeners on `emit` work (`onSignal`, `onError`, `onDrop`) that throw are

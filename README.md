@@ -305,7 +305,7 @@ Forty invented alerts arrive in about six seconds. Two shell scripts and a
 JavaScript function look at each one; a stand-in for a model runs only when
 two of them agree, and a composed neuron answers with one diagnosis. The
 output ends with how many expensive calls were avoided and how much stale
-work was dropped; the numbers are the same on every run.
+work was dropped; the numbers are the same on an idle machine.
 
 ## Development
 

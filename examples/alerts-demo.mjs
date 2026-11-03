@@ -1,5 +1,5 @@
 // The alert storm triage scenario, shared by alerts.mjs (the demo) and the test.
-// 40 invented alerts for five invented services arrive in under four seconds.
+// 40 invented alerts for five invented services arrive over 5.6 seconds.
 //
 //   alerts --> logs, deploys, metrics   (detectors: cheap, each decides for itself)
 //   detectors --flag--> hypothesis      (threshold 2: acts only when two detectors agree on one alert)
@@ -85,7 +85,7 @@ export async function runAlerts(lib, { log = () => {} } = {}) {
       else if (reason === 'replaced' && id === 'hypothesis' && callOf.has(s.id)) {
         stats.cut++;
         cutSince.set(s.payload.data.service, (cutSince.get(s.payload.data.service) ?? 0) + 1);
-      } else if (reason === 'replaced') stats.heldReplaced++;
+      } else if (reason === 'replaced' && id === 'hypothesis') stats.heldReplaced++; // a waiting flag, not a call
     },
     onError: (e, s, id) => log(`error ${id}: ${e.message}`),
   });
@@ -126,13 +126,15 @@ export async function runAlerts(lib, { log = () => {} } = {}) {
 
 export function printSummary(r, log = console.log) {
   const { stats: s, final } = r;
+  const done = s.calls - s.cut;
   log(`
 Summary
   alerts received                       ${s.alerts}
-  detector flags                        ${s.flags}  (a lone flag waits for a second detector; ${s.expired} gave up waiting)
-  hypothesis (expensive) calls          ${s.calls} instead of ${s.alerts}: ${s.alerts - s.calls} expensive calls avoided
-    finished / cut short as stale       ${s.calls - s.cut} / ${s.cut}
-  stale analyses dropped                ${s.cut + s.heldReplaced}  (${s.cut} calls cut short, ${s.heldReplaced} held flags replaced)
-  diagnoses                             ${s.diagnoses}
-  final diagnosis                       root cause ${final.root}: deploy ${final.deploy}, ${final.minutes} min before the storm`);
+  detector flags                        ${s.flags}
+  waiting flags replaced by newer ones  ${s.heldReplaced}  (${s.expired} more gave up waiting for a second detector)
+  hypothesis calls started              ${s.calls} instead of ${s.alerts}: ${s.alerts - s.calls} expensive calls avoided
+    finished / cut short as stale       ${done} / ${s.cut}  (cut short is still spent: answers unused)
+  waste                                 ${s.cut} of ${s.calls} calls cut short: a ${HYPOTHESIS_MS} ms call against bursts of alerts 150 ms apart
+  diagnoses                             ${s.diagnoses}${s.diagnoses > 1 ? `, all ${s.diagnoses} agree: one cause behind the storm` : ''}
+  final diagnosis                       ${final ? `root cause ${final.root}: deploy ${final.deploy}, ${final.minutes} min before the storm` : 'no diagnosis'}`);
 }
