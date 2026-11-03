@@ -29,7 +29,8 @@ interested in new ideas about how agents can be connected.
   neuron can also be told to ignore input from a connection when other
   conditions hold.
 - **Adaptive.** The network can rewire itself, and connections can
-  strengthen and weaken over time.
+  strengthen and weaken over time, within a run: each run starts fresh, and
+  strengths are not carried over to the next.
 - **Configured at the wrapper.** How a neuron listens, when it stops and what
   counts as done are set on each neuron's wrapper, not by a central
   controller.
@@ -86,11 +87,39 @@ interface, the wrapper idea works.
 
 ## Open questions
 
-These are deliberately undecided; experiments should inform them.
+All of these are up for debate; experiments should inform them.
 
-- What makes a connection strengthen or weaken: how often it is used,
-  whether its answers were useful, or a rule set on the wrapper?
-- What is the difference between a passive and an active channel?
+**Connections**
+
+- What counts as a connection being useful, and who decides: any traffic
+  across it, an answer that came back without an error, or a rating from the
+  sender, the receiver, or an observer (possibly a human)?
+- What does strength change: whether a broadcast reaches a weak link at all,
+  how much a link's input counts toward a threshold, or the order links are
+  tried in?
+- Is strength one number per pair of neurons, one per direction, or each
+  neuron's private rating of its neighbours?
+- What happens to a weak connection: it loses priority, it is muted and can
+  recover, or it is cut and the network tries new ones?
+
+**Channels**
+
+- What is a passive channel, as opposed to an active one: a send that does
+  not wait for an answer, something the receiver pulls or subscribes to, or
+  a signal that is noted without making the neuron act?
+- Is passive or active set on the connection, on the neuron, or by the
+  sender for each signal?
+- Does passive traffic count toward strength and loop limits?
+
+**Flow**
+
+- When a neuron answers, who decides where the answer goes next: code
+  outside the network, the neuron's wrapper (forwarding to some or all of its
+  connections), or only back to whoever asked?
+- When one neuron reaches its idea of done, does the whole run stop, does
+  only that neuron go quiet, or is the caller told and left to decide?
+- Do neurons run in one program, as separate local processes, or across
+  machines?
 
 ## Status
 
