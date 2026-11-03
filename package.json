@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Experimental agent graph: a universal container each agent runs in, with many-to-many links between neurons.",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22"
