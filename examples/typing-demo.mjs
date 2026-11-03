@@ -45,18 +45,31 @@ export const jsTracks = () =>
 
 // Types 'lumen harbor' into a search box wired to the tracks neuron (an
 // `Adapter` under `tracksId`) plus the artist and lyrics neurons. `pad` is the
-// width of the neuron id column in the output.
-export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7 }) {
+// width of the neuron id column in the output. With `suggest`, a `suggest`
+// neuron (threshold 2, held inputs expire after 400 ms) is added; the answers
+// of tracks, artist and lyrics are forwarded to it, and each run is counted.
+export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7, suggest = false }) {
   // What the box emitted, by signal id: an answer's `replyTo` finds its prefix here.
   const typed = new Map();
 
+  let suggestRuns = 0;
   const network = new Network({
     onSignal: (s) => {
+      if (s.from === 'suggest') {
+        console.log(`  suggest  acts for "${typed.get(s.trace)}": ${s.payload.data.join(' + ')} agree`);
+        return;
+      }
+      if (s.cause) return; // an answer forwarded to suggest, already printed
+      if (suggest && s.replyTo && serialize(s.payload) !== '') {
+        // Forward the answer to suggest, in the same trace. A newer answer from the same neuron replaces the older.
+        network.emit(s.from, s.payload, { to: ['suggest'], cause: s, replaces: 'forward' });
+      }
       if (s.from === 'box' || serialize(s.payload) === '') return; // quiet neurons say nothing
       const hits = s.payload.data;
       console.log(`  answer   ${s.from.padEnd(pad)} for "${typed.get(s.replyTo)}": ${hits.length ? hits.join(' | ') : 'no hits'}`);
     },
-    onDrop: (s, id) => console.log(`  dropped  ${id.padEnd(pad)} for "${typed.get(s.id)}" (stale)`),
+    onDrop: (s, id, reason) =>
+      console.log(`  dropped  ${id.padEnd(pad)} for "${typed.get(s.trace)}" (${reason === 'replaced' ? 'stale' : reason})`),
     onError: (e, s, id) => console.log(`  error    ${id}: ${e.message}`),
   });
 
@@ -72,6 +85,16 @@ export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7 })
     ),
   );
   for (const id of [tracksId, 'artist', 'lyrics']) network.connect('box', id);
+  if (suggest) {
+    const agree = {
+      handle: async (_payload, _signal, context) => {
+        suggestRuns++;
+        return json(context.inputs.map((i) => i.from));
+      },
+    };
+    network.add(new Neuron('suggest', agree, { threshold: 2, within: 400 }));
+    for (const id of [tracksId, 'artist', 'lyrics']) network.connect(id, 'suggest');
+  }
 
   const query = 'lumen harbor';
   for (let i = 1; i <= query.length; i++) {
@@ -81,4 +104,8 @@ export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7 })
     await sleep(100);
   }
   await network.idle();
+  if (suggest) {
+    await sleep(450); // idle does not wait for held inputs; let the last one expire
+    console.log(`suggest ran ${suggestRuns} time${suggestRuns === 1 ? '' : 's'} for ${query.length} keystrokes`);
+  }
 }

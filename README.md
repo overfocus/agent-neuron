@@ -71,11 +71,32 @@ need to look one up.
 ## Many inputs, one neuron
 
 When a neuron has many incoming connections, how it responds is an option
-set per neuron, for example:
+set per neuron. By default it acts on each input as it arrives. Two more ways
+are expected: combining all inputs into one picture before acting, and
+weighing senders differently. One is built:
 
-- act on each input as it arrives;
-- wait until enough inputs agree or add up, like a threshold;
-- combine all of its inputs into one picture before acting.
+**Threshold.** `new Neuron(id, adapter, { threshold: 2, within: 5000 })` acts
+only when two distinct senders have each sent it an input on the same trace
+(inputs in different traces never combine). The adapter then runs once, and
+`context.inputs` holds the inputs that met the threshold, the one that
+crossed it last. Details:
+
+- Each sender counts once; its newer input replaces its older one (the older
+  is reported as `onDrop(..., 'replaced')`).
+- Held inputs get no answer of their own. The run's answer is for the input
+  that crossed the threshold.
+- An input still held after `within` ms (default 10000) is dropped with
+  `onDrop(..., 'expired')`. An input whose `emit` is replaced (same `replaces`
+  key, newer emit) is dropped as `'replaced'` and stops counting.
+- It applies to `emit`. `send` is a direct exchange, like `Neuron.query`, so it
+  skips the threshold and runs the adapter at once, without `context.inputs`.
+- `idle()` does not wait for held inputs: they are waiting, not working, and
+  waiting 10 s for them would help nobody. Their timers do not keep the process
+  alive, so a program that exits first never sees the `'expired'` drop.
+- Once a trace has acted, a later input on it starts a new hold.
+- Without `threshold` nothing is held and no timer is made.
+
+Run `npm run demo:suggest` to watch one.
 
 ## Loops and finishing
 
@@ -220,7 +241,7 @@ All of these are up for debate; experiments should inform them.
 The first example works: shell, HTTP and human adapters, neurons with
 bidirectional links, and a network that broadcasts or targets signals
 (`src/`). A send that does not wait for answers (`emit`) can replace older work from
-the same sender, and adapters stop when it is dropped. Link strength,
+the same sender, and adapters stop when it is dropped. A neuron can wait for a `threshold` of distinct senders on one trace (`npm run demo:suggest`). Link strength,
 rewiring, ignore conditions, limits other than `maxHops`, and passive/active channels are not
 built yet. Every signal carries a `trace` shared by everything it leads to;
 answers record the signal they answer (`replyTo`), and `send` and `emit` take
