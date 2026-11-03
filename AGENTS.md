@@ -91,6 +91,11 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 
 ## Everywhere
 
+- **The neuron interface is most valuable the simpler it is.** Every new
+  capability must keep a neuron's interface small: prefer an option on what
+  exists over a new method, a field over a new type, and a default that does
+  nothing over a setting everyone must learn. A feature that makes the
+  simple case harder to write is the wrong shape.
 - Every feature that adds or changes visible behaviour adds or updates a demo
   and its row in `docs/DEMOS.md`.
 - Library code has no side effects on import, and the core takes no
