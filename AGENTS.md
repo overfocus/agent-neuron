@@ -19,6 +19,7 @@ npm run typecheck   # tsc --noEmit over src/ and test/
 npm test            # vitest run (test/**/*.test.ts)
 npm run build       # tsc -p tsconfig.build.json → dist/
 npm run check       # typecheck, test, build: the gate without agent-kit
+npm run example     # builds, then runs examples/first.mjs (pipe a reply into stdin: echo approve | npm run example)
 npm run verify      # the gate: typecheck, test, build; writes .verify/receipt.json
 npm run verify:receipt  # exit 0 only for a PASSED full verify of this clean tree
 npm run ship -- --approved "<go-ahead>"  # after Kevin's go-ahead (/loop:ship)
@@ -71,7 +72,8 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 
 | Area | Code | Tests |
 |---|---|---|
-| Core (the neuron container, links, messages) | `src/` | `test/` |
+| Core (neuron, network, signals, adapters in `src/adapters/`) | `src/` | `test/` |
+| The first example (`npm run example`, builds first) | `examples/` | none: run by hand |
 
 ## Everywhere
 
@@ -85,6 +87,13 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 
 - ESM with `NodeNext` resolution: relative imports need the `.js` extension
   (`import { x } from './x.js'`), even from `.ts` files.
+- `examples/` imports from `../dist/`, not `src/`, so it needs a build first
+  (`npm run example` builds). The example has no test; run it by hand.
+
+## Known limits
+
+Open problems are GitHub issues with the `loop` label (`npm run issue --
+list`), not lists in this file.
 
 ## Environment
 

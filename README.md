@@ -1,7 +1,7 @@
 # agent-neuron
 
 > **Experimental, concept stage.** This README describes the idea; the code
-> does not implement it yet.
+> implements only the first example so far.
 
 An **agent-neuron** is a universal wrapper for any piece of software: an AI
 agent, a script, an executable, a plain function, or something else entirely.
@@ -76,8 +76,8 @@ Three neurons wrapping three very different things:
 
 - **a website with an API**, wrapped so its requests and responses become
   signals;
-- **a shell script**, wrapped so its arguments, output and exit code become
-  signals;
+- **a shell script**, wrapped so its input and output become signals (a
+  failed exit is reported as an error);
 - **a program waiting for a human response**, wrapped so a person is a
   neuron like any other.
 
@@ -94,8 +94,20 @@ These are deliberately undecided; experiments should inform them.
 
 ## Status
 
-Nothing beyond project scaffolding exists yet. The first example above is
-the first thing to build.
+The first example works: shell, HTTP and human adapters, neurons with
+bidirectional links, and a network that broadcasts or targets signals
+(`src/`). Link strength, rewiring, ignore conditions, loop limits and
+passive/active channels are not built yet.
+
+## Run the first example
+
+```sh
+echo "approve" | npm run example
+```
+
+A shell script summarises some text, then its two linked neurons, a local
+HTTP API and a human on stdin, each receive the summary. Every signal is
+printed as it travels, then the human's reply. Nothing leaves localhost.
 
 ## Development
 
