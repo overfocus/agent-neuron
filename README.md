@@ -29,8 +29,8 @@ interested in new ideas about how agents can be connected.
   neuron can also be told to ignore input from a connection when other
   conditions hold.
 - **Adaptive.** The network can rewire itself, and connections can
-  strengthen and weaken over time, within a run: each run starts fresh, and
-  strengths are not carried over to the next.
+  strengthen and weaken over time. Strengths carry over from one run to the
+  next, so the network keeps what it learns.
 - **Configured at the wrapper.** How a neuron listens, when it stops and what
   counts as done are set on each neuron's wrapper, not by a central
   controller.
@@ -128,6 +128,9 @@ All of these are up for debate; experiments should inform them.
   neuron's private rating of its neighbours?
 - What happens to a weak connection: it loses priority, it is muted and can
   recover, or it is cut and the network tries new ones?
+- Where do strengths live between runs: in a file that can be read and
+  edited, or in each neuron's wrapper configuration, so a neuron brings its
+  habits with it?
 
 **Channels**
 
