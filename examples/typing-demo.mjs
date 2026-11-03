@@ -1,5 +1,7 @@
-// Shared setup for the typing demos (typing.mjs, rust.mjs): a made-up
-// catalogue (also in rust/catalogue/src/main.rs; change both together), the neurons around the tracks neuron, and the printing.
+// Shared setup for the typing demos (typing.mjs, rust.mjs, and `sleep` for
+// composed.mjs): a made-up catalogue (also in rust/catalogue/src/lib.rs, shared
+// by rust/music; change both together), the neurons around the tracks neuron,
+// and the printing.
 import { Network, Neuron, json, serialize, text } from '../dist/index.js';
 
 const tracks = [
@@ -11,7 +13,7 @@ const tracks = [
 const artists = ['Lumen Harbor', 'Tide and Timber'];
 const lyrics = ['carry me home to the lumen harbor', 'quiet kettles on the tide'];
 
-const sleep = (ms, abort) =>
+export const sleep = (ms, abort) =>
   new Promise((resolve, reject) => {
     const stop = () => {
       clearTimeout(timer);

@@ -20,6 +20,7 @@
     "rust:build": "cargo build --release --manifest-path rust/Cargo.toml",
     "rust:test": "cargo test --manifest-path rust/Cargo.toml",
     "demo:rust": "npm run -s build && npm run -s rust:build && node examples/rust.mjs",
+    "demo:composed": "npm run -s build && npm run -s rust:build && node examples/composed.mjs",
     "check": "npm run -s typecheck && npm run -s rust:test && npm run -s rust:build && npm run -s test && npm run -s build",
     "verify": "node scripts/kit.mjs verify",
     "verify:receipt": "node scripts/kit.mjs verify-receipt",

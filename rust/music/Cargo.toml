@@ -1,0 +1,10 @@
+[package]
+name = "music"
+version = "0.0.0"
+edition = "2021"
+description = "A composed neuron: a small inner network of tracks, artist and lyrics neurons behind one input and one answer."
+license = "MIT"
+publish = false
+
+[dependencies]
+catalogue = { path = "../catalogue" }
