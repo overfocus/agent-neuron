@@ -85,6 +85,32 @@ Three neurons wrapping three very different things:
 If those three can be connected and exchange signals through the same
 interface, the wrapper idea works.
 
+## A second example (planned)
+
+A search box on a music site, run as a network of neurons in real time:
+
+- **the search box** is a neuron. As someone types, it broadcasts each
+  keystroke, or the query so far, to every neuron it is connected to;
+- **music search** acts once there are a few characters and returns tracks;
+- **artist** acts only when the text matches an artist it knows;
+- **lyrics** acts when the text looks like a line from a song rather than a
+  name;
+- **concerts** listens to the artist neuron, not to the box, and acts once
+  an artist has been named;
+- **links** turns any result into links for each streaming service.
+
+Every neuron hears every keystroke; each one's wrapper decides whether the
+input is worth acting on. Nothing in the middle decides for them. The example
+will use a made-up catalogue.
+
+It needs things the first example does not have: a send that does not wait
+for answers, a way to drop work made stale by a newer keystroke, and a page
+to watch it happen on. It is also a test bed for the open questions below:
+keystrokes are a candidate for passive traffic, the concerts neuron is a
+chain inside the network rather than routing by outside code, and the
+results a person clicks are a candidate signal for strengthening a
+connection.
+
 ## Open questions
 
 All of these are up for debate; experiments should inform them.
