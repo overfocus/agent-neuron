@@ -13,6 +13,9 @@ Neurons connect **many to many**. Together they form a network that can
 rewire itself, strengthening the connections that matter and weakening the
 ones that don't.
 
+This is an experiment, for experimenters and technologists and anyone
+interested in new ideas about how agents can be connected.
+
 ## The idea
 
 - **Wrap anything.** A neuron can hold an LLM-powered agent, plain code with
@@ -27,6 +30,9 @@ ones that don't.
   conditions hold.
 - **Adaptive.** The network can rewire itself, and connections can
   strengthen and weaken over time.
+- **Configured at the wrapper.** How a neuron listens, when it stops and what
+  counts as done are set on each neuron's wrapper, not by a central
+  controller.
 
 ## Why "neuron"
 
@@ -40,7 +46,14 @@ them.
 - **Query and answer:** a simple way to ask a neuron something and get an
   answer back.
 - **Channels, passive and active:** a neuron can broadcast to every neuron,
-  to the neurons that answer, or to a specific set of neurons it targets.
+  or target one neuron or a set of neurons.
+
+## Signals
+
+What travels between neurons is expected to take different data types
+rather than one fixed format. Which types, and how a wrapper converts between
+them and what its contents expect, is one of the first things to experiment
+with.
 
 ## Many inputs, one neuron
 
@@ -51,31 +64,38 @@ set per neuron, for example:
 - wait until enough inputs agree or add up, like a threshold;
 - combine all of its inputs into one picture before acting.
 
+## Loops and finishing
+
+Connections can form loops, so something has to stop a network from running
+forever, and something has to say when it has an answer. Both are configured
+per wrapper: each neuron carries its own limits and its own idea of done,
+rather than the network having one global rule.
+
+## The first example
+
+Three neurons wrapping three very different things:
+
+- **a website with an API**, wrapped so its requests and responses become
+  signals;
+- **a shell script**, wrapped so its arguments, output and exit code become
+  signals;
+- **a program waiting for a human response**, wrapped so a person is a
+  neuron like any other.
+
+If those three can be connected and exchange signals through the same
+interface, the wrapper idea works.
+
 ## Open questions
 
-The concept is still being worked out. These are not decided yet:
-
-- What travels along a connection: free text, a structured payload with a
-  declared shape, or a signal with a strength while the content lives
-  elsewhere?
-- When a neuron fires, who receives it by default: every connected neuron,
-  the ones it chooses, or whoever subscribed to that kind of signal?
-- With loops possible, what stops a network from running forever: a limit
-  on hops or time, a resting period after firing, neurons that damp
-  activity, a cost budget?
-- How does anyone know the network has finished: an output neuron fires,
-  activity dies out, or an outside observer decides?
 - What makes a connection strengthen or weaken: how often it is used,
-  whether its answers were useful, or a rule set by the developer?
+  whether its answers were useful, or a rule set on the wrapper?
 - What is the difference between a passive and an active channel?
-- What is the smallest example that makes the idea click?
-- Who is this README for: developers looking for a library, researchers and
-  tinkerers, or readers of "the neuron concept" as an idea?
+- Which data types should signals start with?
 
 ## Status
 
-Nothing beyond project scaffolding exists yet. The first build will be the
-smallest example that shows the idea working.
+Nothing beyond project scaffolding exists yet. The first example above is
+the first thing to build.
 
 ## Development
 
