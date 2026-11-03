@@ -101,7 +101,7 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 - ESM with `NodeNext` resolution: relative imports need the `.js` extension
   (`import { x } from './x.js'`), even from `.ts` files.
 - `examples/` imports from `../dist/`, not `src/`, so it needs a build first
-  (`npm run example` and `npm run demo:typing` build). The demos have no
+  (`npm run example`, `demo:typing` and `demo:rust` build). The demos have no
   tests; run them by hand.
 - `network.idle()` waits only for `emit` work, not `send`. `onError` and
   `onDrop` fire only for `emit`; `send` still throws.
