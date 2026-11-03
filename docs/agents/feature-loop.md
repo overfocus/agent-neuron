@@ -29,7 +29,7 @@ change can stay in the lead's own hands.
 | Build | `loop:builder`, on its own `feat/` branch in a worktree; `loop:sourcer` for sourced content (`content-loop.md`) |
 | Verify | `npm run verify` (writes the receipt), then `npm run check:browser`, then `loop:browser-check` for what needs eyes |
 | Review | `loop:reviewer`, the whole diff with fresh eyes |
-| Preview | the browser gate again on a local production build |
+| Preview | the browser gate again on a local production build; run the demos listed in `docs/DEMOS.md` |
 | Ship | Kevin's go-ahead, then `/loop:ship`; the `guard-main` hook asks before any push to `main` |
 | Record | the lead, from the reviewer's record list and each agent's `Learned:`; `/loop:issues` for what was found and left |
 
@@ -150,9 +150,9 @@ another. An agent never closes an issue; it closes through a ship.
 
 ## 5. Preview
 
-Skipped while this is a library: the full `npm run verify` (with the build) is
-the last gate. When there is something to run (a demo, a CLI, a UI), run the
-built output here, not the source.
+Run every demo listed in `docs/DEMOS.md` that the change touches, against the
+built output (not the source), and read what it prints. The full
+`npm run verify` (with the build) is still the last gate.
 
 ## 6. Ship
 

@@ -6,21 +6,25 @@
 import { Network, Neuron, json, serialize, text } from '../dist/index.js';
 
 const tracks = [
-  { title: 'Harbor Lights', artist: 'Lumen Harbor' },
-  { title: 'Lumen at Dawn', artist: 'Lumen Harbor' },
-  { title: 'Paper Lanterns', artist: 'Tide and Timber' },
-  { title: 'Timber Hymn', artist: 'Tide and Timber' },
+  { title: 'Glass Orchard', artist: 'Lumen Harbor' },
+  { title: 'Ninefold Morning', artist: 'Lumen Harbor' },
+  { title: 'Quiet Kettles', artist: 'Tide and Timber' },
+  { title: 'Marrow Road', artist: 'Tide and Timber' },
 ];
 const artists = ['Lumen Harbor', 'Tide and Timber'];
-const lyrics = ['carry me home to the lumen harbor', 'paper lanterns on the tide'];
+const lyrics = ['carry me home to the lumen harbor', 'quiet kettles on the tide'];
 
 const sleep = (ms, abort) =>
   new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    abort?.addEventListener('abort', () => {
+    const stop = () => {
       clearTimeout(timer);
       reject(abort.reason);
-    });
+    };
+    const timer = setTimeout(() => {
+      abort?.removeEventListener('abort', stop);
+      resolve();
+    }, ms);
+    abort?.addEventListener('abort', stop, { once: true });
   });
 
 // An adapter that waits `ms` (stopping early if aborted), then asks `look`

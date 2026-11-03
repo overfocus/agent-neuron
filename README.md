@@ -1,7 +1,7 @@
 # agent-neuron
 
 > **Experimental, concept stage.** This README describes the idea; the code
-> implements only the first example so far.
+> implements two small demos so far (see [docs/DEMOS.md](docs/DEMOS.md)).
 
 An **agent-neuron** is a universal wrapper for any piece of software: an AI
 agent, a script, an executable, a plain function, or something else entirely.
@@ -106,8 +106,8 @@ will use a made-up catalogue.
 It needs three things the first example does not have. Two are built: a send
 that does not wait for answers (`emit`) and a way to drop work made stale by
 a newer keystroke (`replaces`), shown in a terminal demo,
-`npm run demo:typing`. Still missing: a page to watch it happen on. It is also a test bed for the open questions below:
-keystrokes are a candidate for passive traffic, the concerts neuron is a
+`npm run demo:typing`. Still missing: a page to watch it happen on. It is
+also a test bed for the open questions below: keystrokes are a candidate for passive traffic, the concerts neuron is a
 chain inside the network rather than routing by outside code, and the
 results a person clicks are a candidate signal for strengthening a
 connection.
@@ -155,7 +155,8 @@ bidirectional links, and a network that broadcasts or targets signals
 (`src/`). A send that does not wait for answers (`emit`) can replace older work from
 the same sender, and adapters stop when it is dropped. Link strength,
 rewiring, ignore conditions, loop limits and passive/active channels are not
-built yet. Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md).
+built yet. Listeners for `emit` work (`onSignal`, `onError`, `onDrop`) are
+called safely: if one throws, the error is swallowed. Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md).
 
 ## Run the first example
 

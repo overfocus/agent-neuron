@@ -102,6 +102,50 @@ describe('emit', () => {
   });
 });
 
+describe('listeners that throw', () => {
+  async function run(listeners: ConstructorParameters<typeof Network>[0], adapter: Adapter) {
+    const unhandled: unknown[] = [];
+    const record = (e: unknown) => unhandled.push(e);
+    process.on('unhandledRejection', record);
+    const net = new Network(listeners);
+    net.add(new Neuron('box', slow(0, 'unused')));
+    net.add(new Neuron('n', adapter));
+    net.connect('box', 'n');
+    net.emit('box', text('x'), { replaces: 'q' });
+    if (adapter === dropped) net.emit('box', text('y'), { replaces: 'q' });
+    await net.idle();
+    await sleep(10); // let any unhandled rejection surface
+    process.off('unhandledRejection', record);
+    return unhandled;
+  }
+  const dropped = slow(30, 'ok');
+
+  it('onSignal throwing is not the neuron\'s error', async () => {
+    const errors: unknown[] = [];
+    const unhandled = await run(
+      { onSignal: (s) => { if (s.from === 'n') throw new Error('listener bug'); }, onError: (e) => errors.push(e) },
+      slow(1, 'ok'),
+    );
+    expect(errors).toEqual([]);
+    expect(unhandled).toEqual([]);
+  });
+
+  it('onError throwing is not an unhandled rejection', async () => {
+    const unhandled = await run(
+      { onError: () => { throw new Error('listener bug'); } },
+      { handle: () => Promise.reject(new Error('boom')) },
+    );
+    expect(unhandled).toEqual([]);
+  });
+
+  it('onDrop throwing is not an unhandled rejection, nor called twice', async () => {
+    let calls = 0;
+    const unhandled = await run({ onDrop: () => { calls++; throw new Error('listener bug'); } }, dropped);
+    expect(unhandled).toEqual([]);
+    expect(calls).toBe(1);
+  });
+});
+
 describe('send', () => {
   it('still waits for every answer', async () => {
     const { net } = setup(slow(10, 'ok'));

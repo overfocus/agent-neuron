@@ -14,15 +14,18 @@ export class HumanAdapter implements Adapter {
   handle(payload: Payload, _signal?: Signal, context?: AdapterContext): Promise<Payload> {
     return new Promise((resolve, reject) => {
       const rl = createInterface({ input: this.input });
-      rl.once('line', (line) => {
-        resolve(text(line));
-        rl.close();
-      });
-      rl.once('close', () => reject(new Error('input closed before an answer')));
       const stop = () => {
         reject(context?.abort.reason);
         rl.close();
       };
+      rl.once('line', (line) => {
+        resolve(text(line));
+        rl.close();
+      });
+      rl.once('close', () => {
+        context?.abort.removeEventListener('abort', stop);
+        reject(new Error('input closed before an answer'));
+      });
       if (context?.abort.aborted) return stop();
       context?.abort.addEventListener('abort', stop, { once: true });
       this.output.write(`${serialize(payload)}\n> `);

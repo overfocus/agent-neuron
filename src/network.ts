@@ -71,7 +71,7 @@ export class Network {
       this.replaceable.get(key)?.abort();
       this.replaceable.set(key, controller);
     }
-    this.options.onSignal?.(signal);
+    this.notify(() => this.options.onSignal?.(signal));
     for (const target of targets) {
       const work = this.run(target, signal, controller.signal).finally(() => this.pending.delete(work));
       this.pending.add(work);
@@ -85,14 +85,30 @@ export class Network {
   }
 
   private async run(target: Neuron, signal: Signal, abort: AbortSignal): Promise<void> {
+    let payload: Payload | undefined;
+    let failure: { error: unknown } | undefined;
     try {
-      const payload = await target.receive(signal, { abort });
-      if (abort.aborted) return this.options.onDrop?.(signal, target.id);
-      this.options.onSignal?.(newSignal(target.id, payload, [signal.from]));
+      payload = await target.receive(signal, { abort });
     } catch (error) {
-      // an aborted run is not an error, whatever the adapter threw
-      if (abort.aborted) this.options.onDrop?.(signal, target.id);
-      else this.options.onError?.(error, signal, target.id);
+      failure = { error };
+    }
+    // Listeners run outside the try, so a listener's bug is never blamed on the neuron.
+    // An aborted run is never an error, whatever the adapter threw or returned.
+    if (abort.aborted) this.notify(() => this.options.onDrop?.(signal, target.id));
+    else if (failure) this.notify(() => this.options.onError?.(failure.error, signal, target.id));
+    else this.notify(() => this.options.onSignal?.(newSignal(target.id, payload as Payload, [signal.from])));
+  }
+
+  /**
+   * Listeners called for `emit` work (onSignal, onError, onDrop) cannot take
+   * the network down: whatever they throw is swallowed, since nothing is
+   * waiting to catch it. Catch errors inside your own listener if you care.
+   */
+  private notify(call: () => void): void {
+    try {
+      call();
+    } catch {
+      // swallowed on purpose, see above
     }
   }
 
