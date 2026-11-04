@@ -1,0 +1,60 @@
+{
+  "version": 0,
+  "name": "a-threshold-effect-call-survives-an-earlier-stale-input",
+  "description": "Issue 17 for an effect: a running threshold effect call is not cut when an earlier input it was built from goes stale (only that input, not the crossing one), and its answer is not forwarded; without effect it is cut (staleness/17-earlier-input-cuts-a-running-call).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "d1",
+      "run": [
+        "neuron-d1"
+      ]
+    },
+    {
+      "id": "d2",
+      "run": [
+        "neuron-d2"
+      ]
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ],
+      "threshold": 2,
+      "within": 100,
+      "effect": true
+    },
+    {
+      "id": "log",
+      "run": [
+        "neuron-log"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "d1"
+    },
+    {
+      "from": "s",
+      "to": "d2"
+    },
+    {
+      "from": "d1",
+      "to": "h"
+    },
+    {
+      "from": "d2",
+      "to": "h"
+    },
+    {
+      "from": "h",
+      "to": "log"
+    }
+  ]
+}

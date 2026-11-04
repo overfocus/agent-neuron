@@ -144,6 +144,14 @@ describe('network schema v0', () => {
     expect(out({ u: 6, v: 1 })).toEqual([expect.stringContaining('costs 6 u, more than the budget\'s 5: it can never run')]);
   });
 
+  it('takes effect only as true, on run, serve, http and human neurons, and not inside a composed file', () => {
+    expect(broken((n) => (n.neurons[1].effect = true))).toEqual([]);
+    expect(broken((n) => (n.neurons[1].effect = false)).join()).toContain('effect');
+    expect(broken((n) => (n.neurons[0].effect = true)).join()).toContain('unknown field "effect"'); // a source
+    expect(broken((n) => (n.neurons[5].effect = true)).join()).toContain('unknown field "effect"'); // a composed neuron
+    expect(broken(() => {}, (s) => (s.neurons[0].effect = true)).join()).toContain('may not contain an effect neuron');
+  });
+
   it('finds a composed network file that is missing, or lacks entry or exit', () => {
     expect(broken((n) => (n.neurons[5].network = 'gone.network.json')).join()).toContain('file not found');
     expect(broken(() => {}, (s) => delete s.entry).join()).toContain('needs "entry"');

@@ -1,0 +1,30 @@
+{
+  "version": 0,
+  "name": "a-call-refused-for-budget-is-an-error-not-unknown",
+  "description": "A refused call never started, so nothing can have happened: an effect call the pool cannot cover is an error with code budget, not unknown.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "run": [
+        "neuron-notify"
+      ],
+      "effect": true,
+      "cost": {
+        "credits": 3
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    }
+  ],
+  "budget": {
+    "credits": 2
+  }
+}

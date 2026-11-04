@@ -1,0 +1,34 @@
+{
+  "version": 0,
+  "name": "the-answer-of-a-stale-effect-call-is-recorded-but-not-forwarded",
+  "description": "The answer of an effect call whose input went stale is recorded, with forwarded false, and not forwarded; the fresh call answers and forwards as usual.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "run": [
+        "neuron-notify"
+      ],
+      "effect": true
+    },
+    {
+      "id": "log",
+      "run": [
+        "neuron-log"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    },
+    {
+      "from": "notify",
+      "to": "log"
+    }
+  ]
+}

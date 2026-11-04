@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "an-observer-sees-the-finished-event",
+  "description": "A scripted observer is shown `finished` events as well as events with an id: this one injects after the first trace finishes; the note names the trace as its trigger.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

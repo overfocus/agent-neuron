@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "An effect call that ends at the instant its input goes stale counts as stale (6.2 rule 5): the answer is recorded, not forwarded.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1,"replaces":"k"},
+    {"at":40,"source":"s","payload":2,"replaces":"k"}
+  ],
+  "script": {
+    "notify": {"calls":[{"after":40,"reply":{"answer":"edge"}},{"after":10,"reply":{"answer":"fresh"}}]},
+    "log": {"calls":[{"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":1}},
+    {"type":"signal","t":40,"id":"#2","from":"s","to":["notify"],"trace":"#2","hops":0,"replaces":"k","payload":{"type":"json","data":2}},
+    {"type":"answer","t":40,"id":"#3","from":"notify","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"forwarded":false,"payload":{"type":"text","text":"edge"}},
+    {"type":"answer","t":50,"id":"#4","from":"notify","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"fresh"}},
+    {"type":"signal","t":50,"id":"#5","from":"notify","to":["log"],"trace":"#2","cause":"#4","hops":2,"replaces":"k","payload":{"type":"text","text":"fresh"}},
+    {"type":"quiet","t":50,"id":"#6","from":"log","to":["notify"],"trace":"#2","replyTo":"#5","hops":3}
+  ]
+}

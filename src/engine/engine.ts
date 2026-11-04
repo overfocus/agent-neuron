@@ -1,5 +1,5 @@
 // The reference engine: runs a network file (docs/SPEC.md) and returns a trace (docs/TRACE.md, format v1).
-// `source`, level 0 `run`, level 1 `serve` and composed `network` neurons, with budgets (SPEC 10). Not here: http, human (SPEC 3.3, 3.4).
+// `source`, level 0 `run`, level 1 `serve` and composed `network` neurons, with budgets (SPEC 10), effects (SPEC 11) and the live stream (SPEC 9.1). Not here: http, human (SPEC 3.3, 3.4).
 //
 // Vocabulary as in the spec: an input is delivered to a neuron as a Work; a threshold group turns held works into one
 // Call; a Call ends in an Outcome (answer, quiet, error). Everything is one synchronous event loop, so the order of the
@@ -21,9 +21,11 @@ export type Trace = {
 };
 
 type Sig = { id: string; trace: string; from: string; to: string[]; hops: number; payload?: unknown; replyTo?: string; cause?: string; replaces?: string };
-type Outcome = { answer: unknown; replaces?: string | null; to?: string[] } | { quiet: true } | { error: string; code: string };
+type Outcome = { answer: unknown; replaces?: string | null; to?: string[] } | { quiet: true } | { error: string; code: string; started?: false };
 
 const MAX_AMOUNT = Number.MAX_SAFE_INTEGER, DEFAULT_WITHIN = 10_000, DEFAULT_TIMEOUT = 30_000, MAX_OUTPUT = 1 << 20, KILL_AFTER = 2_000, GRACE = 100, MAX_KEY = 256, PAYLOAD_CAP = 2000, PING_EVERY = 10_000, MAX_STARTS = 5, STABLE_AFTER = 1_000;
+/** The failures of an effect call (SPEC 11.3) that stay errors: the call never started, or the neuron itself said it failed. Every other failure is `unknown`. */
+const KNOWN_FAILURES = ['budget', 'start', 'neuron'];
 const groups = new Set<number>(); // process groups of running programs
 /** Time and processes: the seam the conformance fixtures use (SPEC 8). `realHost` is what runs; `src/engine/virtual.ts` is the other. */
 export interface Host {
@@ -123,6 +125,7 @@ class Call {
   queued = false; // serve: waiting for a slot, not yet written
   reserved?: Units; t0 = 0; // the cost reserved at the start of the call, and when it started
   finished = false; // the program is over and its reply is being made: no longer cuttable
+  stale = false; // an effect call (SPEC 11) one of whose inputs went stale: not cut, its answer is not forwarded
   stop: () => void = () => {};
   constructor(readonly inputs: Work[]) {}
   get crossing() { return this.inputs.at(-1)!; }
@@ -381,17 +384,34 @@ class Run {
   events: Event[] = [];
   rootScope: Scope;
   open = new Map<string, number>(); // outer trace -> unfinished works; at none the trace is finished
-  constructor(readonly root: Instance, readonly inner?: (path: string, e: Event) => void, readonly result?: (neuron: string, t: number, payload: unknown) => void, readonly observer?: Observer) {
-    this.rootScope = new Scope('', root, (e) => (this.events.push(e), this.observe(e)), root.net.budget);
+  constructor(readonly root: Instance, readonly inner?: (path: string, e: Event) => void, readonly result?: (neuron: string, t: number, payload: unknown) => void, readonly observer?: Observer, readonly onEvent?: (e: Event) => unknown) {
+    this.rootScope = new Scope('', root, (e) => (this.events.push(e), this.observe(e), this.stream(e)), root.net.budget);
+  }
+
+  /** The live stream (SPEC 9.1): every outer event, once, in written order, offered to `onEvent` from a microtask, never inside the routing.
+   *  The consumer gets a copy and its failure, sync or async, is ignored: it fails open. shortcut: the buffer is unbounded, so a consumer
+   *  that never keeps up holds the events in memory; bound it if a run can outlast its reader. */
+  private pending: Event[] = [];
+  private stream(e: Event) {
+    if (!this.onEvent) return;
+    this.pending.push(structuredClone(e));
+    if (this.pending.length === 1) queueMicrotask(() => this.flush());
+  }
+  private flush() { // by the time a run returns, the microtask for its last event has run: the stream is complete
+    for (let e = this.pending.shift(); e; e = this.pending.shift()) {
+      try { void Promise.resolve(this.onEvent!(e)).catch(() => {}); } catch { /* fails open */ }
+    }
   }
 
   /** An observer (SPEC 9) sees outer events only and can inject into a source later; it is not part of the network. */
   private observe(e: Event) {
-    if (typeof e.id !== 'string') return; // an observer sees signals, replies, drops and errors: events with an id, not notes
-    for (const inj of this.observer?.(e) ?? []) {
+    if (typeof e.id !== 'string' && e.type !== 'finished') return; // an observer sees signals, replies, drops, errors and unknowns (events with an id) and `finished`, not notes
+    let injections: Injection[] = [];
+    try { injections = this.observer?.(e) ?? []; } catch { /* an observer that throws fails open (SPEC 9) */ }
+    for (const inj of injections) {
       this.live++; // a pending injection keeps the run open (SPEC 6.2 rule 6)
       host.setTimeout(() => {
-        this.report(this.rootScope, { type: 'note', neuron: inj.source, what: 'inject', trigger: e.id });
+        this.report(this.rootScope, { type: 'note', neuron: inj.source, what: 'inject', trigger: e.id ?? e.trace }); // `finished` has no id: its trace is the trigger
         this.inject(inj);
         if (--this.live === 0) this.over?.();
       }, inj.at);
@@ -457,6 +477,7 @@ class Run {
       if (!w.scope.works.has(w)) continue; // finished
       if (w.call) { // running, or queued for a slot (any input of a threshold call cuts it; one drop, for the crossing input)
         if (w.call.cancelled || w.call.finished) continue;
+        if (w.node.spec.effect && !w.call.queued) { w.call.stale = true; continue; } // a started effect call is never cut (SPEC 11.2)
         this.drop(w.call.crossing, 'replaced', w.call.queued ? 'waiting' : 'running');
         this.cancel(w.call);
       } else if (w.held) {
@@ -656,7 +677,7 @@ class Run {
     });
     child.on('error', (e: NodeJS.ErrnoException) => {
       const why = e.code === 'ENOENT' && !existsSync(cwd) ? `working directory not found: ${spec.cwd}` : `could not start ${cmd[0]}: ${e.message}`;
-      failure = { error: `exit 127: ${why}`, code: 'exit' };
+      failure = { error: `exit 127: ${why}`, code: 'exit', started: false };
       settle();
     });
     child.on('exit', (code, signal) => {
@@ -713,21 +734,23 @@ class Run {
   }
 
   // ---- replies (SPEC 4.3, 4.4) ----
-  private fail(w: Work, o: { error: string; code: string }) {
+  private fail(w: Work, o: { error: string; code: string; started?: false }) {
     w.scope.failed = true;
-    this.report(w.scope, { type: 'error', ...this.fields(w.sig), neuron: w.node.id, message: o.error, code: o.code, payload: this.payload(w.sig.payload) });
+    const unknown = w.node.spec.effect && o.started !== false && !KNOWN_FAILURES.includes(o.code); // the effect may have happened (SPEC 11.3); a program that could not be spawned never ran
+    this.report(w.scope, { type: unknown ? 'unknown' : 'error', ...this.fields(w.sig), neuron: w.node.id, message: o.error, code: o.code, payload: this.payload(w.sig.payload) });
   }
 
   private reply(w: Work, o: Outcome) {
     if ('error' in o) return this.fail(w, o);
     const { sig, node, scope } = w;
     const reply: Sig = { id: scope.next(), trace: sig.trace, from: node.id, to: [sig.from], hops: sig.hops + 1, replyTo: sig.id };
+    const stale = w.call?.stale === true; // an effect call whose input went stale: the answer is recorded, not forwarded (SPEC 11.2)
     if ('quiet' in o) this.report(scope, { type: 'quiet', ...this.fields(reply) });
-    else this.report(scope, { type: 'answer', ...this.fields(reply), payload: this.payload(o.answer) });
+    else this.report(scope, { type: 'answer', ...this.fields(reply), ...(stale && { forwarded: false }), payload: this.payload(o.answer) });
     if (node === scope.inst.nodes.get(scope.inst.net.exit ?? '')) scope.onExit?.(o);
     if ('answer' in o && !node.out.length && scope === this.rootScope) this.result?.(node.id, this.now(), o.answer);
     // a level 1 reply may name some of the outgoing links (kept in declaration order) and set or clear the key (SPEC 4.4)
-    const to = 'answer' in o ? node.out.filter((n) => !o.to || o.to.includes(n.id)) : [];
+    const to = 'answer' in o && !stale ? node.out.filter((n) => !o.to || o.to.includes(n.id)) : [];
     if ('answer' in o && to.length) {
       const key = o.replaces === undefined ? sig.replaces : (o.replaces ?? undefined);
       this.send({ id: scope.next(), trace: sig.trace, from: node.id, to: to.map((n) => n.id), hops: reply.hops + 1, cause: reply.id, payload: o.answer, ...withKey(key) }, scope);
@@ -812,9 +835,10 @@ async function drive<T>(p: Promise<T>): Promise<T> {
  * `result` receives the full answers of the neurons with no outgoing links (the trace cuts long payloads).
  * `host` replaces time and processes (a virtual clock and scripted programs, SPEC 8); one virtual run at a time.
  * `observer` is called with each outer event; the injections it returns (`at` is a delay in ms) enter later (SPEC 9).
+ * `onEvent` is the live stream (SPEC 9.1): each event of the trace, in written order, as it happens; its failure never touches the run.
  */
 export type Observer = (e: Event) => Injection[] | void;
-export async function runNetwork(file: string, injections: Injection[], options: { pingEvery?: number; inner?: (path: string, e: Event) => void; result?: (neuron: string, t: number, payload: unknown) => void; host?: Host; observer?: Observer } = {}): Promise<Trace> {
+export async function runNetwork(file: string, injections: Injection[], options: { pingEvery?: number; inner?: (path: string, e: Event) => void; result?: (neuron: string, t: number, payload: unknown) => void; host?: Host; observer?: Observer; onEvent?: (e: Event) => unknown } = {}): Promise<Trace> {
   const errors = check(file).filter((f) => f.severity === 'error');
   if (errors.length) throw Object.assign(new Error(errors.map(formatFinding).join('\n')), { refusal: true }); // a file that does not check is refused like a serve neuron that is not ready (CONFORMANCE 4.3)
   const net = readNetwork(file);
@@ -832,7 +856,7 @@ export async function runNetwork(file: string, injections: Injection[], options:
   const previous = host;
   if (options.host) host = options.host;
   active++;
-  const run = new Run(root, options.inner, options.result, options.observer);
+  const run = new Run(root, options.inner, options.result, options.observer, options.onEvent);
   try {
     await drive(run.startServers(options.pingEvery ?? PING_EVERY)); // throws if a serve neuron cannot reach ready
     try {

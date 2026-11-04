@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "a-queued-effect-call-is-dropped-when-stale",
+  "description": "Staleness never cuts a started effect call, but a call that has not started (queued for a level 1 slot) is dropped as usual: replaced, phase waiting, no cancel note, and it never starts.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "serve": [
+        "neuron-notify"
+      ],
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    }
+  ]
+}

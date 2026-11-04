@@ -1,0 +1,25 @@
+{
+  "fixture": 0,
+  "description": "A newer input with the same (sender, key) does not cut a running effect call: no drop, no cancel, the call answers at its own time, its cost is reserved and committed with the measured ms.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1,"replaces":"k"},
+    {"at":40,"source":"s","payload":2,"replaces":"k"}
+  ],
+  "script": {
+    "notify": {"calls":[{"after":100,"reply":{"answer":"sent-1"}},{"after":10,"reply":{"answer":"sent-2"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"notify","what":"reserve","units":{"credits":2}},
+    {"type":"signal","t":40,"id":"#2","from":"s","to":["notify"],"trace":"#2","hops":0,"replaces":"k","payload":{"type":"json","data":2}},
+    {"type":"note","t":40,"neuron":"notify","what":"reserve","units":{"credits":2}},
+    {"type":"note","t":50,"neuron":"notify","what":"commit","units":{"credits":2},"ms":10,"basis":"estimated"},
+    {"type":"answer","t":50,"id":"#3","from":"notify","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"sent-2"}},
+    {"type":"finished","t":50,"trace":"#2","status":"done","remaining":{"credits":8}},
+    {"type":"note","t":100,"neuron":"notify","what":"commit","units":{"credits":2},"ms":100,"basis":"estimated"},
+    {"type":"answer","t":100,"id":"#4","from":"notify","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"forwarded":false,"payload":{"type":"text","text":"sent-1"}},
+    {"type":"finished","t":100,"trace":"#1","status":"done","remaining":{"credits":8}}
+  ]
+}

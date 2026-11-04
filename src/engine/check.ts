@@ -8,7 +8,7 @@ import { delimiter, dirname, join, normalize, resolve } from 'node:path';
 export type NeuronSpec = {
   id: string; description?: string;
   source?: true; run?: string[]; serve?: string[]; http?: string; human?: true; network?: string;
-  threshold?: number; within?: number; maxHops?: number; timeout?: number; env?: string[]; cwd?: string; cost?: Record<string, number>;
+  threshold?: number; within?: number; maxHops?: number; timeout?: number; env?: string[]; cwd?: string; cost?: Record<string, number>; effect?: true;
 };
 export type NetworkFile = {
   version: 0; name?: string; description?: string; entry?: string; exit?: string;
@@ -220,6 +220,7 @@ export function check(file: string, seen: string[] = [], shown?: string): Findin
     const sub = readNetwork(inner);
     if (sub.neurons.some((x) => x.id === n.id)) add('error', `${at}.id`, `neuron "${n.id}" has the same id as a neuron inside ${n.network}: a composed neuron's id must not be one of its inner ids`);
     for (const key of ['entry', 'exit'] as const) if (!sub[key]) add('error', `${at}.network`, `${n.network} is used as a composed neuron and needs "${key}"`);
+    if (sub.neurons.some((x) => x.effect)) add('error', `${at}.network`, `${n.network} is used as a composed neuron and may not contain an effect neuron (SPEC 11.5)`);
     if (sub.neurons.some((x) => x.source)) add('error', `${at}.network`, `${n.network} is used as a composed neuron and may not contain a source`);
     const lacking = [...new Set(sub.neurons.flatMap((x) => Object.keys(x.cost ?? {})))].filter((u) => n.cost && !(u in n.cost));
     if (lacking.length) add('warning', at, `${n.network} has neurons costing ${lacking.join(', ')}, which the cost of "${n.id}" does not name: those calls are always refused (SPEC 10.5)`);

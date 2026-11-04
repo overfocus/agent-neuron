@@ -1,0 +1,25 @@
+{
+  "version": 0,
+  "name": "a-level-1-effect-call-that-hangs-is-unknown-at-its-timeout",
+  "description": "A level 1 effect call that does not reply within its timeout is recorded as unknown at the timeout and cancelled as any call is; the reply to the cancel frees the slot.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "serve": [
+        "neuron-notify"
+      ],
+      "effect": true,
+      "timeout": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    }
+  ]
+}

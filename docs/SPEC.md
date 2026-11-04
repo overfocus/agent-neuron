@@ -1,7 +1,7 @@
 # agent-neuron specification, version 0.1
 
 Status: draft. Version 0.1 is version 0 plus budgets and the `finished` event
-(section 10); a network file's `version` stays `0`, because the new fields are
+(section 10), effects with the `unknown` outcome (section 11) and the live trace stream (9.1); a network file's `version` stays `0`, because the new fields are
 additions. The spec may change in any way until it is called 1; a change
 is one commit to this file, `spec/network.schema.json` and the fixtures
 together. MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Each section
@@ -22,6 +22,7 @@ Contents
 8. Conformance (normative; the format is in [CONFORMANCE.md](CONFORMANCE.md))
 9. Observers (normative)
 10. Budgets (normative)
+11. Effects (normative)
 
 Appendices (informative): A. Walk-through: one alert. B. Out of version 0.1.
 C. How the TypeScript library differs.
@@ -97,6 +98,11 @@ Rules you will hit:
   (section 10). A call it refuses never starts.
 - **Quiet is a choice.** An error (non-zero exit) forwards nothing too, but is
   recorded as a failure.
+- **A neuron that does something in the world** (sends a message, writes a record) is
+  declared `"effect": true`. The engine then never cuts a call that has started because
+  its input went stale, and if the call crashes or times out it records `unknown`, not
+  an error: nobody can tell whether it happened. Make such a program idempotent by an id
+  in its payload (section 11).
 - **Running a network.** `npm run engine -- check <file>` validates a network file
   (schema and the findings of section 2.7, with line and column). `npm run engine --
   run <file> --inputs <jsonl> [--trace <out.json>]` runs it: the inputs file holds one
@@ -203,6 +209,7 @@ program's working directory.
 | `env` | array of unique names | `[]` | run, serve | environment variables passed through: names only |
 | `cwd` | path | the directory of the file that declares the neuron | run, serve | working directory |
 | `cost` | units (10.1) | none | all but source | what one call reserves, and the most it may consume (10) |
+| `effect` | `true` | none | run, serve, http, human | a started call is never cut by staleness; its failures are `unknown` (11) |
 
 A program's environment is empty except `PATH` and the `env` names (a name the
 engine lacks stays unset). `threshold` and `within` are not allowed on `network`.
@@ -245,12 +252,20 @@ Per call:
 5. `maxHops` and `timeout` apply at the outer boundary. Hops inside start at 0
    and do not add to the outer chain.
 6. The composed neuron's `cost` and the inner file's `budget` bound what the inside may spend (10.5).
+7. A composed neuron is never an `effect`, and its file contains none (11.5).
 
 **Sealing** (MUST): inner ids, signals, traces and error text never appear in
 anything reported about the outer network; from outside, a signal goes in and
 a reply comes out, and an inner failure is only the composed neuron's own
 error. A separate inspection tool for the inside, keyed by instance path, is an
 operator's tool and is not in version 0.
+
+Sealing is between neurons, not against whoever holds the file. A composed network run from a
+local file is sealed from the other neurons of the outer network and from the outer trace; the
+person or program that holds the file and runs the engine can read it, run it, and inspect the inside.
+A boundary that must hold against the holder of the inside (one run by another party, say) is not a
+composed neuron: it is an `http` neuron (3.3) to that party's own engine, which keeps its inside and
+its accounting (10.5) to itself.
 
 ### 2.7 `check` (normative)
 
@@ -262,19 +277,20 @@ is missing, invalid, lacks `entry`/`exit`, has a source or an `exit` with
 outgoing links (errors); a cycle in which no neuron has `maxHops` (error); a `budget`
 or `cost` amount that is not a whole number from 0 to 2^53 - 1, a `cost` naming a unit the
 file's `budget` lacks, an empty `budget` or `cost`, or a non-source neuron with no `cost` in a file that
-has a `budget` (10.1) (errors); a `cost` above the file's ceiling in some unit (the neuron can never run),
+has a `budget` (10.1) (errors); a `network` file that contains a neuron with `effect` (11.5) (error); a `cost` above the file's ceiling in some unit (the neuron can never run),
 or a `network` neuron whose file has neurons costing a unit its `cost` does not name (those calls are always
 refused, 10.5) (warnings); an executable that cannot be found (warning).
 
 ### 2.8 Field budget (informative)
 
-9 top-level fields; per neuron `id`, `description`, one kind field, at most 7
+9 top-level fields; per neuron `id`, `description`, one kind field, at most 8
 options; 2 per link. A new field must answer one question: does it say how
 neurons connect, or how one decides? Deciders are programs. `AGENTS.md` holds
-the rule. Version 0.1 added `budget` (the ninth top-level field) and `cost` (the seventh
-option, the eighth is planned for `effect`): a limit on spend is the engine's to enforce, not a
-program's to declare for itself, the same class as `timeout` and `maxHops`
-([decision 0006](decisions/0006-budgets.md)).
+the rule. Version 0.1 added `budget` (the ninth top-level field), `cost` (the seventh option) and `effect` (the
+eighth): a limit on spend is the engine's to enforce, not a program's to declare for itself, the same class
+as `timeout` and `maxHops` ([decision 0006](decisions/0006-budgets.md)); whether staleness may cut a call,
+and what a failure of it means, is likewise the engine's to apply, not something a program can do for itself
+([decision 0007](decisions/0007-effects-and-the-live-stream.md)).
 
 ## 3. The neuron contract (normative)
 
@@ -334,7 +350,7 @@ id: ids never reach programs. At most `maxInflight` calls are running at once;
 the rest are queued in order. Replies may come in any order. A reply for an
 `re` that is cancelled, finished or unknown is discarded.
 
-**Cancel** is sent for stale work and timeouts. A cancelled `re` keeps its slot
+**Cancel** is sent for stale work (never for a started effect call, 11.2) and timeouts. A cancelled `re` keeps its slot
 until the neuron replies for it or `timeout` ms have passed, then the process
 is treated as hung (6.1). So a neuron that stops cancelled work still replies
 for it (the reply is discarded, `quiet` is enough); one that drops it silently
@@ -493,6 +509,9 @@ input it was built from is stale, not only the one that crossed. One drop is
 reported, for the crossing input (which may itself not have been replaced),
 phase `running`. The other inputs report nothing.
 
+**An effect call is not cut** (11.2): staleness marks it, and only its forward is suppressed. A waiting
+effect call (held or queued) has not started and is dropped as above.
+
 A 5.2 same-sender regroup replaces a *held* input only. It never cuts a running
 call by itself; only (sender, key) staleness does.
 
@@ -520,6 +539,11 @@ affected. Failures of stale work are not errors.
 | level 1 `error` with `re` | `neuron` | the neuron's message | |
 
 `S` in `signal S:` is the signal's name (`SIGKILL`, `SIGUSR1`), never its number.
+
+**Effect calls.** For a neuron with `effect` (11), every failure above except codes `budget`, `start` and
+`neuron` is not an `error` but an `unknown` event with the same fields and the same `code` (11.3): the
+call started, and nobody can tell whether the effect happened. `budget` and `start` mean the call never
+started, `neuron` is the neuron saying itself that it failed; they stay errors.
 
 ### 6.2 Event order
 
@@ -555,7 +579,7 @@ list.
    level 1 reply, the exit of a composed neuron: whatever ends the call at that instant.) A timeout has no
    other privilege: against anything else due at that instant, rule 1 decides.
 8. A trace's `finished` event (7.2) is reported right after the last event its last unfinished
-   work caused: the reply and its forward and their delivery effects, or the `error`, or the `drop`.
+   work caused: the reply and its forward and their delivery effects, or the `error`, the `unknown`, or the `drop`.
    A process note that belongs to that instant and follows its cause (the `kill` after the `error` of
    an over-long output) comes after `finished`.
 
@@ -563,16 +587,16 @@ list.
 
 A `note` (7.2) records a fact about a process. An engine MUST write these, and conformance
 fixtures with `notes` compare them. Order at one instant: the event that reports what
-happened to the call (the `drop` of a cut, the `error` of a timeout or a crash, ...) first,
+happened to the call (the `drop` of a cut, the `error` or `unknown` of a timeout or a crash, ...) first,
 then the notes of what the engine does to the process, in the order `cancel`, `term`, `kill`.
 The notes of a budget (10) are written only when the network has a `budget`:
 
 - `reserve`: when a call with a `cost` starts (10.3), with `units`: the cost. Before anything else
   the call causes. A call that is refused writes none.
 - `commit`: when the call's program is over (10.4), with `units`, `ms` and `basis`. Just before the
-  event that reports the outcome (`answer`, `quiet`, `error`); a cut call has no such event, so its
+  event that reports the outcome (`answer`, `quiet`, `error`, `unknown`); a cut call has no such event, so its
   `commit` comes after its `cancel`, `term` and `kill` notes, when the program is gone. A timeout's
-  `error` comes at the timeout and the `commit` when the program is over.
+  `error` (or `unknown`) comes at the timeout and the `commit` when the program is over.
 
 - `cancel`: when the engine cancels a call that has started (stale, timeout), after the drop or
   error. A call that is only queued for a slot, or a held input, has not started: it is dropped
@@ -588,7 +612,7 @@ The notes of a budget (10) are written only when the network has a `budget`:
 - `restart`: when the new level 1 process is spawned, after the backoff delay, not when it is
   scheduled.
 - `junk`: when the junk line is read, so before the `junk` error it causes.
-- `inject`: an observer's injection, just before the injected signal (9).
+- `inject`: an observer's injection, just before the injected signal (9), with `trigger`: the `id` of the event that fired it, or, when that event is a `finished` (which has no `id`), its `trace`.
 
 ## 7. The trace (normative)
 
@@ -616,6 +640,7 @@ inside never appears.
 | `answer`, `quiet` | a reply (4.3) |
 | `drop` | stale work, expiry, a hops refusal |
 | `error` | a failure (6.1) |
+| `unknown` | a failure of a started effect call whose outcome cannot be known (11.3) |
 | `finished` | a trace has no unfinished work left (below) |
 | `note` | process facts |
 
@@ -624,7 +649,7 @@ text `{"type":"text","text":...}` for a string, else `{"type":"json","data":...}
 (a JSON string payload is therefore text: the one lossy spot). Every event but
 `note` carries the signal's fields (`id`, `from`, `to`, `trace`, `replyTo` and
 `cause` when set, `hops`). A `drop` or `error` describes the signal the work was
-for, plus `neuron` and `reason` (drop) or `message` (error). `note` is
+for, plus `neuron` and `reason` (drop) or `message` (error, unknown). `note` is
 `{type, t, neuron, what}`.
 
 Additions beyond v1 as written, all optional fields or a new event type (so
@@ -635,6 +660,8 @@ v1 readers, which ignore what they do not know, are unaffected):
 | `phase` (`waiting` or `running`) on `drop` | MUST on reason `replaced`; MUST NOT on `hops` or `expired` |
 | `replaces` on `signal` | MUST when the signal has a key; on `signal` events only, never on `drop`, `error`, `answer` or `quiet` |
 | `code` on `error` | MUST, from the 6.1 table (`budget` included) |
+| `unknown` event: the fields of an `error` (`neuron`, `message`, `code`, the signal's fields and payload) | MUST, in place of the `error`, for the failures of a started effect call (6.1, 11.3); MUST NOT for any other neuron |
+| `forwarded` (`false`) on `answer` | MUST when the answer of an effect call was not forwarded because its input went stale (11.2); MUST NOT otherwise |
 | `note` event: `what` is `junk` (with `line`, `text`), `cancel`, `term`, `kill`, `restart` or `inject` (with `trigger`) | MUST, as 6.3 says (fixtures with `notes` compare them) |
 | `note` event: `what` is `reserve` (with `units`) or `commit` (with `units`, `ms`, `basis`) | MUST for every call when the network has a `budget`; otherwise MUST NOT (10) |
 | `finished` event: `trace`, `status`, and `remaining` | MUST, once per trace of the outer network, as below |
@@ -659,9 +686,9 @@ v1 readers, which ignore what they do not know, are unaffected):
   links) is finished at the instant it is injected. `status` is `exhausted` if some call of the
   trace was refused with code `budget` (10.3) at this level, else `done`; a refusal sealed inside a
   composed neuron shows as `done` outside (10.5). Without a budget it is always `done`.
-  It carries no signal fields and no `id`, so the scripted observer of the fixtures, which sees events
-  with an `id`, does not see it; observers get it with the normative live stream (version 0.1, later).
-  The inside of a composed neuron never has one (2.6).
+  It carries no signal fields and no `id`. Observers are shown it (9.1). An `unknown` outcome (11.3) does not
+  change `status`, which speaks only of the budget; the `unknown` event is in the trace. The inside of a composed
+  neuron never has one (2.6).
 
 Example, a running call cut because an *earlier* input was replaced. Detectors
 `d1` and `d2` (20 ms) feed `h` (`threshold` 2, 100 ms); `s` feeds both. Ids are
@@ -717,6 +744,8 @@ A directory with a network file (and the composed files it names) and `fixture.j
   with an outcome, not byte parsing.
 - `expect`: the events (section 7) in order. `note` events are compared only if `notes` is true, and
   `finished` events only if `finished` is true.
+- The runner also collects the live stream (9.1) of every run and the fixture fails if it differs from the
+  events of that run; `streamFails` makes the consumer throw on every event.
 - `pingEvery`: the idle ping interval of the run (the interval is the engine's, 3.2).
 
 ### 8.2 Clock
@@ -748,7 +777,9 @@ after 10; `b` is quiet after 5. Expected (this is `spec/fixtures/routing/chain-f
 The fixtures cover routing, threshold, staleness (issue 17 included), `maxHops`, composed
 neurons and sealing, every row of the 6.1 table that an engine can reach, the 6.2 order, the
 end of a run, level 1 (handshake, queueing, cancel, ping, restart), observers and
-the version 0.1 budget (`budget/`: reserve, commit, refusal, the pool of a trace, a composed cap, `finished`).
+the version 0.1 budget (`budget/`: reserve, commit, refusal, the pool of a trace, a composed cap, `finished`),
+effects (`effect/`: a call staleness does not cut, an answer recorded and not forwarded, `unknown` after a crash, a hang or a timeout, cost committed) and
+the live stream (`stream/`).
 
 ### 8.5 The observer rule
 
@@ -760,10 +791,10 @@ checked.
 ## 9. Observers (normative)
 
 An **observer** is a program outside the network that reads the engine's trace
-events as a live stream. It is not in the network file (no field, kind or link
+events as a live stream (9.1). It is not in the network file (no field, kind or link
 mode), is not addressable, is not on any path, and cannot send along links.
 
-- Events reach it **buffered and asynchronously**. A slow or crashed observer
+- Events reach it **buffered and asynchronously** (9.1). A slow or crashed observer
   never delays or alters the network: it **fails open**.
 - It MAY: (a) return results to whoever runs it (for example the answers of
   neurons with no outgoing links); (b) write the strength state file (it is the
@@ -791,6 +822,32 @@ mode), is not addressable, is not on any path, and cannot send along links.
   belongs to the routing rule (section 4); an engine does it itself.
 - There is no `watch` link: it would settle the open passive/active question by
   the back door.
+
+### 9.1 The live stream (normative)
+
+An engine MUST offer the events of the trace as they happen, to a consumer of the caller's choosing, in
+two forms: a library option (the reference engine's is `onEvent` on `runNetwork`) and a command-line flag
+that writes one JSON object per line as they happen (the reference engine's is `run --stream <path>`).
+
+- **The stream is the trace.** It carries every event of the trace of the outer network (7.2: signals, replies,
+  drops, errors, `unknown`, `finished` and notes), each once, in the order they are written (6.2), and
+  nothing else: no event the trace lacks, none missing, none reordered. A consumer that has read the
+  stream has read the trace. The inside of a composed neuron is not in it (2.6). The stream is complete
+  when the run is: the last event, a trace's `finished` or a process note, is offered before the run returns.
+- **Buffered.** An event is offered to the consumer after the engine has finished the step that wrote it,
+  never inside the routing: the engine does not wait for the consumer.
+- **Fails open.** A consumer that is slow, throws, rejects or closes its end never changes the run: not the
+  events, their order, their times, a call or its cost. The consumer gets a copy of each event; what it does to
+  the copy is its own. (An engine in the same thread as its consumer cannot isolate a consumer that blocks the thread
+  for long; a consumer that must not hold the engine up reads the command-line form through a pipe.)
+- **Observers get `finished`.** An observer (above) is shown, besides events with an `id`, the `finished`
+  event of every trace, so it can act when a trace ends (collect its spend, reconcile, start the next).
+  The scripted observer of the fixtures is shown it too (CONFORMANCE 6).
+- **Pipes.** The command-line form, given a pipe, needs a reader that has it open when the run starts (else the
+  stream is off and says so). It never holds the run back: the trace and results are written first, and a reader that
+  does not take the rest within a short grace is cut off, with one message on stderr.
+
+The stream is not a second record: it adds no information to the trace and is not replayed.
 
 ## 10. Budgets (normative)
 
@@ -899,6 +956,102 @@ Usage claims from a neuron (so that a commit can be below the reservation), amou
 another party, spend per source or per time window, settlement, and anything that moves value
 outside the trace. A trace explains what was spent; it does not prove it to anyone else.
 
+## 11. Effects (normative)
+
+Some neurons do something in the world: send a message, write a record, start a job. Their calls are not
+free to cut, and a failure of one does not mean nothing happened. `effect` says so in the file, so the
+engine can apply two rules that a program cannot apply for itself. The reasons are in
+[decision 0007](decisions/0007-effects-and-the-live-stream.md).
+
+### 11.1 Declaring
+
+`effect` is the neuron option `true` (2.4), on `run`, `serve`, `http` and `human` neurons; never on a
+`source` or a `network` neuron (the schema refuses both). It changes nothing else about the neuron: its
+contract (3), `threshold`, `within`, `timeout` and `cost` are as they were. A neuron without it behaves exactly as
+before.
+
+### 11.2 Staleness never cuts a started call
+
+When work for an effect neuron goes stale (5.4):
+
+- **Waiting work** (a held input, a call queued for a level 1 slot) has not started anything: it is dropped as
+  usual, reason `replaced`, phase `waiting`.
+- **A started call is not cut.** No `drop` is reported, no `cancel` is sent (level 1) and no signal is sent to
+  the process group (level 0), and no `cancel`, `term` or `kill` note is written. The call is marked stale and
+  runs to its own end. For a threshold call, any input it was built from going stale marks it, as in 5.4.
+  A call that ends at the instant its input goes stale counts as stale (6.2 rule 5).
+- **Its answer is always recorded** as an `answer` event (4.3), and **its cost is committed** (10.4) as for any
+  call. If the call is stale when it answers, the answer is not forwarded (4.4): the `answer` event carries
+  `"forwarded": false` (7.2) and no forward follows. Quiet and failures carry no mark: nothing would have been forwarded.
+  A call that was not stale answers and forwards as usual.
+- **Results.** What the engine returns to its caller (the answers of neurons with no outgoing links) is not a
+  forward: a stale effect answer from such a neuron still reaches it, as well as the trace.
+
+A stale input therefore suppresses only the forward. The effect happens, the trace says it happened, and the
+chain downstream is spared an answer to a question that has been replaced.
+
+### 11.3 The `unknown` outcome
+
+If an effect call has started and fails, the engine cannot tell whether the effect happened. For a failure of
+6.1 with any code except `budget`, `start` and `neuron`, the engine reports an `unknown` event in place of the
+`error`: the same fields, the same `code`, the same `message` rule, at the same moment. The codes that stay
+errors are those where the call never started (`budget`, `start`) and the one where the neuron itself says it
+failed (`neuron`, a level 1 `error` reply). A level 0 program that could not be started at all (no such
+executable, no such working directory) never ran: that is an `error` (`exit`, 127) as for any neuron, not `unknown`.
+A neuron that wants to say honestly "it did not happen" should be level 1 and reply `error`: level 0 has only its exit status,
+which a crash looks the same as.
+
+- Nothing is forwarded, as for an error, and nothing else is affected. The engine does not retry, hold or
+  block anything: an `unknown` is a record, and what to do about it is decided outside the engine (11.4).
+  The trace shows exactly one outcome for the call.
+- **A timeout is `unknown`, and the call is killed at it.** An effect call that hangs or runs past its
+  `timeout` is cancelled as any call is (3.1, 3.2: SIGTERM then SIGKILL; `cancel` at level 1), at the timeout,
+  and recorded `unknown` at that instant with code `timeout`. The run must be able to end, and the record
+  is honest: the call was started and its effect is not known.
+- The cost of the call is committed as for any outcome (10.4), `estimated`.
+- `unknown` is not a drop and not an error: a reader that counts failures must count it separately, and
+  a reader that does not know the event type must not read its absence as "nothing happened" (TRACE.md).
+
+### 11.4 Reconciling (informative)
+
+The engine has no machinery for reconciliation. The pattern uses what the specification already has:
+
+1. The producer puts a short id at the top level of the payload it injects (`{"id": "n-17", ...}`), so it survives the
+   2000-character cut of the trace (7.2), and the effect program uses it to make the effect idempotent, so doing it twice
+   is the same as doing it once. The engine never retries.
+2. The file declares a `source` for reconciliation (`reconcile`) linked to a neuron that can find out
+   (`lookup`: reads the record the effect writes, or asks the other system).
+3. Whoever sees the `unknown` (the producer reading the stream, or an observer, 9) injects the id into `reconcile` (4.1, 9). The
+   injection is a root signal of its own trace, and the answer of `lookup` is its record.
+
+The `unknown` event carries the payload of the input, so the id can be read from the event; for a threshold call it
+carries only the crossing input's payload (the others are not in the event), so a threshold effect should have its id on every
+input. Three cautions: `lookup` answering "not sent" is only as good as the other system's consistency, since a timed-out
+or killed call may still land later; any retry the producer makes must itself be idempotent by the id; and the engine
+guarantees none of this. The demo
+(`npm run demo:notify`) and the fixture `observer/an-observer-reconciles-an-unknown-effect` do this.
+
+### 11.5 Composed neurons
+
+A `network` neuron is never an effect, and a network file used as a composed neuron MUST NOT contain a neuron
+with `effect` (`check` reports an error, 2.7). A composed call is cut as a whole, recursively and without
+reports (2.6 steps 2 and 4), and sealing (2.6) keeps the outside from seeing what the inside did, so neither the
+guarantee of 11.2 nor the record of 11.3 could hold across the boundary. An effect belongs in the outer file,
+where the trace shows it; a composed neuron may feed it.
+
+### 11.6 Budgets, threshold, levels
+
+- **Budgets.** An effect call reserves at its start and commits on every outcome (10.3, 10.4): its answer,
+  a stale answer, an `unknown`. A refused call is a `budget` error (never started). Its `commit` comes just before the
+  `answer` or `unknown` it belongs to (6.3).
+- **Threshold.** Held inputs are not calls: they are replaced and expire as in 5.2. Once the threshold is
+  met the call is a started call (11.2), and any of its inputs going stale marks it.
+- **Levels.** At level 0 and level 1 alike a stale input starts nothing: no signal to the process group, no
+  `cancel` line. The slot of a level 1 effect call is its own until it replies or `timeout` ends it.
+  `http` and `human` neurons are not run by the reference engine; the rules apply to them when an engine does.
+- **`finished`.** A trace is finished when nothing is running, queued or held (7.2); a running effect call
+  that went stale is still running, so the trace waits for it.
+
 ## Appendix A. Walk-through: one alert (informative)
 
 Files: [alerts.network.json](../spec/examples/alerts.network.json),
@@ -939,10 +1092,8 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
   a composed neuron; byte-level fixtures and real-process fixtures; hot reload.
 - Distribution: the engine will ship as a binary inside the npm and pip
   packages (the esbuild and ruff pattern).
-- **Plan for the rest of 0.1**, each with a conformance fixture: a neuron option `effect`
-  (a call that staleness and the timeout never cut, an `unknown` outcome held until
-  reconciled); a normative live trace stream for observers. The eighth neuron option, with
-  `cost` the seventh.
+- Effects, later: an engine-held `unknown` that blocks a key until reconciled, a retry policy, effects
+  inside a composed file (11.5).
 - Budgets, later: usage claims in level 1 replies, an owed ledger, spend per source or per time
   window, settlement (10.8).
 
@@ -983,14 +1134,18 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
   virtual clock with scripted programs (`src/engine/virtual.ts`, a `Host` the engine takes in
   place of real time and processes). Its other tests run real processes (`sh`, `cat`) for what
   the fixtures cannot reach: bytes, process groups, the environment.
-- **Observers** (section 9): only the scripted observer of the fixtures (a function the
-  harness passes to `runNetwork`, with the `inject` note). `run` returns the finished trace;
-  there is no live stream.
+- **Observers** (section 9): the `observer` option of `runNetwork` (a function called with each outer event, the
+  `finished` event included, that returns injections; the fixtures' scripted observer is one, and the notify demo
+  another), with the `inject` note. `run` returns the finished trace.
+- **The live stream** (9.1): the `onEvent` option of `runNetwork` and `run --stream <path>` (a file, or a pipe). Events are queued
+  and offered from a microtask, as copies; a consumer's exception or rejected promise is ignored. The buffer is
+  unbounded, so a consumer that never keeps up holds the events in memory.
 - **Same-instant order** (6.2 rules 1 and 5) holds because the engine is one
   synchronous event loop, not because a clock orders it; a call whose process
   ends in the same millisecond its input goes stale can go either way.
 - **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` only for a scripted observer;
   `reserve` and `commit` with a budget.
+- **Effects** (section 11): all of it. `unknown` is a separate event type; the `forwarded` mark is on the `answer` event.
 - **Budgets** (section 10): all of it. A call's `ms` is read from `performance.now()` in real runs, rounded to whole ms.
 - **Process start failure** (no such executable) is an `exit` error, `exit 127:`
   then the reason; the table in 6.1 has no row for it.

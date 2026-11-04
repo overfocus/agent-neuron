@@ -166,6 +166,9 @@
             },
             "cost": {
               "$ref": "#/$defs/units"
+            },
+            "effect": {
+              "const": true
             }
           }
         },
@@ -218,6 +221,9 @@
             },
             "cost": {
               "$ref": "#/$defs/units"
+            },
+            "effect": {
+              "const": true
             }
           }
         },
@@ -266,6 +272,9 @@
             },
             "cost": {
               "$ref": "#/$defs/units"
+            },
+            "effect": {
+              "const": true
             }
           }
         },
@@ -307,6 +316,9 @@
             },
             "cost": {
               "$ref": "#/$defs/units"
+            },
+            "effect": {
+              "const": true
             }
           }
         },

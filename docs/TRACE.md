@@ -95,9 +95,10 @@ Nothing in the library uses strength yet, so no trace sets it. Replay already ho
 | `quiet` | an answer that says nothing (empty text): the neuron chose not to act. No payload |
 | `drop` | work for a signal was dropped at `neuron`, `reason` `replaced`, `expired` or `hops` |
 | `error` | `neuron` failed handling a signal; `message` |
+| `unknown` | optional, from engines following docs/SPEC.md: a call of a neuron declared `effect` started and then failed (crash, hang, timeout, ...), so nobody can tell whether its effect happened. The fields of an `error`: `neuron`, `message`, `code`, payload. **A reader that does not know this type must not conclude that nothing happened**: it is in place of an `error`, and a count of failures must count it too (or separately) |
 | `fail` | the run itself failed; `message` only |
 | `finished` | optional, from engines following docs/SPEC.md: a trace has no unfinished work left. `trace`, `status` (`done` or `exhausted`) and, when the network has a budget, `remaining` (units to amounts). No signal fields, no `id` |
-| `note` | optional, from engines following docs/SPEC.md: a process fact (`neuron`, `what`: `junk`, `cancel`, `term`, `kill`, `restart`, `inject`, `reserve`, `commit`; plus `line`, `text`, `trigger`, `units`, `ms` or `basis`). No signal fields |
+| `note` | optional, from engines following docs/SPEC.md: a process fact (`neuron`, `what`: `junk`, `cancel`, `term`, `kill`, `restart`, `inject`, `reserve`, `commit`; plus `line`, `text`, `trigger` (the `id` of the event that fired an observer injection, or the `trace` of a `finished` event, which has no `id`), `units`, `ms` or `basis`). No signal fields |
 
 Every event except `fail` carries the signal's fields: `id`, `from`, `to` (list), `trace`, `replyTo` and `cause` when set, and `hops`.
 `trace` is the chain id: the id of the first signal of a chain, shared by every signal
@@ -106,9 +107,10 @@ the file or the run: one file holds many traces.
 A `signal` event may also carry `via`: `"emit"` or `"send"`, how it was sent. Absent means
 `emit`. The recorder does not write it yet (the library does not report it).
 
-Optional fields from docs/SPEC.md, which readers may ignore: `replaces` on `signal` (the stale-work key);
+Optional fields from docs/SPEC.md, which readers may ignore: `forwarded` (`false`) on `answer`: the answer of an effect call whose
+input went stale was recorded and not forwarded; `replaces` on `signal` (the stale-work key);
 `phase` on `drop` (`waiting` or `running`: whether the work had started; a running drop of a threshold call
-may name the crossing input even when a different, earlier input was the one replaced); `code` on `error`
+may name the crossing input even when a different, earlier input was the one replaced); `code` on `error` and `unknown`
 (`exit`, `output`, `junk`, `http`, `protocol`, `timeout`, `crash`, `start`, `inner`, `neuron`, `budget`).
 
 Budget accounting (docs/SPEC.md section 10) is written only for a network with a `budget`. All its
@@ -119,6 +121,14 @@ real figure is unknown; a later version adds `measured`). An `error` with `code`
 because its cost could not be covered. Every trace of an engine run ends with one `finished` event,
 with a budget or without: `status` `exhausted` when a call was refused, else `done`, and `remaining`, what
 is left of the trace's pool. A reader that does not know these ignores them, as it ignores all of the above.
+
+Effects (docs/SPEC.md section 11): the `unknown` event is a new type, not an `error` with a new code, on purpose. An old
+reader that skips events it does not know shows the call as neither failed nor retried, so it does not retry something
+that may have happened; an old reader that read a new `error` code as a plain failure might. The `unknown` event
+carries the payload of the input (only the crossing input's, for a threshold call), so a reconciling producer can read the id it
+put there, if it is short and at the top level of the payload: a payload over 2000 characters is cut to a preview. A "not sent"
+from a lookup is only as good as the other system's consistency (a timed-out call may still land), and any retry must be idempotent by the id (SPEC 11.4). The live stream (SPEC 9.1) carries
+these events, and every other event of the trace, as they are written, one JSON object per line from `run --stream`.
 
 For `drop` and `error` they describe the signal that was dropped or that failed
 (`id` names an earlier event), plus `neuron`, `reason` or `message`, and the

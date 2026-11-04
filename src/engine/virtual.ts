@@ -123,6 +123,7 @@ class VProc extends EventEmitter {
       this.die(null, r.crash === true ? 'SIGKILL' : (r.crash as NodeJS.Signals));
     }
     else if (r.overlong) this.stdout.emit('data', Buffer.alloc(BIG + 1, 97));
+    else if (r.spawnFails) this.emit('error', Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' })); // the program could not be started
     // hang: nothing, ever
   }
 

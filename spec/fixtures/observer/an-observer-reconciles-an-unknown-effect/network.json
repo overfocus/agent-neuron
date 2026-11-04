@@ -1,0 +1,38 @@
+{
+  "version": 0,
+  "name": "an-observer-reconciles-an-unknown-effect",
+  "description": "Reconciliation is an injection, not engine machinery: the observer sees the unknown event of a crashed effect call and injects, into the declared source `reconcile`, the id the original payload carried; `lookup` then answers whether it happened.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "reconcile",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "run": [
+        "neuron-notify"
+      ],
+      "effect": true
+    },
+    {
+      "id": "lookup",
+      "run": [
+        "neuron-lookup"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    },
+    {
+      "from": "reconcile",
+      "to": "lookup"
+    }
+  ]
+}

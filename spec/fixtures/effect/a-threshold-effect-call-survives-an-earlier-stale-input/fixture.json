@@ -1,0 +1,26 @@
+{
+  "fixture": 0,
+  "description": "Issue 17 for an effect: a running threshold effect call is not cut when an earlier input it was built from goes stale (only that input, not the crossing one), and its answer is not forwarded; without effect it is cut (staleness/17-earlier-input-cuts-a-running-call).",
+  "inputs": [
+    {"at":0,"source":"s","payload":{"n":1},"replaces":"k"},
+    {"at":40,"source":"s","payload":{"n":2},"replaces":"k"}
+  ],
+  "script": {
+    "d1": {"calls":[{"after":20,"reply":{"answer":{"d":1}}},{"after":20,"reply":{"answer":{"d":1}}}]},
+    "d2": {"calls":[{"after":20,"reply":{"answer":{"d":2}}},{"after":20,"reply":{"quiet":true}}]},
+    "h": {"calls":[{"when":{"payload":{"d":2},"inputs":[{"d":1},{"d":2}]},"after":100,"reply":{"answer":"old"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["d1","d2"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":{"n":1}}},
+    {"type":"answer","t":20,"id":"#2","from":"d1","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"d":1}}},
+    {"type":"signal","t":20,"id":"#3","from":"d1","to":["h"],"trace":"#1","cause":"#2","hops":2,"replaces":"k","payload":{"type":"json","data":{"d":1}}},
+    {"type":"answer","t":20,"id":"#4","from":"d2","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"d":2}}},
+    {"type":"signal","t":20,"id":"#5","from":"d2","to":["h"],"trace":"#1","cause":"#4","hops":2,"replaces":"k","payload":{"type":"json","data":{"d":2}}},
+    {"type":"signal","t":40,"id":"#6","from":"s","to":["d1","d2"],"trace":"#6","hops":0,"replaces":"k","payload":{"type":"json","data":{"n":2}}},
+    {"type":"answer","t":60,"id":"#7","from":"d1","to":["s"],"trace":"#6","replyTo":"#6","hops":1,"payload":{"type":"json","data":{"d":1}}},
+    {"type":"signal","t":60,"id":"#8","from":"d1","to":["h"],"trace":"#6","cause":"#7","hops":2,"replaces":"k","payload":{"type":"json","data":{"d":1}}},
+    {"type":"quiet","t":60,"id":"#9","from":"d2","to":["s"],"trace":"#6","replyTo":"#6","hops":1},
+    {"type":"answer","t":120,"id":"#10","from":"h","to":["d2"],"trace":"#1","replyTo":"#5","hops":3,"forwarded":false,"payload":{"type":"text","text":"old"}},
+    {"type":"drop","t":160,"id":"#8","from":"d1","to":["h"],"trace":"#6","cause":"#7","hops":2,"neuron":"h","reason":"expired","payload":{"type":"json","data":{"d":1}}}
+  ]
+}

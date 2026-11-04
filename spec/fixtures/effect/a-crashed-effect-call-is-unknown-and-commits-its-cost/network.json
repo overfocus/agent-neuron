@@ -1,0 +1,43 @@
+{
+  "version": 0,
+  "name": "a-crashed-effect-call-is-unknown-and-commits-its-cost",
+  "description": "A level 0 effect call killed by a signal is recorded as unknown, not as an error; nothing is forwarded; its cost is committed (estimated, with the measured ms) and the trace finishes.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "run": [
+        "neuron-notify"
+      ],
+      "effect": true,
+      "cost": {
+        "credits": 3
+      }
+    },
+    {
+      "id": "log",
+      "run": [
+        "neuron-log"
+      ],
+      "cost": {
+        "credits": 1
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    },
+    {
+      "from": "notify",
+      "to": "log"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

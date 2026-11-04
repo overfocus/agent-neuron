@@ -1,0 +1,16 @@
+{
+  "fixture": 0,
+  "description": "A level 1 effect call that does not reply within its timeout is recorded as unknown at the timeout and cancelled as any call is; the reply to the cancel frees the slot.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "notify": {"calls":[{"reply":{"hang":true},"onCancel":{"after":0,"reply":{"quiet":true}}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"unknown","t":100,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"neuron":"notify","message":"timed out after 100 ms","code":"timeout","payload":{"type":"json","data":1}},
+    {"type":"note","t":100,"neuron":"notify","what":"cancel"}
+  ]
+}

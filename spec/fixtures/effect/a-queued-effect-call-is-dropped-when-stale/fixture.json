@@ -1,0 +1,21 @@
+{
+  "fixture": 0,
+  "description": "Staleness never cuts a started effect call, but a call that has not started (queued for a level 1 slot) is dropped as usual: replaced, phase waiting, no cancel note, and it never starts.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1,"replaces":"a"},
+    {"at":10,"source":"s","payload":2,"replaces":"b"},
+    {"at":20,"source":"s","payload":3,"replaces":"b"}
+  ],
+  "script": {
+    "notify": {"calls":[{"when":1,"after":100,"reply":{"answer":"one"}},{"when":3,"after":10,"reply":{"answer":"three"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"replaces":"a","payload":{"type":"json","data":1}},
+    {"type":"signal","t":10,"id":"#2","from":"s","to":["notify"],"trace":"#2","hops":0,"replaces":"b","payload":{"type":"json","data":2}},
+    {"type":"signal","t":20,"id":"#3","from":"s","to":["notify"],"trace":"#3","hops":0,"replaces":"b","payload":{"type":"json","data":3}},
+    {"type":"drop","t":20,"id":"#2","from":"s","to":["notify"],"trace":"#2","hops":0,"neuron":"notify","reason":"replaced","phase":"waiting","payload":{"type":"json","data":2}},
+    {"type":"answer","t":100,"id":"#4","from":"notify","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"one"}},
+    {"type":"answer","t":110,"id":"#5","from":"notify","to":["s"],"trace":"#3","replyTo":"#3","hops":1,"payload":{"type":"text","text":"three"}}
+  ]
+}
