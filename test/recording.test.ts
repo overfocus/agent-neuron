@@ -211,5 +211,9 @@ describe('tap', () => {
     await network.idle();
     const drops = events.filter((e) => e.type === 'drop').map((e) => [e.reason, e.phase]);
     expect(drops).toEqual([['replaced', 'waiting'], ['replaced', 'running']]);
+    const bare: TraceEvent[] = [];
+    tap((e) => bare.push(e)).listeners.onDrop(events.find((e) => e.type === 'drop') as never, 'h', 'replaced');
+    expect(bare[0]).not.toHaveProperty('phase'); // no neurons given: no guess
+
   });
 });

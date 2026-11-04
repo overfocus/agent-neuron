@@ -721,6 +721,11 @@ differences:
 - process-group kill with SIGKILL after 2 s (the adapter kills the child only);
 - level 0 is JSON both ways (the shell adapter writes text raw and reads
   non-JSON as text);
+- a cut (running) drop is reported when the adapter settles, not when the work goes
+  stale (5.4, 6.2 rule 4): an adapter that ignores abort delays it, and one that never
+  settles never reports it (and `idle()` waits on it);
+- `emit` reports the drops a signal causes before that signal's own event (the abort
+  runs before the notification), the reverse of 6.2 rule 2;
 - `phase` on drops (`onDrop` reports one reason today; the recorder and the view add `phase` from the
   held inputs they replay);
 - the threshold stdin shape applies above 1 only.

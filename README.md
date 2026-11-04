@@ -93,7 +93,7 @@ crossed it last. Details:
   (same sender, same `replaces` key), not only the one that crossed: its adapter
   is aborted and `onDrop(crossingInput, id, 'replaced')` is reported once. The
   other inputs report nothing. The trace tells it from a held input's drop by
-  `phase` (`running` or `waiting`).
+  `phase` (`running` or `waiting`) in new recordings (the committed traces predate it).
 - An input still held after `within` ms (default 10000) is dropped with
   `onDrop(..., 'expired')`. An input whose `emit` is replaced (same `replaces`
   key, newer emit) is dropped as `'replaced'` and stops counting.
