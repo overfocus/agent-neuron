@@ -134,6 +134,9 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 
 ## Things that are easy to get wrong
 
+- Worktrees live under `.claude/worktrees/` inside the repo. `vitest.config.ts` limits
+  tests to this checkout's `test/`; without it, `npm test` in one checkout runs every
+  worktree's tests too.
 - ESM with `NodeNext` resolution: relative imports need the `.js` extension
   (`import { x } from './x.js'`), even from `.ts` files.
 - A neuron with a `threshold` holds inputs inside `Network` (`hold` in `src/network.ts`),
