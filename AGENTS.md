@@ -100,10 +100,10 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 | Core (neuron, network, signals, adapters in `src/adapters/`) | `src/` | `test/` |
 | The demos (`npm run example`, `demo:typing`, `demo:loop`, `demo:suggest`, `demo:alerts`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand, except `demo:alerts`: `test/alerts.test.ts` |
 | The network view (`npm run view`): a Node server, one page, no framework | `examples/view/` | `test/view.test.ts` (server); `examples/view/checks.json` and `layout.json` and `layout-suggest.json` (browser, by hand) |
-| The specification, version 0 (network file, neuron contract, routing; [docs/SPEC.md](docs/SPEC.md)), its decisions (`docs/decisions/`), the closed schema and the alert storm as network files (`spec/`) | `docs/SPEC.md`, `spec/` | `test/spec.test.ts` (schema, examples, broken copies, the example programs) |
-| The reference engine for network files (`npm run engine`, subpath `agent-neuron/engine`): `check.ts` (validator and `check`), `engine.ts` (routing, threshold, staleness, level 0 processes, level 1 `Server`, composed neurons, trace), `cli.ts`, `virtual.ts` (the virtual clock and scripted programs, a `Host` the engine takes instead of real time and processes), `conform.ts` (the fixture runner). Separate from the library: `src/index.ts` does not export it | `src/engine/` | `test/engine.test.ts` (the storm in JavaScript, Python and Python level 1, small networks of real processes, a scriptable level 1 neuron in `test/support/serve.mjs`), `test/spec.test.ts` (`check`) |
+| The specification, version 0.1 (network file, neuron contract, routing; [docs/SPEC.md](docs/SPEC.md)), its decisions (`docs/decisions/`), the closed schema and the alert storm as network files (`spec/`) | `docs/SPEC.md`, `spec/` | `test/spec.test.ts` (schema, examples, broken copies, the example programs) |
+| The reference engine for network files (`npm run engine`, subpath `agent-neuron/engine`): `check.ts` (validator and `check`), `engine.ts` (routing, threshold, staleness, level 0 processes, level 1 `Server`, composed neurons, budgets, trace), `cli.ts`, `virtual.ts` (the virtual clock and scripted programs, a `Host` the engine takes instead of real time and processes), `conform.ts` (the fixture runner). Separate from the library: `src/index.ts` does not export it | `src/engine/` | `test/engine.test.ts` (the storm in JavaScript, Python and Python level 1, small networks of real processes, a scriptable level 1 neuron in `test/support/serve.mjs`), `test/spec.test.ts` (`check`) |
 | Trace recorder and replay (`npm run record`): `examples/trace/` (tap, scenarios, record, replay) and the recorded files in `traces/` | `examples/trace/`, `traces/` | `test/recording.test.ts` (validity, replay, privacy of every committed trace) |
-| The conformance fixtures, SPEC section 8 ([docs/CONFORMANCE.md](docs/CONFORMANCE.md)): one directory each, network file, scripted inputs and replies, expected events; `budget/` ones are pending (the v0.1 plan) | `spec/fixtures/` | `test/conformance.test.ts` (all pass, five identical runs, and 39 deliberately broken engines that must each fail one) |
+| The conformance fixtures, SPEC section 8 ([docs/CONFORMANCE.md](docs/CONFORMANCE.md)): one directory each, network file, scripted inputs and replies, expected events; `budget/` pins the v0.1 budget and the `finished` event | `spec/fixtures/` | `test/conformance.test.ts` (all pass, five identical runs, and 61 deliberately broken engines that must each fail one) |
 | Rust neurons (std-only): `catalogue` (library + binary; `npm run demo:rust`) and `music`, a composed neuron with its own inner network (`npm run demo:composed`) | `rust/` | `cargo test` in each crate; `test/rust.test.ts` and `test/composed.test.ts` drive the built binaries |
 
 ## Everywhere
@@ -119,9 +119,9 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
   prompt templates are programs, and a filter is a small neuron). Values are
   literals: no `${}`, no conditions, no expressions. The schema
   (`spec/network.schema.json`) is closed. **Field budget**: a network file has
-  8 top-level fields, a neuron has `id`, `description`, one kind field and at
-  most 6 options (`threshold`, `within`, `maxHops`, `timeout`, `env`, `cwd`),
-  a link has `from` and `to`. Test every proposed field with one question:
+  9 top-level fields (`budget` is the ninth), a neuron has `id`, `description`, one kind field and at
+  most 7 options (`threshold`, `within`, `maxHops`, `timeout`, `env`, `cwd`, `cost`; `effect` is
+  planned as the eighth), a link has `from` and `to`. Test every proposed field with one question:
   *does it say how neurons connect, or how one decides?* Only the first kind
   gets in, and only with a decision record in `docs/decisions/` that says what
   it costs against the budget. A change to the file, the protocol or the
@@ -204,6 +204,9 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 - Virtual runs (`runNetwork(..., { host })`) swap a module-level `host` in
   `engine.ts` for their length: a virtual run needs no other run active, and no real
   run may start during it; real runs may overlap each other.
+
+- A trace ends with a `finished` event (SPEC 7.2); fixtures compare it only with `"finished": true`, as notes
+  need `"notes": true`, so a fixture about something else does not change when the trace gains an event.
 
 ## Known limits
 

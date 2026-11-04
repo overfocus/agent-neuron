@@ -1,8 +1,8 @@
 {
   "fixture": 0,
   "description": "A running call cut as stale commits its reservation (marked estimated) with the measured ms; the newer trace has its own pool.",
-  "pending": "v0.1: the budget (a top-level budget, a cost option, reserve and commit notes, a budget error, the finished event) is not implemented; the event shapes here are the brief's intent, to be fixed by the v0.1 spec",
   "notes": true,
+  "finished": true,
   "inputs": [
     {"at":0,"source":"s","payload":1,"replaces":"k"},
     {"at":40,"source":"s","payload":2,"replaces":"k"}
@@ -18,10 +18,10 @@
     {"type":"note","t":40,"neuron":"a","what":"cancel"},
     {"type":"note","t":40,"neuron":"a","what":"term"},
     {"type":"note","t":40,"neuron":"a","what":"commit","units":{"credits":6},"ms":40,"basis":"estimated"},
-    {"type":"finished","t":40,"trace":"#1","status":"complete","remaining":{"credits":4},"held":0},
+    {"type":"finished","t":40,"trace":"#1","status":"done","remaining":{"credits":4}},
     {"type":"note","t":40,"neuron":"a","what":"reserve","units":{"credits":6}},
     {"type":"note","t":50,"neuron":"a","what":"commit","units":{"credits":6},"ms":10,"basis":"estimated"},
-    {"type":"answer","t":50,"id":"#3","from":"a","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"json","data":"new"}},
-    {"type":"finished","t":50,"trace":"#2","status":"complete","remaining":{"credits":4},"held":0}
+    {"type":"answer","t":50,"id":"#3","from":"a","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"new"}},
+    {"type":"finished","t":50,"trace":"#2","status":"done","remaining":{"credits":4}}
   ]
 }

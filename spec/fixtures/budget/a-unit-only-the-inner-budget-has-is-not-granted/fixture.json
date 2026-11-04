@@ -1,0 +1,19 @@
+{
+  "fixture": 0,
+  "description": "The composed cost names credits only; its file budgets credits and gold. The pool has no gold, so e (2 credits, 1 gold) is refused inside at once: a file cannot raise the limit the cost sets.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"diag","what":"reserve","units":{"credits":8}},
+    {"type":"note","t":0,"neuron":"diag","what":"commit","units":{"credits":8},"ms":0,"basis":"estimated"},
+    {"type":"error","t":0,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"neuron":"diag","message":"no answer: an inner neuron failed","code":"inner","payload":{"type":"json","data":1}},
+    {"type":"finished","t":0,"trace":"#1","status":"done","remaining":{"credits":2}}
+  ]
+}

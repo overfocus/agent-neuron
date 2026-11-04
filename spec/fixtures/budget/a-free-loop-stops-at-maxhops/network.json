@@ -1,7 +1,7 @@
 {
   "version": 0,
   "name": "a-free-loop-stops-at-maxhops",
-  "description": "The same loop at cost 0 with maxHops 6: the budget never runs out and maxHops stops it, with the budget untouched.",
+  "description": "A loop of a and b at cost 0 with maxHops 6: the budget never runs out and maxHops stops it, with the budget untouched.",
   "neurons": [
     {
       "id": "s",

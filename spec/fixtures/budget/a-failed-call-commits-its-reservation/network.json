@@ -1,0 +1,29 @@
+{
+  "version": 0,
+  "name": "a-failed-call-commits-its-reservation",
+  "description": "A program that exits with an error consumed its reservation: the commit note comes just before the error, and the pool is not refunded.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 4
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

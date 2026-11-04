@@ -1,0 +1,45 @@
+{
+  "version": 0,
+  "name": "a-call-must-be-covered-in-every-unit",
+  "description": "Budget 10 credits and 1 call: a (3 credits, 1 call) runs; b (1 credit, 1 call) is refused for lack of calls, and takes none of the credits left.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 3,
+        "calls": 1
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "cost": {
+        "credits": 1,
+        "calls": 1
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    }
+  ],
+  "budget": {
+    "credits": 10,
+    "calls": 1
+  }
+}

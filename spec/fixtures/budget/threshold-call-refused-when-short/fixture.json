@@ -1,8 +1,8 @@
 {
   "fixture": 0,
-  "description": "The same network with budget 10: when h acts the pool holds 4 credits, so the call is refused with an error budget for the crossing input.",
-  "pending": "v0.1: the budget (a top-level budget, a cost option, reserve and commit notes, a budget error, the finished event) is not implemented; the event shapes here are the brief's intent, to be fixed by the v0.1 spec",
+  "description": "d1 and d2 cost 3, h (threshold 2) costs 5, budget 10: when h acts the pool holds 4 credits, so the call is refused with an error budget for the crossing input.",
   "notes": true,
+  "finished": true,
   "inputs": [
     {"at":0,"source":"s","payload":1}
   ],
@@ -16,12 +16,12 @@
     {"type":"note","t":0,"neuron":"d1","what":"reserve","units":{"credits":3}},
     {"type":"note","t":0,"neuron":"d2","what":"reserve","units":{"credits":3}},
     {"type":"note","t":10,"neuron":"d1","what":"commit","units":{"credits":3},"ms":10,"basis":"estimated"},
-    {"type":"answer","t":10,"id":"#2","from":"d1","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":"a"}},
-    {"type":"signal","t":10,"id":"#3","from":"d1","to":["h"],"trace":"#1","hops":2,"cause":"#2","payload":{"type":"json","data":"a"}},
+    {"type":"answer","t":10,"id":"#2","from":"d1","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"a"}},
+    {"type":"signal","t":10,"id":"#3","from":"d1","to":["h"],"trace":"#1","hops":2,"cause":"#2","payload":{"type":"text","text":"a"}},
     {"type":"note","t":20,"neuron":"d2","what":"commit","units":{"credits":3},"ms":20,"basis":"estimated"},
-    {"type":"answer","t":20,"id":"#4","from":"d2","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":"b"}},
-    {"type":"signal","t":20,"id":"#5","from":"d2","to":["h"],"trace":"#1","hops":2,"cause":"#4","payload":{"type":"json","data":"b"}},
-    {"type":"error","t":20,"id":"#5","from":"d2","to":["h"],"trace":"#1","cause":"#4","hops":2,"neuron":"h","message":"budget","code":"budget","payload":{"type":"json","data":"b"}},
-    {"type":"finished","t":20,"trace":"#1","status":"exhausted","remaining":{"credits":4},"held":0}
+    {"type":"answer","t":20,"id":"#4","from":"d2","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"b"}},
+    {"type":"signal","t":20,"id":"#5","from":"d2","to":["h"],"trace":"#1","hops":2,"cause":"#4","payload":{"type":"text","text":"b"}},
+    {"type":"error","t":20,"id":"#5","from":"d2","to":["h"],"trace":"#1","cause":"#4","hops":2,"neuron":"h","message":"budget:","code":"budget","payload":{"type":"text","text":"b"}},
+    {"type":"finished","t":20,"trace":"#1","status":"exhausted","remaining":{"credits":4}}
   ]
 }

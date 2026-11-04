@@ -1,0 +1,19 @@
+{
+  "fixture": 0,
+  "description": "A program that exits with an error consumed its reservation: the commit note comes just before the error, and the pool is not refunded.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":7,"reply":{"error":"boom"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"a","what":"reserve","units":{"credits":4}},
+    {"type":"note","t":7,"neuron":"a","what":"commit","units":{"credits":4},"ms":7,"basis":"estimated"},
+    {"type":"error","t":7,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","message":"exit 1: boom","code":"exit","payload":{"type":"json","data":1}},
+    {"type":"finished","t":7,"trace":"#1","status":"done","remaining":{"credits":6}}
+  ]
+}

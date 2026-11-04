@@ -1,0 +1,34 @@
+{
+  "version": 0,
+  "entry": "e",
+  "exit": "x",
+  "neurons": [
+    {
+      "id": "e",
+      "run": [
+        "neuron-e"
+      ],
+      "cost": {
+        "credits": 2
+      }
+    },
+    {
+      "id": "x",
+      "run": [
+        "neuron-x"
+      ],
+      "cost": {
+        "credits": 4
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "e",
+      "to": "x"
+    }
+  ],
+  "budget": {
+    "credits": 5
+  }
+}

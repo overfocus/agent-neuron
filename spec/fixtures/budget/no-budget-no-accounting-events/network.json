@@ -1,7 +1,7 @@
 {
   "version": 0,
   "name": "no-budget-no-accounting-events",
-  "description": "A network with no budget gets no reserve, commit or finished events: the events are those of the SPEC 8.4 fixture.",
+  "description": "A network with no budget gets no reserve or commit notes and no remaining; its trace still ends with a finished event, status done. The other events are those of the SPEC 8.4 fixture.",
   "neurons": [
     {
       "id": "s",

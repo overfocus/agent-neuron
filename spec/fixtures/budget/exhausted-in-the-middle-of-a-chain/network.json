@@ -1,0 +1,55 @@
+{
+  "version": 0,
+  "name": "exhausted-in-the-middle-of-a-chain",
+  "description": "s -> a -> b -> c, each costing 4, budget 10: a and b run, c is refused (2 credits left) and never starts; the trace is finished exhausted.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 4
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "cost": {
+        "credits": 4
+      }
+    },
+    {
+      "id": "c",
+      "run": [
+        "neuron-c"
+      ],
+      "cost": {
+        "credits": 4
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    },
+    {
+      "from": "b",
+      "to": "c"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

@@ -65,6 +65,37 @@ describe('the alert storm, run from its network file (no caller code)', () => {
   storm('alerts-python-serve.network.json', !hasPython); // level 1: the same neuron as one long-lived process
 });
 
+describe('the alert storm with a budget (alerts-budget.network.json)', () => {
+  type E = Record<string, any>;
+  let events: E[];
+  beforeAll(async () => {
+    // the demo's producer lowers every alert that is not critical to half the file's budget
+    const inputs = readInjections(join(examples, 'alerts.inputs.jsonl')).map((i) => ((i.payload as { severity: string }).severity === 'crit' ? i : { ...i, budget: { credits: 6 } }));
+    const trace = JSON.parse(formatTrace(await runNetwork(join(examples, 'alerts-budget.network.json'), inputs))) as Trace;
+    expectValidTrace(trace);
+    events = trace.events as E[];
+  }, 40_000);
+
+  it('finishes every alert trace once, with a pool no larger than its ceiling', () => {
+    const roots = events.filter((e) => e.type === 'signal' && e.from === 'alerts');
+    const finished = events.filter((e) => e.type === 'finished');
+    expect(roots).toHaveLength(40);
+    expect(finished.map((f) => f.trace).sort()).toEqual(roots.map((r) => r.trace).sort());
+    for (const f of finished) {
+      const crit = roots.find((r) => r.trace === f.trace)!.payload.data.severity === 'crit';
+      expect(f.remaining.credits).toBeGreaterThanOrEqual(0);
+      expect(f.remaining.credits).toBeLessThanOrEqual(crit ? 12 : 6);
+    }
+  });
+
+  it('refuses a call only for lack of budget, and only in an alert whose budget was lowered', () => {
+    const refused = events.filter((e) => e.type === 'error');
+    expect(refused.every((e) => e.code === 'budget')).toBe(true);
+    expect(events.filter((e) => e.type === 'finished' && e.status === 'exhausted')).toHaveLength(new Set(refused.map((e) => e.trace)).size);
+    for (const e of refused) expect(events.find((x) => x.type === 'signal' && x.id === e.trace)!.payload.data.severity).not.toBe('crit');
+  });
+});
+
 // Small networks of real processes (sh, cat) for the rules the storm does not pin down.
 type Spec = Record<string, unknown> & { id: string };
 function run(neurons: Spec[], links: [string, string][], inputs: Injection[], extra: Record<string, unknown> = {}, options: { pingEvery?: number } = {}): Promise<EngineTrace> {
@@ -220,7 +251,7 @@ describe('call lifecycle', () => {
     writeFileSync(join(dir, 'in.network.json'), JSON.stringify({ version: 0, entry: 'a', exit: 'b', neurons: [echo('a'), echo('b')], links: [{ from: 'a', to: 'b' }] }));
     writeFileSync(join(dir, 'o.network.json'), JSON.stringify({ version: 0, neurons: [{ id: 's', source: true }, { id: 'c', network: 'in.network.json' }, echo('z')], links: [{ from: 's', to: 'c' }, { from: 'c', to: 'z' }] }));
     const t = await runNetwork(join(dir, 'o.network.json'), [inject(0, 1)]);
-    expect(t.events.filter((e) => e.type !== 'note').map((e) => e.id)).toEqual(['1', '2', '3', '4']);
+    expect(t.events.filter((e) => e.type !== 'note' && e.type !== 'finished').map((e) => e.id)).toEqual(['1', '2', '3', '4']);
   });
 });
 
@@ -248,6 +279,21 @@ describe('refusals before a run', () => {
     await expect(runNetwork(net, [{ at: Number.NaN, source: 's', payload: 1 }])).rejects.toThrow('"at"');
   });
 
+  it('lets an injection lower the budget of its trace and never raise it', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'engine-')), 'n.network.json');
+    const net = (budget?: object) => writeFileSync(file, JSON.stringify({ version: 0, ...(budget && { budget }), neurons: [{ id: 's', source: true }, { id: 'x', run: ['true'], ...(budget && { cost: { credits: 0 } }) }], links: [{ from: 's', to: 'x' }] }));
+    const inject = (budget: unknown) => runNetwork(file, [{ at: 0, source: 's', payload: 1, budget: budget as NonNullable<Injection['budget']> }]);
+    net({ credits: 10 });
+    await expect(inject({ credits: 11 })).rejects.toThrow('never raise');
+    await expect(inject({ gold: 1 })).rejects.toThrow('does not have');
+    await expect(inject({ credits: 1.5 })).rejects.toThrow('integer');
+    await expect(inject({ credits: -1 })).rejects.toThrow('integer');
+    await expect(inject([1])).rejects.toThrow('object of units');
+    expect((await inject({ credits: 0 })).events.at(-1)).toMatchObject({ type: 'finished', remaining: { credits: 0 } });
+    net();
+    await expect(inject({ credits: 1 })).rejects.toThrow('does not have');
+  });
+
   it('reads inputs strictly: line number, at, source, payload, a key of at most 256 bytes', () => {
     const read = (text: string) => {
       const file = join(mkdtempSync(join(tmpdir(), 'engine-')), 'in.jsonl');
@@ -260,6 +306,7 @@ describe('refusals before a run', () => {
     expect(read('{"at":0,"payload":1}')).toThrow('"source"');
     expect(read('{"at":0,"source":"s"}')).toThrow('"payload"');
     expect(read(JSON.stringify({ at: 0, source: 's', payload: 1, replaces: 'k'.repeat(257) }))).toThrow('256 bytes');
+    expect(read('{"at":0,"source":"s","payload":1,"budget":{"credits":3}}')()[0]!.budget).toEqual({ credits: 3 });
   });
 });
 
@@ -400,5 +447,38 @@ describe('level 1 serve neurons', () => {
     expect(seen(log).filter((m) => m.type === 'hello')).toHaveLength(1);
     expect(seen(log).filter((m) => m.type === 'signal').map((m) => m.re)).toEqual([1, 2]);
     expect(JSON.stringify(t)).not.toContain('"in"');
+  });
+});
+
+describe('budgets, with real processes (docs/SPEC.md 3.5)', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'engine-')), 'n.network.json');
+  const sh = (id: string, cost: number, script: string) => ({ id, run: ['sh', '-c', script], cost: { credits: cost } });
+  const net = (budget?: object) => writeFileSync(file, JSON.stringify({
+    version: 0, ...(budget && { budget }),
+    neurons: [{ id: 's', source: true }, sh('a', 3, 'sleep 0.05; echo 1'), sh('b', 3, 'echo 2')], links: [{ from: 's', to: 'a' }, { from: 'a', to: 'b' }],
+  }));
+
+  it('reserves, commits with measured ms, refuses what the pool cannot cover, and finishes the trace', async () => {
+    net({ credits: 5 });
+    const t = await runNetwork(file, [{ at: 0, source: 's', payload: 0 }]);
+    expect(t.budget).toEqual({ credits: 5 });
+    expect(t.neurons[1]).toMatchObject({ id: 'a', cost: { credits: 3 } });
+    const notes = t.events.filter((e) => e.type === 'note').map((e) => [e.neuron, e.what]);
+    expect(notes).toEqual([['a', 'reserve'], ['a', 'commit']]);
+    const commit = t.events.find((e) => e.what === 'commit')!;
+    expect(commit).toMatchObject({ units: { credits: 3 }, basis: 'estimated' });
+    expect(commit.ms as number).toBeGreaterThanOrEqual(40);
+    expect(t.events.find((e) => e.type === 'error')).toMatchObject({ neuron: 'b', code: 'budget', message: 'budget: needs 3 credits, 2 left' });
+    expect(t.events.at(-1)).toMatchObject({ type: 'finished', status: 'exhausted', remaining: { credits: 2 } });
+    expectValidTrace(JSON.parse(formatTrace(t)) as Trace);
+  });
+
+  it('writes no accounting without a budget, and still ends the trace with finished', async () => {
+    writeFileSync(file, JSON.stringify({ version: 0, neurons: [{ id: 's', source: true }, { id: 'a', run: ['sh', '-c', 'echo 1'] }], links: [{ from: 's', to: 'a' }] }));
+    const t = await runNetwork(file, [{ at: 0, source: 's', payload: 0 }]);
+    expect(t.events.filter((e) => e.type === 'note')).toEqual([]);
+    expect(t.events.filter((e) => e.type === 'finished')).toEqual([expect.objectContaining({ status: 'done' })]);
+    expect(t.events.at(-1)).not.toHaveProperty('remaining');
+    expect(t).not.toHaveProperty('budget');
   });
 });

@@ -41,7 +41,7 @@ interested in new ideas about how agents can be connected.
 Where it could be useful, ranked honestly by fit: [docs/USE-CASES.md](docs/USE-CASES.md).
 
 The network file format, the neuron contract and the routing rule are
-specified in [docs/SPEC.md](docs/SPEC.md) (version 0, draft).
+specified in [docs/SPEC.md](docs/SPEC.md) (version 0.1, draft).
 
 ## Why "neuron"
 
@@ -174,9 +174,9 @@ npm run demo:network        # the alert storm from its file, summarised from the
 
 `check` validates the file against the schema and reports what a schema cannot
 (unknown ids with a "did you mean", a missing composed file, a cycle without
-`maxHops`), with line and column. `run` injects the timed inputs into the
+`maxHops`, a budget or cost that is not a whole number or names an unknown unit), with line and column. `run` injects the timed inputs into the
 file's sources (one JSON object per line: `at` in ms, `source`, `payload`,
-optional `replaces`), runs every neuron as a process, forwards answers along
+optional `replaces`, optional `budget` to lower that trace's budget), runs every neuron as a process, forwards answers along
 links, and writes a [trace](docs/TRACE.md) that the replay module and the
 network view read. A neuron is any program: `spec/examples/neurons/` has the
 same `hypothesis` neuron in JavaScript and in Python, and
@@ -188,13 +188,28 @@ lines of standard-library Python, and `alerts-python-serve.network.json` runs th
 storm with it (`npm run demo:network -- spec/examples/alerts-python-serve.network.json`).
 This engine runs `source`, level 0 (`run`), level 1 (`serve`) and composed
 (`network`) neurons; the rest of the
-[specification](docs/SPEC.md) (version 0, draft) and the gaps are in its
+[specification](docs/SPEC.md) (version 0.1, draft) and the gaps are in its
 Appendix C.
+
+### Budgets
+
+A network file may declare a `budget` (named units, whole numbers) and give a neuron a
+`cost`. Each trace gets its own pool: a call reserves its cost when it starts, a call that the
+pool cannot cover is refused with an `error` of code `budget`, and every call that started consumes
+what it reserved, whether it answered, was cut or crashed. A composed neuron's cost caps its inside.
+Under a budget every neuron but a source declares a cost (0 is allowed), so nothing spends unseen. The trace shows it all (`reserve` and `commit` notes with the time the engine measured, and one
+`finished` event per trace with what is left), and a producer may lower a trace's budget when it
+injects, never raise it. A network with no budget works as before, bar the `finished` events. See
+[SPEC section 10](docs/SPEC.md) and [decision 0006](docs/decisions/0006-budgets.md).
+
+```sh
+npm run demo:network -- spec/examples/alerts-budget.network.json   # the storm with 12 credits an alert
+```
 
 ### Conformance fixtures
 
 Any further engine must give the same events as this one on
-the same inputs (a Rust one was tried and stopped: [decision 0005](docs/decisions/0005-rust-engine-experiment.md)). The shared test is [`spec/fixtures/`](spec/fixtures/): 158 (148 run, 10 pending)
+the same inputs (a Rust one was tried and stopped: [decision 0005](docs/decisions/0005-rust-engine-experiment.md)). The shared test is [`spec/fixtures/`](spec/fixtures/): 174
 small fixtures, each a network file, scripted inputs, scripted neuron replies with
 latencies on a virtual clock, and the exact events expected, ids normalised. No
 process starts and no clock is read, so a run is exactly repeatable.
@@ -204,8 +219,8 @@ npm run engine -- conform spec/fixtures   # pass or fail per fixture; non-zero e
 ```
 
 The format and the command-line contract any engine implements are in
-[docs/CONFORMANCE.md](docs/CONFORMANCE.md). Ten fixtures under `budget/` are marked
-pending: they are the plan for the next specification version.
+[docs/CONFORMANCE.md](docs/CONFORMANCE.md). None is pending; the fixtures under `budget/` pin the budget
+of version 0.1 and the `finished` event.
 
 ## The first example
 

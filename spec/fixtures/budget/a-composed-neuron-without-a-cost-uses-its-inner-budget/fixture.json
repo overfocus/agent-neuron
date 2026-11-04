@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "The outer network has no budget and the composed neuron no cost, so its inner budget (6) is its pool: e (5) runs and x (4) is refused inside; outside there are no accounting events, only the inner error.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "diag/e": {"calls":[{"after":10,"reply":{"answer":2}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":10,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"neuron":"diag","message":"no answer: an inner neuron failed","code":"inner","payload":{"type":"json","data":1}},
+    {"type":"finished","t":10,"trace":"#1","status":"done"}
+  ]
+}

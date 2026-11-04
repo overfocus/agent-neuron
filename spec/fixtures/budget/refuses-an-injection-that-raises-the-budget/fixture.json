@@ -1,0 +1,9 @@
+{
+  "fixture": 0,
+  "description": "An injection may lower the budget of its trace, never raise it: 11 above the file's 10 is refused to the producer before the run.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1,"budget":{"credits":11}}
+  ],
+  "expect": []
+}

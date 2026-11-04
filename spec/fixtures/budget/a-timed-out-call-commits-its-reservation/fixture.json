@@ -1,0 +1,21 @@
+{
+  "fixture": 0,
+  "description": "A call that times out consumed its reservation: the error at the timeout, the cancel and term notes, then the commit (estimated, 50 ms measured) and the trace finished.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"reply":{"hang":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"a","what":"reserve","units":{"credits":4}},
+    {"type":"error","t":50,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","message":"timed out after 50 ms","code":"timeout","payload":{"type":"json","data":1}},
+    {"type":"note","t":50,"neuron":"a","what":"cancel"},
+    {"type":"note","t":50,"neuron":"a","what":"term"},
+    {"type":"note","t":50,"neuron":"a","what":"commit","units":{"credits":4},"ms":50,"basis":"estimated"},
+    {"type":"finished","t":50,"trace":"#1","status":"done","remaining":{"credits":6}}
+  ]
+}

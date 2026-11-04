@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "a-trace-nothing-takes-is-finished-at-once",
+  "description": "A source with no outgoing links: the injected signal reaches no neuron, and its trace is finished at the same instant with the whole budget left.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 3
+      }
+    }
+  ],
+  "links": [],
+  "budget": {
+    "credits": 10
+  }
+}
