@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "the-fifth-failed-start-fails-the-neuron",
+  "description": "Five starts in a row that die 20 ms after ready: restart notes at 220, 640, 1460 and 3080, then the neuron is failed and an input at 3200 is an error, code start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

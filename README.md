@@ -194,7 +194,7 @@ Appendix C.
 ### Conformance fixtures
 
 A second engine (the Rust one, later) must give the same events as this one on
-the same inputs. The shared test is [`spec/fixtures/`](spec/fixtures/): about 130
+the same inputs. The shared test is [`spec/fixtures/`](spec/fixtures/): 148 (138 run, 10 pending)
 small fixtures, each a network file, scripted inputs, scripted neuron replies with
 latencies on a virtual clock, and the exact events expected, ids normalised. No
 process starts and no clock is read, so a run is exactly repeatable.

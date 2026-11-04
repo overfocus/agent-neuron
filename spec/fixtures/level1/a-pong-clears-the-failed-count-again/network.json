@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "a-pong-clears-the-failed-count-again",
+  "description": "As the first pong fixture with other times (pingEvery 200): after the pong at 450 the second early crash (550) waits 200 ms, so the restart notes are at 250 and 750.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    }
+  ]
+}

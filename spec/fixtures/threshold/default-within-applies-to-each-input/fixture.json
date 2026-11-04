@@ -1,0 +1,21 @@
+{
+  "fixture": 0,
+  "description": "Without within, each lone held input expires 10000 ms after it was held: here at 10020 and 13020.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":3000,"source":"s","payload":2}
+  ],
+  "script": {
+    "d1": {"calls":[{"after":20,"reply":{"answer":"a"}},{"after":20,"reply":{"answer":"b"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["d1"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":20,"id":"#2","from":"d1","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"a"}},
+    {"type":"signal","t":20,"id":"#3","from":"d1","to":["h"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"a"}},
+    {"type":"signal","t":3000,"id":"#4","from":"s","to":["d1"],"trace":"#4","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"answer","t":3020,"id":"#5","from":"d1","to":["s"],"trace":"#4","replyTo":"#4","hops":1,"payload":{"type":"text","text":"b"}},
+    {"type":"signal","t":3020,"id":"#6","from":"d1","to":["h"],"trace":"#4","cause":"#5","hops":2,"payload":{"type":"text","text":"b"}},
+    {"type":"drop","t":10020,"id":"#3","from":"d1","to":["h"],"trace":"#1","cause":"#2","hops":2,"neuron":"h","reason":"expired","payload":{"type":"text","text":"a"}},
+    {"type":"drop","t":13020,"id":"#6","from":"d1","to":["h"],"trace":"#4","cause":"#5","hops":2,"neuron":"h","reason":"expired","payload":{"type":"text","text":"b"}}
+  ]
+}

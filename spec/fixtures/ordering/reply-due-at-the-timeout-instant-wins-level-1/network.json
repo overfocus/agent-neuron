@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "reply-due-at-the-timeout-instant-wins-level-1",
+  "description": "The same at level 1: the reply written at the instant of the timeout wins.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ],
+      "timeout": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

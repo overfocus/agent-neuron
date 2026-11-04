@@ -299,7 +299,7 @@ class Server {
     this.jobs.clear();
     this.terminate(child);
     if (this.begin) {
-      this.begin.no(new Error(`serve neuron "${this.node.path}" did not reach ready: ${text}`));
+      this.begin.no(Object.assign(new Error(`serve neuron "${this.node.path}" did not reach ready: ${text}`), { refusal: true }));
       this.begin = undefined;
       return;
     }
@@ -372,10 +372,11 @@ class Run {
 
   /** An observer (SPEC 9) sees outer events only and can inject into a source later; it is not part of the network. */
   private observe(e: Event) {
+    if (typeof e.id !== 'string') return; // an observer sees signals, replies, drops and errors: events with an id, not notes
     for (const inj of this.observer?.(e) ?? []) {
       this.live++; // a pending injection keeps the run open (SPEC 6.2 rule 6)
       host.setTimeout(() => {
-        this.report(this.rootScope, { type: 'note', neuron: inj.source, what: 'inject', ...(typeof e.id === 'string' && { trigger: e.id }) });
+        this.report(this.rootScope, { type: 'note', neuron: inj.source, what: 'inject', trigger: e.id });
         this.inject(inj);
         if (--this.live === 0) this.over?.();
       }, inj.at);
@@ -524,7 +525,7 @@ class Run {
     let timer: NodeJS.Timeout | undefined;
     const arm = () => { // counted from the start of the call: a serve call's, from the moment its signal is written
       timer = host.setTimeout(() => {
-        if (call.cancelled) return;
+        if (call.cancelled || call.finished) return;
         this.fail(call.crossing, { error: `timed out after ${ms} ms`, code: 'timeout' });
         this.cancel(call);
       }, ms);
@@ -540,9 +541,10 @@ class Run {
       node.server.submit({ call, message: (node.spec.threshold ?? 1) > 1 ? (value as object) : { payload: value }, arm, done });
       return;
     }
-    arm();
+    // The program's wake-ups are set before the timeout's: a reply due at the very instant of the timeout wins (SPEC 6.2 rule 7).
     if (node.inner) this.compose(call, node, value, done);
     else this.program(call, node, value, done);
+    if (!call.finished) arm();
   }
 
   private cancel(call: Call) {
@@ -578,6 +580,7 @@ class Run {
       killGroup(pid, 'SIGKILL'); // whatever the program left behind must not outlive its call
       if (pid !== undefined) groups.delete(pid);
       done(outcome());
+      if (over) note('kill'); // the failure first, then the note of the kill that caused it (SPEC 6.3)
     };
     // A cancelled call whose group still has members waits for the kill timer.
     const waiting = () => stopped && !killed && alive(pid);
@@ -588,7 +591,6 @@ class Run {
       if (size > MAX_OUTPUT && !over) {
         over = killed = true;
         killGroup(pid, 'SIGKILL');
-        note('kill');
       }
       if (!over) stdout.push(b);
     });
@@ -759,7 +761,7 @@ export async function runNetwork(file: string, injections: Injection[], options:
   }
   for (const inj of injections) if (!root.nodes.get(inj.source)?.spec.source) throw new Error(`injection names "${inj.source}", which is not a source of ${file}`);
 
-  if (options.host ? host !== realHost : active) throw new Error('a virtual run needs the engine to itself');
+  if (options.host ? active > 0 : host !== realHost) throw new Error('a virtual run needs the engine to itself: no other run may be active, and a real run cannot start during a virtual one');
   const previous = host;
   if (options.host) host = options.host;
   active++;

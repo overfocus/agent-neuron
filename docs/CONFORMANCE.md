@@ -39,7 +39,7 @@ One JSON object. An engine MUST fail a fixture with an unknown top-level field.
 | `independent` | boolean | `false` | The observer's injections only add traces of their own (6). |
 
 `inputs` are the producer: each is injected into its `source` at virtual millisecond `at`
-(SPEC 4.1). The network files are ordinary network files and pass `check`. Their program
+(SPEC 4.1). The network files are ordinary network files and pass `check` (SPEC 2.7), except those of pending fixtures, which use fields a later version adds. Their program
 commands (`["neuron-a"]`) are names only: nothing runs them.
 
 ## 3. Comparison
@@ -48,7 +48,9 @@ The engine runs the network with the `inputs` and the script and produces its ev
 (SPEC 7.2). A fixture passes when the list equals `expect`:
 
 1. **Notes.** If `notes` is `false`, `note` events are removed from both lists before anything
-   else. If `true`, they are compared like any event.
+   else. If `true`, they are compared like any event. The notes of SPEC 6.3 are MUST for an
+   engine that claims conformance: a fixture with `notes: true` requires them, with the
+   order and times 6.3 gives.
 2. **Ids.** Ids become `#1`, `#2`, ... by first appearance over the whole list. Scan the events
    in order; within an event, scan the fields `id`, `trace`, `replyTo`, `cause` and (a note's)
    `trigger` in that order; a value not seen before gets the next number. The same string
@@ -84,8 +86,14 @@ were set (SPEC 6.2 rule 1), with these fixed points so that engines agree:
 - A call that ends at the very instant its input goes stale counts as stale (6.2 rule 5); with
   an injection that replaces it, this follows from the first point.
 
-Fixtures avoid ties that the specification does not decide: a reply due exactly at the call's
-`timeout`, and a ping due at the instant of an injection.
+- **A call's outcome due at the instant of its `timeout` is processed first** (SPEC 6.2 rule 7):
+  a program's reply wake-up is set before the call's timeout wake-up, so the reply wins.
+- A scripted process that ends (by its own script or by a signal) is known to the engine at
+  that same instant, without a wake-up of its own: the exit is processed inside the step that
+  ended it.
+
+Fixtures avoid the one tie the specification does not decide: a ping due at the instant of an
+injection.
 
 The run is **over** (SPEC 6.2 rule 6) when no work is running, queued or held, no injection is
 still to come, and no observer injection is pending. The engine then stops its programs
@@ -110,7 +118,7 @@ all. A fixture with `"refuses": true` passes when the engine refuses and fails w
 The idle ping interval is the engine's (the specification gives none); a fixture that depends
 on it sets `pingEvery`, and the runner passes it to the engine for this run. A ping is due
 `pingEvery` ms after the process said `ready` and then every `pingEvery` ms, and is sent only
-when nothing is running (SPEC 3.2).
+when nothing is running (SPEC 3.2); a tick is skipped while an earlier ping is unanswered.
 
 ## 5. The script
 
@@ -192,14 +200,16 @@ The n-th process the engine starts for a `serve` neuron (n from 1, restarts incl
 A scripted process is in the process group the engine starts. SIGTERM to the group ends it at
 once (unless `ignoreTerm`), SIGKILL always; a level 1 process also ends when its stdin is closed. A process that has ended
 no longer replies. The engine learns that a process ended at the same virtual instant. The
-engine's notes about the group (`term`, `kill`) follow the facts: `term` is written only if
-the process was still alive when the engine sent SIGTERM.
+engine's notes about the group are those of SPEC 6.3: `term` only if the group still had a live
+member when SIGTERM was sent, `kill` only if it had when SIGKILL was sent (after the 2000 ms
+grace, or at once for level 0 output over 1 MiB), each after the event that reports the call.
 
 ## 6. Observers
 
 `observer` is a list of rules. A rule is `{"when": {...}, "inject": {"after": ms, "source": id,
 "payload": P, "replaces"?: K}}`. Each rule fires once, on the first event (of the outer
-network, notes included) whose fields include every field of `when` with an equal value; it
+network) with an `id`, that is a signal, answer, quiet, drop or error (notes are not shown to an
+observer), whose fields include every field of `when` with an equal value; it
 then injects `payload` into `source` `after` ms later (SPEC 9: asynchronous, into a `source`
 only). The engine records the injection as a note `{"type":"note","t":T,"neuron":SOURCE,"what":"inject","trigger":ID}`
 (`ID` the `id` of the event that fired the rule) just before the injected signal. An observer
@@ -210,7 +220,8 @@ Without it, they must equal `expectWithout` (or `expect`, if the observer has no
 two checks that need no expectation of their own: the events before the first `inject` note
 are identical in both runs, and if `independent` is true (or nothing was injected), removing
 the events of the traces that start at an injection leaves exactly the events of the run
-without the observer.
+without the observer. Notes take no part in that second check (a note names a neuron, not a
+trace, so those caused by an injected trace's work cannot be told apart).
 
 ## 7. Pending
 

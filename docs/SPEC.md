@@ -338,16 +338,21 @@ process group, after 2 s more SIGKILL. Running work is cancelled silently.
 hangs, every running call fails (code `crash`) and what remains of the process
 group is killed. Before each restart the engine waits `min(100 * 2^f, 5000)` ms,
 where `f` is the number of consecutive failed starts. A start **fails** if it does not reach
-`ready`, if the process ends within 1000 ms of `ready`, or if it is killed as hung (a `ping`
-unanswered); a `pong`, or a life of more than 1000 ms, clears `f` (so a neuron that dies
+`ready`, if the process ends less than 1000 ms after `ready`, or if it is killed as hung (a `ping`
+unanswered); a `pong`, or a life of 1000 ms or more that does not end in a hang, clears `f` (so a neuron that dies
 right after `ready` does not restart at full speed for ever). When `f` reaches 5 the neuron
 is **failed**: every input to it is an error (code `start`) until the engine restarts; a
 call queued when that happens is failed the same way. The interval between pings is the
 engine's; a conformance fixture sets it (8.1).
 
+**Over-long line.** A stdout line over 1 MiB fails the call with `output` if exactly one call
+is running, else every running call fails with `crash`; the process group is killed and the
+neuron restarted either way.
+
 **Junk.** A stdout line that is not a JSON object with a string `type` is junk:
 the engine reports a note (7.2) with the line number (from 1, per process) and
-the first 2000 characters. If exactly one call is running at that neuron it
+the first 2000 characters. "Running" counts every call that holds a slot, a
+cancelled one included; a cancelled call is never failed. If exactly one call is running at that neuron it
 fails (code `junk`); otherwise only the note is made. Junk never fails the neuron.
 
 **A complete transcript** (`>` engine to neuron, `<` neuron to engine; a
@@ -441,8 +446,7 @@ held, the neuron acts: the inputs leave the group and one call starts with all
 of them in arrival order. The call answers the input that crossed (4.3); the
 others get no reply and no drop, even if the call is cut or fails. A later
 input on that trace starts a new group. Each held input has its own `within`
-timer, started when held; at the end it is dropped as `expired` (phase
-`waiting` MAY be written). Consumed inputs never expire. Held inputs do not
+timer, started when held; at the end it is dropped as `expired` (no phase: 7.2). Consumed inputs never expire. Held inputs do not
 count as running.
 
 ### 5.3 maxHops
@@ -500,7 +504,7 @@ affected. Failures of stale work are not errors.
 An engine MUST report events in this order, so that two engines produce the same
 list.
 
-1. Work due at the same instant is processed in the order it was scheduled (8.2 says what
+1. Work due at the same instant is processed in the order it was scheduled ([CONFORMANCE.md](CONFORMANCE.md) 4.1 says what
    that means for injections and for calls started by one event).
 2. A signal's event is reported first, then, at the same `t`, **immediately
    after it**: (a) the drops of the work that signal made stale, in the order
@@ -510,11 +514,38 @@ list.
 4. A running drop is reported when the work goes stale; a `note` for the
    cancel follows it, and the later `term` and `kill` notes at their own times.
 5. A call that ends exactly when its input goes stale counts as stale.
-6. A **run is over** when nothing is running or queued and no timer is pending.
+6. A **run is over** when nothing is running or queued, no timer is pending, and no
+   cancelled work is left behind: a cancelled level 0 program's process group must be gone
+   (after the kill, if it ignored SIGTERM) and a cancelled level 1 call's slot must be free
+   (the neuron replied for it, or was treated as hung). The trace records those kills.
    Held inputs keep their `within` timers, so an engine that waits for the end
    reports their `expired` drops. A fixture runs the virtual clock until nothing
    is due. A real engine's "wait until idle" MAY stop earlier, ignoring held
    inputs (the TypeScript `idle` does); then their drops are not reported.
+7. A call's outcome due at the same instant as its `timeout` is processed first: a call
+   times out only if it is strictly longer than `timeout`. (A level 0 program's reply, a
+   level 1 reply, the exit of a composed neuron: whatever ends the call at that instant.)
+
+### 6.3 Process notes
+
+A `note` (7.2) records a fact about a process. An engine MUST write these, and conformance
+fixtures with `notes` compare them. Order at one instant: the event that reports what
+happened to the call (the `drop` of a cut, the `error` of a timeout or a crash, ...) first,
+then the notes of what the engine does to the process, in the order `cancel`, `term`, `kill`.
+
+- `cancel`: when the engine cancels a call that has started (stale, timeout), after the drop or
+  error. A call that is only queued for a slot, or a held input, has not started: it is dropped
+  without a `cancel` note.
+- `term`: when the engine sends SIGTERM to a process group that still has a live member (a
+  cancelled level 0 call; a level 1 process that crashed, hung, or wrote a line over 1 MiB).
+  Nothing is written for a group that is already empty.
+- `kill`: when the engine sends SIGKILL to a group that still has a live member: 2000 ms
+  after `term` if anything remained, or at once for level 0 output over 1 MiB (the `error`
+  first, then the note).
+- `restart`: when the new level 1 process is spawned, after the backoff delay, not when it is
+  scheduled.
+- `junk`: when the junk line is read, so before the `junk` error it causes.
+- `inject`: an observer's injection, just before the injected signal (9).
 
 ## 7. The trace (normative)
 
@@ -556,10 +587,10 @@ v1 readers, which ignore what they do not know, are unaffected):
 
 | Addition | Rule |
 |---|---|
-| `phase` (`waiting` or `running`) on `drop` | MUST on reason `replaced`; MUST NOT on `hops`; MAY on `expired` |
+| `phase` (`waiting` or `running`) on `drop` | MUST on reason `replaced`; MUST NOT on `hops` or `expired` |
 | `replaces` on `signal` | MUST when the signal has a key |
 | `code` on `error` | MUST, from the 6.1 table |
-| `note` event: `what` is `junk` (with `line`, `text`), `cancel`, `term`, `kill`, `restart` or `inject` (with `trigger`) | SHOULD for those facts |
+| `note` event: `what` is `junk` (with `line`, `text`), `cancel`, `term`, `kill`, `restart` or `inject` (with `trigger`) | MUST, as 6.3 says (fixtures with `notes` compare them) |
 | `engine` header field | MAY |
 
 Example, a running call cut because an *earlier* input was replaced. Detectors
@@ -805,19 +836,13 @@ the Rust engine is compared with. It follows the specification, including the
     so the trace records the kill. A serve process is noticed as down when it exits (after a
     100 ms grace, so its last lines are read) or closes stdout, so a helper that inherited
     stdout does not hide a crash;
-  - a start counts as failed (the limit of 5 in 3.2) if it never reaches `ready`, or crashes
-    or fails to pong within 1 s of `ready` (decision 0001); a pong or a longer life clears it;
-  - a line over 1 MiB fails the call with `output` only if exactly one call is running, else
-    every running call fails with `crash`; the process is killed and restarted either way;
-  - "exactly one call running" for junk counts every call holding a slot, cancelled ones
-    included; a cancelled one is never failed, so then only the note is written. A call failed
-    for junk gives its slot up at once and a later reply for it is discarded;
+  - the failed-start rule, the over-long line, junk and cancelled calls, and the `restart` note are
+    specified in 3.2 and 6.3 (decision 0001 and 0004 give the reasons);
   - before `ready`, any first line other than a valid `ready` (junk, a wrong `v`, a bad
     `maxInflight`) is a failed start; the engine does not restart a neuron whose first start
     fails, it refuses to start. After a later start fails, backoff and the limit of 5 apply;
   - `ping` is sent every 10 s while nothing is running (the text gives no interval;
     `runNetwork`'s `pingEvery` option changes it); the time to answer is in 3.2;
-  - a `restart` note is written when the new process is spawned, after the backoff;
   - the `error` message of a `crash` is `process failed`, then the first 500 bytes of stderr;
   - the engine's clock starts when every serve neuron is ready, so `at` in an inputs file
     does not include start-up;

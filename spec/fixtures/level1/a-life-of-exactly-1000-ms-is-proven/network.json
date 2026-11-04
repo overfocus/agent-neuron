@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "a-life-of-exactly-1000-ms-is-proven",
+  "description": "A process that ends exactly 1000 ms after ready counts as proven: the restart delay is 100 ms (note restart at 1100), not 200.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    }
+  ]
+}

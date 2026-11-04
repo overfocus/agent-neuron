@@ -1,6 +1,6 @@
 // The conformance runner (docs/CONFORMANCE.md): runs every fixture under a directory on a virtual clock and compares events.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { basename, join, relative } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { runNetwork, type Event, type Injection, type Observer } from './engine.js';
 import { VirtualHost, type Script } from './virtual.js';
@@ -63,7 +63,7 @@ async function one(engine: Engine, dir: string, name: string): Promise<Result> {
   const fail = (...detail: string[]): Result => ({ name, status: 'fail', detail });
   try {
     if (f.refuses) {
-      try { await events(engine, dir, f, true); } catch (e) { if ((e as { harness?: boolean }).harness) throw e; return { name, status: 'pass', detail: [] }; }
+      try { await events(engine, dir, f, true); } catch (e) { if (!(e as { refusal?: boolean }).refusal) throw e; return { name, status: 'pass', detail: [] }; } // only a refusal to start counts, not any exception
       return fail('the engine started, but the fixture says it must refuse to start');
     }
     const actual = await events(engine, dir, f, true);
@@ -79,8 +79,8 @@ async function one(engine: Engine, dir: string, name: string): Promise<Result> {
       if (early) return fail(`the observer changed events before its first injection: ${early}`);
       if (f.independent || at < 0) { // its injections only add events of their own traces
         const rooted = new Set(actual.flatMap((e, i) => (e.type === 'note' && e.what === 'inject' ? [actual[i + 1]!.trace as string] : [])));
-        const rest = actual.filter((e) => e.type !== 'note' ? !rooted.has(e.trace as string) : e.what !== 'inject');
-        const same = compare(without, rest, true);
+        const rest = actual.filter((e) => e.type !== 'note' && !rooted.has(e.trace as string)); // notes take no part: they name no trace
+        const same = compare(without, rest, false);
         if (same) return fail(`removing the observer changed the other traces: ${same}`);
       }
     }
@@ -94,7 +94,7 @@ async function one(engine: Engine, dir: string, name: string): Promise<Result> {
 export async function conform(dir: string, options: { only?: string; engine?: Engine; bail?: boolean } = {}): Promise<Result[]> {
   const results: Result[] = [];
   for (const d of fixtureDirs(dir)) {
-    const name = relative(dir, d).split('\\').join('/');
+    const name = d === dir ? basename(dir) : relative(dir, d).split('\\').join('/');
     if (options.only && !name.includes(options.only)) continue;
     results.push(await one(options.engine ?? runNetwork, d, name));
     if (options.bail && results.at(-1)!.status === 'fail') break;

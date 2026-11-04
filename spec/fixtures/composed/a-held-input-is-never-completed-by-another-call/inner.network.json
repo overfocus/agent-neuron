@@ -1,0 +1,66 @@
+{
+  "version": 0,
+  "description": "The network inside a composed neuron.",
+  "neurons": [
+    {
+      "id": "e",
+      "run": [
+        "neuron-e"
+      ]
+    },
+    {
+      "id": "d1",
+      "run": [
+        "neuron-d1"
+      ]
+    },
+    {
+      "id": "d2",
+      "run": [
+        "neuron-d2"
+      ]
+    },
+    {
+      "id": "d3",
+      "run": [
+        "neuron-d3"
+      ]
+    },
+    {
+      "id": "x",
+      "run": [
+        "neuron-x"
+      ],
+      "threshold": 3,
+      "within": 500
+    }
+  ],
+  "links": [
+    {
+      "from": "e",
+      "to": "d1"
+    },
+    {
+      "from": "e",
+      "to": "d2"
+    },
+    {
+      "from": "e",
+      "to": "d3"
+    },
+    {
+      "from": "d1",
+      "to": "x"
+    },
+    {
+      "from": "d2",
+      "to": "x"
+    },
+    {
+      "from": "d3",
+      "to": "x"
+    }
+  ],
+  "entry": "e",
+  "exit": "x"
+}

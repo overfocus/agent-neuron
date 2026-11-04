@@ -1,0 +1,19 @@
+{
+  "fixture": 0,
+  "description": "Five starts in a row that die 20 ms after ready: restart notes at 220, 640, 1460 and 3080, then the neuron is failed and an input at 3200 is an error, code start.",
+  "notes": true,
+  "inputs": [
+    {"at":3200,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"starts":[{"end":{"after":20}},{"end":{"after":20}},{"end":{"after":20}},{"end":{"after":20}},{"end":{"after":20}}]}
+  },
+  "expect": [
+    {"type":"note","t":220,"neuron":"a","what":"restart"},
+    {"type":"note","t":640,"neuron":"a","what":"restart"},
+    {"type":"note","t":1460,"neuron":"a","what":"restart"},
+    {"type":"note","t":3080,"neuron":"a","what":"restart"},
+    {"type":"signal","t":3200,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":3200,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","message":"neuron failed to start","code":"start","payload":{"type":"json","data":1}}
+  ]
+}

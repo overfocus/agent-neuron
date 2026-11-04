@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -39,6 +40,25 @@ describe('the conformance fixtures (docs/CONFORMANCE.md)', () => {
     expect(compare([], [{ type: 'note', t: 0, neuron: 'a', what: 'x' }], true)).toContain('event 1');
   });
 
+  it('lets real runs overlap, and refuses a virtual run while one is active', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'conf-'));
+    const file = join(dir, 'n.network.json');
+    writeFileSync(file, JSON.stringify({ version: 0, neurons: [{ id: 's', source: true }, { id: 'a', run: ['sh', '-c', 'sleep 0.3; echo 1'] }], links: [{ from: 's', to: 'a' }] }));
+    const inj = [{ at: 0, source: 's', payload: 1 }];
+    const both = await Promise.all([runNetwork(file, inj), runNetwork(file, inj)]);
+    expect(both.map((t) => t.events.filter((e) => e.type === 'answer').length)).toEqual([1, 1]);
+    const real = runNetwork(file, inj);
+    const one = join(fixtures, 'routing/chain-forward-with-cause');
+    await expect(events(runNetwork, one, load(one), true)).rejects.toThrow('needs the engine to itself');
+    await real;
+  }, 20_000);
+
+  it('does not count just any exception as a refusal to start', async () => {
+    const boom = (() => Promise.reject(new TypeError('x'))) as unknown as typeof runNetwork;
+    const r = await conform(fixtures, { only: 'level1/first-line-must-be-ready', engine: boom });
+    expect(r.map((x) => x.status)).toEqual(['fail']);
+  });
+
   it('print pass, fail and pending lines and a summary', () => {
     expect(report([{ name: 'a/b', status: 'pass', detail: [] }, { name: 'c', status: 'fail', detail: ['x\ny'] }, { name: 'd', status: 'pending', detail: ['why'] }]))
       .toEqual(['pass a/b', 'fail c', '  x', '  y', 'pending d: why', '1 passed, 1 failed, 1 pending']);
@@ -75,6 +95,13 @@ const mutations: { name: string; edits: [from: string, to: string, count?: numbe
   { name: 'a late answer for cancelled work reported', edits: [['if (!call.cancelled) this.reply(call.crossing, o);', 'this.reply(call.crossing, o);']] },
   { name: 'a wrong default within', edits: [['DEFAULT_WITHIN = 10_000', 'DEFAULT_WITHIN = 5_000']] },
   { name: 'a short kill grace', edits: [['KILL_AFTER = 2_000', 'KILL_AFTER = 1_000']] },
+  { name: 'a level 0 timeout winning a reply due at the same instant', edits: [['    if (!call.finished) arm();\n', ''], ['    if (node.inner) this.compose(call, node, value, done);', '    arm();\n    if (node.inner) this.compose(call, node, value, done);']] },
+  { name: 'a level 1 timeout winning a reply due at the same instant', edits: [["this.write({ type: 'signal', re, ...job.message });\n      job.arm();", "job.arm();\n      this.write({ type: 'signal', re, ...job.message });"]] },
+  { name: 'a phase on an expired drop', edits: [["this.drop(w, 'expired');", "this.drop(w, 'expired', 'waiting');"]] },
+  { name: 'a life of exactly 1000 ms not proven', edits: [['host.now() - this.readyAt >= STABLE_AFTER', 'host.now() - this.readyAt > STABLE_AFTER']] },
+  { name: 'junk not counting a cancelled call that holds a slot', edits: [['if (this.jobs.size !== 1) return;', 'if ([...this.jobs.values()].filter((j) => !j.call.cancelled).length !== 1) return;']] },
+  { name: 'a TypeError while a start is refused', edits: [['this.begin.no(Object.assign(', '(undefined as unknown as { x: { y: number } }).x.y; this.begin.no(Object.assign(']] },
+  { name: 'a level 0 kill note before the error', edits: [["      if (over) note('kill'); // the failure first, then the note of the kill that caused it (SPEC 6.3)\n", ''], ["        over = killed = true;\n        killGroup(pid, 'SIGKILL');", "        over = killed = true;\n        note('kill');\n        killGroup(pid, 'SIGKILL');"]] },
   { name: 'an error code renamed', edits: [["code: 'neuron' }", "code: 'error' }"]] },
 ];
 

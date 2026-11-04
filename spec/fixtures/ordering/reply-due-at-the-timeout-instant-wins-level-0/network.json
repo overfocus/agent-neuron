@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "reply-due-at-the-timeout-instant-wins-level-0",
+  "description": "SPEC 6.3 rule A: a level 0 reply due at exactly the call's timeout is processed first (\"longer than timeout\" means strictly longer).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "timeout": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

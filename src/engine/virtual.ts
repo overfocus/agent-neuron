@@ -74,7 +74,6 @@ export class VirtualHost implements Host {
 /** A scripted program: level 0 acts when stdin closes; level 1 speaks the protocol over its pipes. */
 class VProc extends EventEmitter {
   up = true;
-  private exited = false;
   private ignoreTerm: boolean;
   private inflight = new Map<number, { entry: Entry; timer: NodeJS.Timeout | undefined }>();
   stdout = new EventEmitter();
@@ -91,17 +90,13 @@ class VProc extends EventEmitter {
     if (sig === 'SIGTERM' && this.ignoreTerm) return;
     this.die(null, sig);
   }
-  /** The process ends: its group is empty now, and the engine hears of it on the clock (the same instant, after what is already due). */
+  /** The process ends: its group is empty at once, and the engine hears of it at once (no wake-up of its own). */
   private die(code: number | null, sig: NodeJS.Signals | null = null) {
     if (!this.up) return;
     this.up = false;
-    this.host.setTimeout(() => {
-      if (this.exited) return;
-      this.exited = true;
-      this.stdout.emit('end');
-      this.emit('exit', code, sig);
-      this.emit('close', code, sig);
-    }, 0);
+    this.stdout.emit('end');
+    this.emit('exit', code, sig);
+    this.emit('close', code, sig);
   }
   private shutdown() { this.die(0); } // stdin closed: end of input
 
