@@ -8,8 +8,7 @@ Node 22, tested with Vitest. There is no website and no deploy yet, only a local
 network (`npm run view`). The code
 lives at `github.com/overfocus/agent-neuron`, private for now.
 
-This is not one of the sibling Next.js sites and shares no files with
-portfolio (`portfolio/docs/shared-files.json` does not list it).
+This is a standalone library: it shares no files with any other repository.
 
 ## Commands
 
@@ -97,6 +96,7 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 | Core (neuron, network, signals, adapters in `src/adapters/`) | `src/` | `test/` |
 | The demos (`npm run example`, `demo:typing`, `demo:loop`, `demo:suggest`, `demo:alerts`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand, except `demo:alerts`: `test/alerts.test.ts` |
 | The network view (`npm run view`): a Node server, one page, no framework | `examples/view/` | `test/view.test.ts` (server); `examples/view/checks.json` and `layout.json` and `layout-suggest.json` (browser, by hand) |
+| The specification, version 0 (network file, neuron contract, routing; [docs/SPEC.md](docs/SPEC.md)), its decisions (`docs/decisions/`), the closed schema and the alert storm as network files (`spec/`) | `docs/SPEC.md`, `spec/` | `test/spec.test.ts` (schema, examples, broken copies, the example programs) |
 | Trace recorder and replay (`npm run record`): `examples/trace/` (tap, scenarios, record, replay) and the recorded files in `traces/` | `examples/trace/`, `traces/` | `test/recording.test.ts` (validity, replay, privacy of every committed trace) |
 | Rust neurons (std-only): `catalogue` (library + binary; `npm run demo:rust`) and `music`, a composed neuron with its own inner network (`npm run demo:composed`) | `rust/` | `cargo test` in each crate; `test/rust.test.ts` and `test/composed.test.ts` drive the built binaries |
 
@@ -107,6 +107,19 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
   exists over a new method, a field over a new type, and a default that does
   nothing over a setting everyone must learn. A feature that makes the
   simple case harder to write is the wrong shape.
+- **The network file says how neurons connect, never how one decides.** JSON
+  holds literals and references only; if a key has to read a payload to mean
+  anything, it does not belong in the file (gates, filters, transforms and
+  prompt templates are programs, and a filter is a small neuron). Values are
+  literals: no `${}`, no conditions, no expressions. The schema
+  (`spec/network.schema.json`) is closed. **Field budget**: a network file has
+  8 top-level fields, a neuron has `id`, `description`, one kind field and at
+  most 6 options (`threshold`, `within`, `maxHops`, `timeout`, `env`, `cwd`),
+  a link has `from` and `to`. Test every proposed field with one question:
+  *does it say how neurons connect, or how one decides?* Only the first kind
+  gets in, and only with a decision record in `docs/decisions/` that says what
+  it costs against the budget. A change to the file, the protocol or the
+  routing is a change to `docs/SPEC.md`, the schema and the fixtures (once they exist) together.
 - Every feature that adds or changes visible behaviour adds or updates a demo
   and its row in `docs/DEMOS.md`.
 - Library code has no side effects on import, and the core takes no

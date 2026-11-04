@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-neuron:schema:network:0",
+  "title": "agent-neuron network file, version 0",
+  "description": "Closed schema: an unknown field is an error. Values are literals; nothing in the file reads a payload. See docs/SPEC.md section 3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "neurons"
+  ],
+  "dependentRequired": {
+    "entry": [
+      "exit"
+    ],
+    "exit": [
+      "entry"
+    ]
+  },
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 0
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "description": {
+      "type": "string"
+    },
+    "entry": {
+      "$ref": "#/$defs/id"
+    },
+    "exit": {
+      "$ref": "#/$defs/id"
+    },
+    "neurons": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/neuron"
+      }
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/link"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+    },
+    "literal": {
+      "description": "A literal string. Catches the common interpolation syntaxes (${...}, {{...}}); it cannot prove a string is not an expression, so the rule in the spec is the real check.",
+      "type": "string",
+      "not": {
+        "pattern": "\\$\\{|\\{\\{"
+      }
+    },
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/literal"
+      }
+    },
+    "ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3600000
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/id"
+        },
+        "to": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "neuron": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "source"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "description": {
+              "type": "string"
+            },
+            "source": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "run"
+          ],
+          "dependentRequired": {
+            "within": [
+              "threshold"
+            ]
+          },
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "description": {
+              "type": "string"
+            },
+            "run": {
+              "$ref": "#/$defs/command"
+            },
+            "threshold": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "within": {
+              "$ref": "#/$defs/ms"
+            },
+            "maxHops": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "timeout": {
+              "$ref": "#/$defs/ms"
+            },
+            "env": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              }
+            },
+            "cwd": {
+              "$ref": "#/$defs/literal"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "serve"
+          ],
+          "dependentRequired": {
+            "within": [
+              "threshold"
+            ]
+          },
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "description": {
+              "type": "string"
+            },
+            "serve": {
+              "$ref": "#/$defs/command"
+            },
+            "threshold": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "within": {
+              "$ref": "#/$defs/ms"
+            },
+            "maxHops": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "timeout": {
+              "$ref": "#/$defs/ms"
+            },
+            "env": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              }
+            },
+            "cwd": {
+              "$ref": "#/$defs/literal"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "http"
+          ],
+          "dependentRequired": {
+            "within": [
+              "threshold"
+            ]
+          },
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "description": {
+              "type": "string"
+            },
+            "http": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/literal"
+                },
+                {
+                  "pattern": "^https?://"
+                }
+              ]
+            },
+            "threshold": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "within": {
+              "$ref": "#/$defs/ms"
+            },
+            "maxHops": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "timeout": {
+              "$ref": "#/$defs/ms"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "human"
+          ],
+          "dependentRequired": {
+            "within": [
+              "threshold"
+            ]
+          },
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "description": {
+              "type": "string"
+            },
+            "human": {
+              "const": true
+            },
+            "threshold": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "within": {
+              "$ref": "#/$defs/ms"
+            },
+            "maxHops": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "timeout": {
+              "$ref": "#/$defs/ms"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "network"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "description": {
+              "type": "string"
+            },
+            "network": {
+              "$ref": "#/$defs/literal"
+            },
+            "maxHops": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "timeout": {
+              "$ref": "#/$defs/ms"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
