@@ -1,0 +1,49 @@
+{
+  "version": 0,
+  "name": "level1-gets-the-envelope",
+  "description": "A level 1 neuron with threshold 2 gets the envelope in its signal message; a plain level 1 neuron gets the bare payload.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "d1",
+      "run": [
+        "neuron-d1"
+      ]
+    },
+    {
+      "id": "d2",
+      "run": [
+        "neuron-d2"
+      ]
+    },
+    {
+      "id": "h",
+      "serve": [
+        "neuron-h"
+      ],
+      "threshold": 2,
+      "within": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "d1"
+    },
+    {
+      "from": "s",
+      "to": "d2"
+    },
+    {
+      "from": "d1",
+      "to": "h"
+    },
+    {
+      "from": "d2",
+      "to": "h"
+    }
+  ]
+}

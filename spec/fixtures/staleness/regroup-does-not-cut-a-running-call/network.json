@@ -1,0 +1,87 @@
+{
+  "version": 0,
+  "name": "regroup-does-not-cut-a-running-call",
+  "description": "Replacing a held input in a later group (same sender, 5.2) never cuts a call already running on the same trace.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "y",
+      "run": [
+        "neuron-y"
+      ]
+    },
+    {
+      "id": "p",
+      "run": [
+        "neuron-p"
+      ]
+    },
+    {
+      "id": "q",
+      "run": [
+        "neuron-q"
+      ]
+    },
+    {
+      "id": "r",
+      "run": [
+        "neuron-r"
+      ]
+    },
+    {
+      "id": "x",
+      "run": [
+        "neuron-x"
+      ]
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ],
+      "threshold": 2,
+      "within": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "y"
+    },
+    {
+      "from": "s",
+      "to": "p"
+    },
+    {
+      "from": "s",
+      "to": "q"
+    },
+    {
+      "from": "s",
+      "to": "r"
+    },
+    {
+      "from": "y",
+      "to": "h"
+    },
+    {
+      "from": "p",
+      "to": "x"
+    },
+    {
+      "from": "q",
+      "to": "x"
+    },
+    {
+      "from": "r",
+      "to": "x"
+    },
+    {
+      "from": "x",
+      "to": "h"
+    }
+  ]
+}

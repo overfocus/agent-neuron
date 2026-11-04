@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "level1-empty-to-forwards-nothing",
+  "description": "to: [] forwards nothing, but the answer is still reported.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

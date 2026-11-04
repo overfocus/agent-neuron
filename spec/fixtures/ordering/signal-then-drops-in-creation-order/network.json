@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "signal-then-drops-in-creation-order",
+  "description": "A signal is reported, then the drops of the work it made stale in the order that work was created (here link order b, a), not neuron order.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "b"
+    },
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

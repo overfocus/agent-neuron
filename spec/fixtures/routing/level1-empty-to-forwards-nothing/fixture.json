@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "to: [] forwards nothing, but the answer is still reported.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":1,"reply":{"answer":2,"to":[]}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":1,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":2}}
+  ]
+}

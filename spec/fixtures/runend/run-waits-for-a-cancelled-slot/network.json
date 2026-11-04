@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "run-waits-for-a-cancelled-slot",
+  "description": "A cancelled level 1 call keeps its slot until the neuron replies; the next call starts then, and the run ends after it.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

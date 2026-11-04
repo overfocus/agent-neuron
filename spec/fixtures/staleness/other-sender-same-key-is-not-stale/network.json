@@ -1,0 +1,31 @@
+{
+  "version": 0,
+  "name": "other-sender-same-key-is-not-stale",
+  "description": "Staleness is per sender: two sources using the same key do not cut each other.",
+  "neurons": [
+    {
+      "id": "s1",
+      "source": true
+    },
+    {
+      "id": "s2",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s1",
+      "to": "a"
+    },
+    {
+      "from": "s2",
+      "to": "a"
+    }
+  ]
+}

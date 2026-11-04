@@ -31,11 +31,12 @@ npm run demo:alerts # builds, then runs the alert storm triage demo (about 6 s)
 npm run demo:network # builds, then runs the same storm from its network file with the engine (about 7 s); `-- <network file>` for another
 npm run engine -- check <file>   # builds, then validates a network file (schema and SPEC 2.7 findings, with line and column)
 npm run engine -- run <file> --inputs <jsonl> [--trace out.json] [--inner out.json]  # runs it; prints the answers of neurons with no outgoing links
+npm run engine -- conform spec/fixtures [--only <text>]  # builds, then the conformance fixtures: pass/fail/pending per fixture, non-zero exit on a failure (docs/CONFORMANCE.md)
 npm run view        # builds, then serves the network view on a free 127.0.0.1 port; prints the URL and pid (stop it with kill <pid>)
 npm run record -- <alerts|typing|suggest> [--threshold n] [--out file]  # builds, runs the demo, writes traces/<demo>.json (docs/TRACE.md)
 npm run check:browser -- --base <url> --routes / --checks examples/view/checks.json  # needs the view running
 npm run check:layout -- --base <url> --file examples/view/layout.json  # phone and desktop layout, same server
-npm run verify      # the gate: typecheck, rust test, rust build, test, build; writes .verify/receipt.json
+npm run verify      # the gate: typecheck, rust test, rust build, test, build, conform; writes .verify/receipt.json
 npm run verify:receipt  # exit 0 only for a PASSED full verify of this clean tree
 npm run ship -- --approved "<go-ahead>"  # after Kevin's go-ahead (/loop:ship)
 npm run wt -- new <slug>  # a worktree on feat/<slug>; `list`, `gc [--apply]`
@@ -100,8 +101,9 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 | The demos (`npm run example`, `demo:typing`, `demo:loop`, `demo:suggest`, `demo:alerts`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand, except `demo:alerts`: `test/alerts.test.ts` |
 | The network view (`npm run view`): a Node server, one page, no framework | `examples/view/` | `test/view.test.ts` (server); `examples/view/checks.json` and `layout.json` and `layout-suggest.json` (browser, by hand) |
 | The specification, version 0 (network file, neuron contract, routing; [docs/SPEC.md](docs/SPEC.md)), its decisions (`docs/decisions/`), the closed schema and the alert storm as network files (`spec/`) | `docs/SPEC.md`, `spec/` | `test/spec.test.ts` (schema, examples, broken copies, the example programs) |
-| The reference engine for network files (`npm run engine`, subpath `agent-neuron/engine`): `check.ts` (validator and `check`), `engine.ts` (routing, threshold, staleness, level 0 processes, level 1 `Server`, composed neurons, trace), `cli.ts`. Separate from the library: `src/index.ts` does not export it | `src/engine/` | `test/engine.test.ts` (the storm in JavaScript, Python and Python level 1, small networks of real processes, a scriptable level 1 neuron in `test/support/serve.mjs`), `test/spec.test.ts` (`check`) |
+| The reference engine for network files (`npm run engine`, subpath `agent-neuron/engine`): `check.ts` (validator and `check`), `engine.ts` (routing, threshold, staleness, level 0 processes, level 1 `Server`, composed neurons, trace), `cli.ts`, `virtual.ts` (the virtual clock and scripted programs, a `Host` the engine takes instead of real time and processes), `conform.ts` (the fixture runner). Separate from the library: `src/index.ts` does not export it | `src/engine/` | `test/engine.test.ts` (the storm in JavaScript, Python and Python level 1, small networks of real processes, a scriptable level 1 neuron in `test/support/serve.mjs`), `test/spec.test.ts` (`check`) |
 | Trace recorder and replay (`npm run record`): `examples/trace/` (tap, scenarios, record, replay) and the recorded files in `traces/` | `examples/trace/`, `traces/` | `test/recording.test.ts` (validity, replay, privacy of every committed trace) |
+| The conformance fixtures, SPEC section 8 ([docs/CONFORMANCE.md](docs/CONFORMANCE.md)): one directory each, network file, scripted inputs and replies, expected events; `budget/` ones are pending (the v0.1 plan) | `spec/fixtures/` | `test/conformance.test.ts` (all pass, five identical runs, and 26 deliberately broken engines that must each fail one) |
 | Rust neurons (std-only): `catalogue` (library + binary; `npm run demo:rust`) and `music`, a composed neuron with its own inner network (`npm run demo:composed`) | `rust/` | `cargo test` in each crate; `test/rust.test.ts` and `test/composed.test.ts` drive the built binaries |
 
 ## Everywhere
@@ -188,6 +190,15 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 - The two typing demos share `examples/typing-demo.mjs`; `npm run demo:typing`
   output must not change when it is edited.
 - The inner rules in `rust/music` share thresholds and data with the neurons in `examples/typing-demo.mjs` (tracks from 3 UTF-16 units, artist on an exact name, lyrics from 5, with the same 250 ms wait when it acts); change both together. The answer shapes differ (artist as the catalogue name, lyrics as the first match). `MUSIC_NO_LATENCY=1` skips the wait; the tests set it. `music --inspect` prints the inner trace and is the view from inside: the outer network never gets it.
+- **The fixtures are the contract** (`spec/fixtures/`, SPEC section 8): a second
+  engine is judged by them. A fixture changes only in the same commit as the
+  SPEC text it pins; never edit an `expect` to make the engine pass. Fixtures are
+  engine-independent: no real time, no ties the spec does not decide (a reply due
+  exactly at `timeout`), invented data. A new engine rule gets a fixture and, if
+  it is a rule the engine could break quietly, a mutant in
+  `test/conformance.test.ts`. Run one fixture: `npm run engine -- conform spec/fixtures --only <text>`.
+- Virtual runs (`runNetwork(..., { host })`) swap a module-level `host` in
+  `engine.ts` for their length: one virtual run at a time, never beside a real one.
 
 ## Known limits
 

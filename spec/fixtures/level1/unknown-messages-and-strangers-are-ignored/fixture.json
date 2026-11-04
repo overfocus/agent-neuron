@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "Lines of an unknown type, unknown fields and a reply for an unknown re are ignored; the real reply still counts.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":5,"reply":{"answer":"ok","also":[{"type":"telemetry","n":1},{"type":"answer","re":99,"payload":"stray"}]}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":5,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"ok"}}
+  ]
+}

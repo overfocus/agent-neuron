@@ -1,0 +1,15 @@
+{
+  "fixture": 0,
+  "description": "A non-zero exit is an error, code exit, message starting \"exit 1:\"; nothing is forwarded.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":10,"reply":{"error":"boom"}}]},
+    "b": {"calls":[]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":10,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","message":"exit 1:","code":"exit","payload":{"type":"json","data":1}}
+  ]
+}

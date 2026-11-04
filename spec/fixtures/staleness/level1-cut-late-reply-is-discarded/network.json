@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "level1-cut-late-reply-is-discarded",
+  "description": "A neuron that ignores cancel and answers anyway: the answer is discarded and nothing is forwarded; with maxInflight 2 the new call runs meanwhile.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "l1-error-without-re-is-a-crash",
+  "description": "An error without re means the process itself failed: crash for the running call, restart.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

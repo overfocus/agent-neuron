@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "quiet-forwards-nothing",
+  "description": "A quiet reply is reported and goes back to the sender; nothing is forwarded, so b never runs.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

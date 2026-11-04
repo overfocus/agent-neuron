@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "unknown-messages-and-strangers-are-ignored",
+  "description": "Lines of an unknown type, unknown fields and a reply for an unknown re are ignored; the real reply still counts.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "A call longer than timeout: error timeout, cancel sent; the neuron replies to the cancel and the process stays.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":0,"reply":{"hang":true},"onCancel":{"after":5,"reply":{"quiet":true}}}]},
+    "b": {"calls":[]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":100,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","message":"timed out after 100 ms","code":"timeout","payload":{"type":"json","data":1}},
+    {"type":"note","t":100,"neuron":"a","what":"cancel"}
+  ]
+}

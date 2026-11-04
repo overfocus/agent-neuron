@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "call-ending-when-its-input-goes-stale-is-stale",
+  "description": "SPEC 6.2 rule 5: a call that would end at the very instant a newer input arrives counts as stale (the injection goes first at a tie).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

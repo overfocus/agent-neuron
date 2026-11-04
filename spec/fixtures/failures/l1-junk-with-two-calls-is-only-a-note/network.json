@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "l1-junk-with-two-calls-is-only-a-note",
+  "description": "A junk line with two calls running cannot be attributed: only the note; both calls then answer.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

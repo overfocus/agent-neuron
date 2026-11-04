@@ -1,0 +1,47 @@
+{
+  "version": 0,
+  "name": "absent-gets-the-bare-payload",
+  "description": "No threshold: the same as 1.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "d1",
+      "run": [
+        "neuron-d1"
+      ]
+    },
+    {
+      "id": "d2",
+      "run": [
+        "neuron-d2"
+      ]
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "d1"
+    },
+    {
+      "from": "s",
+      "to": "d2"
+    },
+    {
+      "from": "d1",
+      "to": "h"
+    },
+    {
+      "from": "d2",
+      "to": "h"
+    }
+  ]
+}

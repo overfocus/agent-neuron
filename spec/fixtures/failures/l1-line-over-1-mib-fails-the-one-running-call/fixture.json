@@ -1,0 +1,23 @@
+{
+  "fixture": 0,
+  "description": "A line over 1 MiB with one call running: error output; the process is killed and restarted.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":400,"source":"s","payload":2}
+  ],
+  "script": {
+    "a": {"calls":[{"when":1,"after":10,"reply":{"overlong":true}},{"when":2,"after":10,"reply":{"answer":2}}],"starts":[{},{}]},
+    "b": {"calls":[{"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":10,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","message":"output too large","code":"output","payload":{"type":"json","data":1}},
+    {"type":"note","t":10,"neuron":"a","what":"term"},
+    {"type":"note","t":210,"neuron":"a","what":"restart"},
+    {"type":"signal","t":400,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"answer","t":410,"id":"#3","from":"a","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"json","data":2}},
+    {"type":"signal","t":410,"id":"#4","from":"a","to":["b"],"trace":"#2","cause":"#3","hops":2,"payload":{"type":"json","data":2}},
+    {"type":"quiet","t":410,"id":"#5","from":"b","to":["a"],"trace":"#2","replyTo":"#4","hops":3}
+  ]
+}

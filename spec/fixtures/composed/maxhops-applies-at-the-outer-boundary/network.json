@@ -1,0 +1,32 @@
+{
+  "version": 0,
+  "name": "maxhops-applies-at-the-outer-boundary",
+  "description": "maxHops of a composed neuron refuses the outer input (hops 2 here) like any neuron; nothing inside runs.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json",
+      "maxHops": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "diag"
+    }
+  ]
+}

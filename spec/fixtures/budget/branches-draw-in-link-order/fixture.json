@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "budget 10, a and b cost 6, s -> a and s -> b: a (first in link order) runs, b is refused at t=0.",
+  "pending": "v0.1: the budget (a top-level budget, a cost option, reserve and commit notes, a budget error, the finished event) is not implemented; the event shapes here are the brief's intent, to be fixed by the v0.1 spec",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":10,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"a","what":"reserve","units":{"credits":6}},
+    {"type":"error","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"neuron":"b","message":"budget","code":"budget","payload":{"type":"json","data":1}},
+    {"type":"note","t":10,"neuron":"a","what":"commit","units":{"credits":6},"ms":10,"basis":"estimated"},
+    {"type":"quiet","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"finished","t":10,"trace":"#1","status":"exhausted","remaining":{"credits":4},"held":0}
+  ]
+}

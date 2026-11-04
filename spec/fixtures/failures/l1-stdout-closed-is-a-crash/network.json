@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "l1-stdout-closed-is-a-crash",
+  "description": "A process that closes stdout but stays alive is down: crash, then term for what remains, restart.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

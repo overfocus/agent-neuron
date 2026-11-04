@@ -1,0 +1,34 @@
+{
+  "version": 0,
+  "name": "l0-answer-after-timeout-is-discarded",
+  "description": "A program that would answer after the timeout is cut at the timeout: error, no answer.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "timeout": 100
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

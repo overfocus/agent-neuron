@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "two-injections-two-traces",
+  "description": "Each injection is a root signal with its own trace; a later one is not part of an earlier chain.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

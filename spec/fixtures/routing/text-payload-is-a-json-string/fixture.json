@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "A string payload is text in the trace and a JSON string for the program; any other value is json.",
+  "inputs": [
+    {"at":0,"source":"s","payload":"plain text"}
+  ],
+  "script": {
+    "a": {"calls":[{"when":"plain text","after":1,"reply":{"answer":"reply text"}}]},
+    "b": {"calls":[{"when":"reply text","reply":{"answer":[1,"two",null]}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"text","text":"plain text"}},
+    {"type":"answer","t":1,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"reply text"}},
+    {"type":"signal","t":1,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"reply text"}},
+    {"type":"answer","t":1,"id":"#4","from":"b","to":["a"],"trace":"#1","replyTo":"#3","hops":3,"payload":{"type":"json","data":[1,"two",null]}}
+  ]
+}

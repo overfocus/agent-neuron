@@ -1,0 +1,10 @@
+{
+  "fixture": 0,
+  "description": "ready with maxInflight 0 is a protocol error at the first start.",
+  "refuses": true,
+  "inputs": [],
+  "script": {
+    "a": {"starts":[{"maxInflight":0}]}
+  },
+  "expect": []
+}

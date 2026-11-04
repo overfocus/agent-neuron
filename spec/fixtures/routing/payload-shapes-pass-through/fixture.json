@@ -1,0 +1,23 @@
+{
+  "fixture": 0,
+  "description": "Null, numbers, arrays and objects are payloads like any other.",
+  "inputs": [
+    {"at":0,"source":"s","payload":null},
+    {"at":1,"source":"s","payload":0},
+    {"at":2,"source":"s","payload":[1,[2]]},
+    {"at":3,"source":"s","payload":{"a":{"b":null}}}
+  ],
+  "script": {
+    "a": {"calls":[{"when":null,"reply":{"answer":null}},{"when":0,"reply":{"quiet":true}},{"when":[1,[2]],"reply":{"answer":false}},{"when":{"a":{"b":null}},"reply":{"answer":""}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":null}},
+    {"type":"answer","t":0,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":null}},
+    {"type":"signal","t":1,"id":"#3","from":"s","to":["a"],"trace":"#3","hops":0,"payload":{"type":"json","data":0}},
+    {"type":"quiet","t":1,"id":"#4","from":"a","to":["s"],"trace":"#3","replyTo":"#3","hops":1},
+    {"type":"signal","t":2,"id":"#5","from":"s","to":["a"],"trace":"#5","hops":0,"payload":{"type":"json","data":[1,[2]]}},
+    {"type":"answer","t":2,"id":"#6","from":"a","to":["s"],"trace":"#5","replyTo":"#5","hops":1,"payload":{"type":"json","data":false}},
+    {"type":"signal","t":3,"id":"#7","from":"s","to":["a"],"trace":"#7","hops":0,"payload":{"type":"json","data":{"a":{"b":null}}}},
+    {"type":"answer","t":3,"id":"#8","from":"a","to":["s"],"trace":"#7","replyTo":"#7","hops":1,"payload":{"type":"text","text":""}}
+  ]
+}

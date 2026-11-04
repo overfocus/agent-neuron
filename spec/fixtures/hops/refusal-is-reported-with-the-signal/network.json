@@ -1,0 +1,45 @@
+{
+  "version": 0,
+  "name": "refusal-is-reported-with-the-signal",
+  "description": "The refused signal is reported first, then the drop, both at the same t; two refusing targets are dropped in link order.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "x",
+      "run": [
+        "neuron-x"
+      ],
+      "maxHops": 0
+    },
+    {
+      "id": "y",
+      "run": [
+        "neuron-y"
+      ],
+      "maxHops": 0
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "y"
+    },
+    {
+      "from": "a",
+      "to": "x"
+    }
+  ]
+}

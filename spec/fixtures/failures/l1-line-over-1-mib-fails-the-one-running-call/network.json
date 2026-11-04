@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "l1-line-over-1-mib-fails-the-one-running-call",
+  "description": "A line over 1 MiB with one call running: error output; the process is killed and restarted.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

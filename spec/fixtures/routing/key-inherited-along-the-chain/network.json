@@ -1,0 +1,43 @@
+{
+  "version": 0,
+  "name": "key-inherited-along-the-chain",
+  "description": "A level 0 answer inherits the input key: s -> a -> b -> c all carry replaces k.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    },
+    {
+      "id": "c",
+      "run": [
+        "neuron-c"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    },
+    {
+      "from": "b",
+      "to": "c"
+    }
+  ]
+}

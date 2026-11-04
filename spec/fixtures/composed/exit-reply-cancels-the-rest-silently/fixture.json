@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "When exit replies, other inner work is cancelled without a trace of it: no drop, no note. Cancelled y never reaches exit again (x has one script entry, so a second call to it would fail the fixture).",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "diag/e": {"calls":[{"after":1,"reply":{"answer":2}}]},
+    "diag/x": {"calls":[{"after":10,"reply":{"answer":3}}]},
+    "diag/y": {"calls":[{"after":500,"reply":{"answer":4}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":11,"id":"#2","from":"diag","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":3}}
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "version": 0,
+  "name": "held-input-replaced-while-waiting",
+  "description": "A held input made stale by a newer one with the same (sender, key) is dropped: replaced, phase waiting.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ],
+      "threshold": 2,
+      "within": 200
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "h"
+    }
+  ]
+}

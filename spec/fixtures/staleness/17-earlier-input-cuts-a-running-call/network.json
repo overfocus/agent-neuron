@@ -1,0 +1,49 @@
+{
+  "version": 0,
+  "name": "17-earlier-input-cuts-a-running-call",
+  "description": "Issue 17 (SPEC 5.4, section 7 example): a running threshold call is cut when any input it was built from goes stale; one drop, for the crossing input, though only the earlier input was replaced.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "d1",
+      "run": [
+        "neuron-d1"
+      ]
+    },
+    {
+      "id": "d2",
+      "run": [
+        "neuron-d2"
+      ]
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ],
+      "threshold": 2,
+      "within": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "d1"
+    },
+    {
+      "from": "s",
+      "to": "d2"
+    },
+    {
+      "from": "d1",
+      "to": "h"
+    },
+    {
+      "from": "d2",
+      "to": "h"
+    }
+  ]
+}

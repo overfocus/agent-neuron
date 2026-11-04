@@ -1,0 +1,49 @@
+{
+  "version": 0,
+  "name": "lone-input-expires",
+  "description": "A held input that never gets company is dropped as expired after within; the run waits for it (SPEC 6.2 rule 6).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "d1",
+      "run": [
+        "neuron-d1"
+      ]
+    },
+    {
+      "id": "d2",
+      "run": [
+        "neuron-d2"
+      ]
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ],
+      "threshold": 2,
+      "within": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "d1"
+    },
+    {
+      "from": "s",
+      "to": "d2"
+    },
+    {
+      "from": "d1",
+      "to": "h"
+    },
+    {
+      "from": "d2",
+      "to": "h"
+    }
+  ]
+}

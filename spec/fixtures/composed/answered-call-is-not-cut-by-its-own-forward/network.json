@@ -1,0 +1,26 @@
+{
+  "version": 0,
+  "name": "answered-call-is-not-cut-by-its-own-forward",
+  "description": "As the level 0 case: a composed neuron linked to itself with maxHops 2; the keyed forward of an answered call does not cut it.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "c",
+      "network": "inner.network.json",
+      "maxHops": 2
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "c"
+    },
+    {
+      "from": "c",
+      "to": "c"
+    }
+  ]
+}

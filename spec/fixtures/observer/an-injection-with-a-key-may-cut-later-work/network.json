@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "an-injection-with-a-key-may-cut-later-work",
+  "description": "Events before an observer's first injection never differ; after it, an injection with a key replaces earlier work like any producer's.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "version": 0,
+  "name": "one-gets-the-bare-payload",
+  "description": "threshold 1 written out: each input is its own call with the bare payload, no envelope.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "d1",
+      "run": [
+        "neuron-d1"
+      ]
+    },
+    {
+      "id": "d2",
+      "run": [
+        "neuron-d2"
+      ]
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ],
+      "threshold": 1,
+      "within": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "d1"
+    },
+    {
+      "from": "s",
+      "to": "d2"
+    },
+    {
+      "from": "d1",
+      "to": "h"
+    },
+    {
+      "from": "d2",
+      "to": "h"
+    }
+  ]
+}

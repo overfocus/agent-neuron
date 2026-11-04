@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "different-key-is-not-stale",
+  "description": "Keys are compared exactly: k and j do not replace each other.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

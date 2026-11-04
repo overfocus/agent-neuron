@@ -1,0 +1,35 @@
+{
+  "version": 0,
+  "name": "zero-limit-accepts-the-injection",
+  "description": "maxHops 0 accepts a root signal (hops 0) and refuses everything forwarded (hops 2).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "maxHops": 0
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "maxHops": 0
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

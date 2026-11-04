@@ -1,0 +1,39 @@
+{
+  "version": 0,
+  "name": "loop-ends-at-maxhops",
+  "description": "A cycle with maxHops on both neurons ends when an input exceeds the limit.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "maxHops": 5
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "maxHops": 5
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    },
+    {
+      "from": "b",
+      "to": "a"
+    }
+  ]
+}

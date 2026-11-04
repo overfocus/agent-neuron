@@ -1,0 +1,44 @@
+{
+  "version": 0,
+  "name": "stale-drops-before-delivery-effects",
+  "description": "After a forward signal: first the drops of what it made stale, then per target in link order the delivery effects (here a hops refusal).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "y",
+      "run": [
+        "neuron-y"
+      ]
+    },
+    {
+      "id": "x",
+      "run": [
+        "neuron-x"
+      ],
+      "maxHops": 0
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "y"
+    },
+    {
+      "from": "a",
+      "to": "x"
+    }
+  ]
+}

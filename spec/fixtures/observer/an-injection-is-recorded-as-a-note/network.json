@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "an-injection-is-recorded-as-a-note",
+  "description": "An observer's injection is a note, what inject, with the id of the event that triggered it.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

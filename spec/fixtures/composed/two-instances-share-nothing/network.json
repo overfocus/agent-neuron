@@ -1,0 +1,29 @@
+{
+  "version": 0,
+  "name": "two-instances-share-nothing",
+  "description": "Two network entries naming one file are two instances: each has its own inner process, so the calls run side by side.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "left",
+      "network": "inner.network.json"
+    },
+    {
+      "id": "right",
+      "network": "inner.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "left"
+    },
+    {
+      "from": "s",
+      "to": "right"
+    }
+  ]
+}

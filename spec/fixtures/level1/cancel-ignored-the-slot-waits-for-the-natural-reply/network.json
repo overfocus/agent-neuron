@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "cancel-ignored-the-slot-waits-for-the-natural-reply",
+  "description": "A neuron that ignores cancel and finishes in its own time: the slot is kept until then, the late reply is discarded, then the next call starts.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

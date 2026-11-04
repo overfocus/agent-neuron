@@ -1,0 +1,19 @@
+{
+  "fixture": 0,
+  "description": "A process that lived over 1 s counts as proven: restart delay 100 ms each time (notes restart at 1600 and 3200).",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"starts":[{"end":{"after":1500}},{"end":{"after":1500}},{}],"calls":[{"after":1,"reply":{"quiet":true}}]},
+    "b": {"calls":[{"after":4000,"reply":{"answer":"slow"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"quiet","t":1,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"note","t":1600,"neuron":"a","what":"restart"},
+    {"type":"note","t":3200,"neuron":"a","what":"restart"},
+    {"type":"answer","t":4000,"id":"#3","from":"b","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"slow"}}
+  ]
+}

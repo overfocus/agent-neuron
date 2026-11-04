@@ -1,0 +1,27 @@
+{
+  "version": 0,
+  "name": "composed-cost-caps-the-inner-trace",
+  "description": "A composed neuron costing 8 caps its inside: e (5) runs, x (4) is refused inside; outside there is only the inner error, and one total (8, estimated) crosses the boundary.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json",
+      "cost": {
+        "credits": 8
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

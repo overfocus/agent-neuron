@@ -1,0 +1,22 @@
+{
+  "fixture": 0,
+  "description": "Two held inputs that expire at the same instant are dropped in the order they were held.",
+  "inputs": [
+    {"at":0,"source":"s","payload":0}
+  ],
+  "script": {
+    "d1": {"calls":[{"after":10,"reply":{"answer":"a"}}]},
+    "d2": {"calls":[{"after":10,"reply":{"answer":"b"}}]},
+    "d3": {"calls":[{"after":0,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["d1","d2","d3"],"trace":"#1","hops":0,"payload":{"type":"json","data":0}},
+    {"type":"quiet","t":0,"id":"#2","from":"d3","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"answer","t":10,"id":"#3","from":"d1","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"a"}},
+    {"type":"signal","t":10,"id":"#4","from":"d1","to":["h"],"trace":"#1","cause":"#3","hops":2,"payload":{"type":"text","text":"a"}},
+    {"type":"answer","t":10,"id":"#5","from":"d2","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"b"}},
+    {"type":"signal","t":10,"id":"#6","from":"d2","to":["h"],"trace":"#1","cause":"#5","hops":2,"payload":{"type":"text","text":"b"}},
+    {"type":"drop","t":110,"id":"#4","from":"d1","to":["h"],"trace":"#1","cause":"#3","hops":2,"neuron":"h","reason":"expired","payload":{"type":"text","text":"a"}},
+    {"type":"drop","t":110,"id":"#6","from":"d2","to":["h"],"trace":"#1","cause":"#5","hops":2,"neuron":"h","reason":"expired","payload":{"type":"text","text":"b"}}
+  ]
+}

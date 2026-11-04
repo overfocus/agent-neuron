@@ -1,0 +1,19 @@
+{
+  "fixture": 0,
+  "description": "A restart of an inner level 1 process and the failure of the call it ran are not outer notes; the composed neuron only has its own error.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":900,"source":"s","payload":2}
+  ],
+  "script": {
+    "diag/e": {"starts":[{"end":{"after":300}},{}],"calls":[{"after":400,"reply":{"answer":"E"}},{"after":10,"reply":{"answer":"E"}}]},
+    "diag/x": {"calls":[{"after":1,"reply":{"answer":"done"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":300,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"neuron":"diag","message":"no answer: an inner neuron failed","code":"inner","payload":{"type":"json","data":1}},
+    {"type":"signal","t":900,"id":"#2","from":"s","to":["diag"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"answer","t":911,"id":"#3","from":"diag","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"done"}}
+  ]
+}

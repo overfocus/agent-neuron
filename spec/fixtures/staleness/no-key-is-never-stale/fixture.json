@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "Signals without a key never replace anything.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":40,"source":"s","payload":2}
+  ],
+  "script": {
+    "a": {"calls":[{"after":100,"reply":{"answer":"one"}},{"after":100,"reply":{"answer":"two"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"signal","t":40,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"answer","t":100,"id":"#3","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"one"}},
+    {"type":"answer","t":140,"id":"#4","from":"a","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"two"}}
+  ]
+}

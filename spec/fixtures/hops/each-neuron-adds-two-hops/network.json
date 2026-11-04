@@ -1,0 +1,55 @@
+{
+  "version": 0,
+  "name": "each-neuron-adds-two-hops",
+  "description": "maxHops 4 lets a chain reach its third neuron (hops 0, 2, 4) and refuses the fourth (hops 6): a drop with reason hops and no phase; the refused input never runs.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    },
+    {
+      "id": "c",
+      "run": [
+        "neuron-c"
+      ],
+      "maxHops": 4
+    },
+    {
+      "id": "d",
+      "run": [
+        "neuron-d"
+      ],
+      "maxHops": 4
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    },
+    {
+      "from": "b",
+      "to": "c"
+    },
+    {
+      "from": "c",
+      "to": "d"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "fixture": 0,
+  "description": "Ping is sent only when nothing is running: a neuron busy for 3500 ms that would never pong is not hung.",
+  "notes": true,
+  "pingEvery": 1000,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"starts":[{"pong":false}],"calls":[{"after":3500,"reply":{"answer":"late"}}]},
+    "b": {"calls":[{"after":3600,"reply":{"answer":"slow"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":3500,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"late"}},
+    {"type":"answer","t":3600,"id":"#3","from":"b","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"slow"}}
+  ]
+}

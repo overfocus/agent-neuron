@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "After an early crash a pong proves the new process: its next early crash waits 200 ms again, not 400 (restart notes at 250 and 1000).",
+  "notes": true,
+  "pingEvery": 300,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"starts":[{"end":{"after":50}},{"end":{"after":550}},{}],"calls":[{"after":1,"reply":{"quiet":true}}]},
+    "b": {"calls":[{"after":3000,"reply":{"answer":"slow"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"quiet","t":1,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"note","t":250,"neuron":"a","what":"restart"},
+    {"type":"note","t":1000,"neuron":"a","what":"restart"},
+    {"type":"answer","t":3000,"id":"#3","from":"b","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"slow"}}
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "chain-forward-with-cause",
+  "description": "The worked fixture of SPEC 8.4: s -> a -> b. A reply goes back to the sender; the forward carries cause and the inherited key.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

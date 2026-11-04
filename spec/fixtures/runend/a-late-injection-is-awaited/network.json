@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "a-late-injection-is-awaited",
+  "description": "The run is not over while an injection is still to come: the second input at 5000 is processed after an idle gap.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "The run is not over while an injection is still to come: the second input at 5000 is processed after an idle gap.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":5000,"source":"s","payload":2}
+  ],
+  "script": {
+    "a": {"calls":[{"after":1,"reply":{"answer":"x"}},{"after":1,"reply":{"answer":"y"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":1,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"x"}},
+    {"type":"signal","t":5000,"id":"#3","from":"s","to":["a"],"trace":"#3","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"answer","t":5001,"id":"#4","from":"a","to":["s"],"trace":"#3","replyTo":"#3","hops":1,"payload":{"type":"text","text":"y"}}
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "a-logging-observer-changes-nothing",
+  "description": "SPEC 8.5: an observer that only reads the stream leaves the events exactly as without it.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

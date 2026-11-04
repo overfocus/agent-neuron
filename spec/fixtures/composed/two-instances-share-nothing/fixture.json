@@ -1,0 +1,18 @@
+{
+  "fixture": 0,
+  "description": "Two network entries naming one file are two instances: each has its own inner process, so the calls run side by side.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "left/e": {"calls":[{"after":50,"reply":{"answer":"L"}}]},
+    "left/x": {"calls":[{"after":0,"reply":{"answer":"left done"}}]},
+    "right/e": {"calls":[{"after":50,"reply":{"answer":"R"}}]},
+    "right/x": {"calls":[{"after":0,"reply":{"answer":"right done"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["left","right"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":50,"id":"#2","from":"left","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"left done"}},
+    {"type":"answer","t":50,"id":"#3","from":"right","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"right done"}}
+  ]
+}

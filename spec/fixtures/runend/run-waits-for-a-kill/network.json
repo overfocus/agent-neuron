@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "run-waits-for-a-kill",
+  "description": "A program that ignores SIGTERM keeps the run open until the kill 2000 ms after the cut, and the kill is recorded.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

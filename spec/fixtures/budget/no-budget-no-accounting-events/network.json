@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "no-budget-no-accounting-events",
+  "description": "A network with no budget gets no reserve, commit or finished events: the events are those of the SPEC 8.4 fixture.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

@@ -17,7 +17,7 @@ Contents
 5. Threshold, hops and staleness (normative)
 6. Failures and event order (normative)
 7. The trace (normative)
-8. Conformance (normative)
+8. Conformance (normative; the format is in [CONFORMANCE.md](CONFORMANCE.md))
 9. Observers (normative)
 
 Appendices (informative): A. Walk-through: one alert. B. Out of version 0.
@@ -337,9 +337,13 @@ process group, after 2 s more SIGKILL. Running work is cancelled silently.
 **Restart.** If the process exits, closes stdout, sends `error` without `re`, or
 hangs, every running call fails (code `crash`) and what remains of the process
 group is killed. Before each restart the engine waits `min(100 * 2^f, 5000)` ms,
-where `f` is the number of consecutive starts since the last `ready` that did
-not reach `ready`. When `f` reaches 5 the neuron is **failed**: every input to it
-is an error (code `start`) until the engine restarts.
+where `f` is the number of consecutive failed starts. A start **fails** if it does not reach
+`ready`, if the process ends within 1000 ms of `ready`, or if it is killed as hung (a `ping`
+unanswered); a `pong`, or a life of more than 1000 ms, clears `f` (so a neuron that dies
+right after `ready` does not restart at full speed for ever). When `f` reaches 5 the neuron
+is **failed**: every input to it is an error (code `start`) until the engine restarts; a
+call queued when that happens is failed the same way. The interval between pings is the
+engine's; a conformance fixture sets it (8.1).
 
 **Junk.** A stdout line that is not a JSON object with a string `type` is junk:
 the engine reports a note (7.2) with the line number (from 1, per process) and
@@ -496,7 +500,8 @@ affected. Failures of stale work are not errors.
 An engine MUST report events in this order, so that two engines produce the same
 list.
 
-1. Work due at the same instant is processed in the order it was scheduled.
+1. Work due at the same instant is processed in the order it was scheduled (8.2 says what
+   that means for injections and for calls started by one event).
 2. A signal's event is reported first, then, at the same `t`, **immediately
    after it**: (a) the drops of the work that signal made stale, in the order
    that work was created; (b) for each target in `to` order, its delivery
@@ -581,50 +586,55 @@ after 100 ms","code":"timeout"`.
 
 ## 8. Conformance (normative)
 
-An engine conforms when it passes every fixture in `spec/fixtures/` (to be
-written with the first engine; once, for all engines). Recorded traces in
-`traces/` stay as smoke tests through replay, not conformance tests.
+An engine conforms when it passes every fixture in `spec/fixtures/` that is not pending (once,
+for all engines). The format of a fixture, the scripted programs, the virtual clock, the
+comparison and the command-line contract (`<engine> conform <dir>`) are specified in
+[CONFORMANCE.md](CONFORMANCE.md), which is part of this section. Recorded traces in
+`traces/` stay as smoke tests through replay, not conformance tests. The fixtures are the
+contract: one changes only together with the text it pins.
 
 ### 8.1 A fixture
 
-A directory with a network file (and the composed files it names) and
-`fixture.json`:
+A directory with a network file (and the composed files it names) and `fixture.json`:
 
 ```json
-{ "fixture": 0, "description": "One line.", "network": "network.json", "notes": false,
+{ "fixture": 0, "description": "One line.", "network": "network.json",
   "inputs": [{ "at": 0, "source": "alerts", "payload": {"service": "gateway"}, "replaces": "gateway" }],
-  "script": { "logs": [{ "when": {"service": "gateway"}, "after": 20, "reply": {"quiet": true} }] },
+  "script": { "logs": { "calls": [{ "when": {"service": "gateway"}, "after": 20, "reply": {"quiet": true} }] } },
   "expect": [] }
 ```
 
 - `inputs`: injections at virtual ms `at`.
-- `script` replaces every program, keyed by instance path (the harness may name
-  inside a sealed neuron). Each entry answers one call: the first unused entry
-  whose `when` deep-equals the program's input value (3.1) is used (no `when`
-  matches anything); no match is a harness failure. `after` is the latency in ms
-  from the call's start. `reply` is `{"answer": P, "replaces"?: K or null, "to"?: [ids]}`,
-  `{"quiet": true}`, `{"error": "message"}`, `{"junk": "text"}`, `{"crash": true}`
-  or `{"hang": true}`. The script stands in for the process layer, so fixtures
-  test what the engine does with an outcome, not byte parsing.
-- `expect`: the events (section 7) in order. `note` events are compared only if
-  `notes` is true.
+- `script` replaces every program, keyed by instance path (the harness may name inside a sealed
+  neuron). A `calls` entry answers one call: the first unused entry whose `when` deep-equals the
+  program's input value (3.1) is used (no `when` matches anything); no match is a harness
+  failure. `after` is the latency in ms from the call's start. `reply` is
+  `{"answer": P, "replaces"?: K or null, "to"?: [ids]}`, `{"quiet": true}`, `{"error": "message"}`,
+  `{"junk": "text"}`, `{"crash": true}`, `{"hang": true}` or `{"overlong": true}`; a level 1
+  neuron also has `starts` (ready latency, `maxInflight`, pong, when the process ends) and
+  `onCancel`. The script stands in for the process layer, so fixtures test what the engine does
+  with an outcome, not byte parsing.
+- `expect`: the events (section 7) in order. `note` events are compared only if `notes` is true.
+- `pingEvery`: the idle ping interval of the run (the interval is the engine's, 3.2).
 
 ### 8.2 Clock
 
-Virtual time starts at 0 and jumps to the next due moment (an `at`, an `after`, a
-`within`, a `timeout`); processing takes none. The engine MUST be deterministic
-(6.2); the run is over as 6.2 rule 6 says.
+Virtual time starts at 0 and jumps to the next due moment (an `at`, an `after`, a `within`, a
+`timeout`); processing takes none. The engine MUST be deterministic (6.2); the run is over as
+6.2 rule 6 says. Wake-ups due at one instant run in the order they were set, and injections are
+set first, in the order the fixture lists them.
 
 ### 8.3 Normalisation
 
-Ids become `#1`, `#2`, ... by first appearance across the event list, scanning
-each event's `id`, `trace`, `replyTo`, `cause` in that order. Events are then
-compared one by one, every field, `t` included, `via` absent equal to `"emit"`.
+Ids become `#1`, `#2`, ... by first appearance across the event list, scanning each event's
+`id`, `trace`, `replyTo`, `cause` (and a note's `trigger`) in that order. Events are then
+compared one by one, every field, `t` included, `via` absent equal to `"emit"`; an `error`'s
+`message` is compared as a prefix, since 6.1 fixes only how a message starts.
 
 ### 8.4 Worked fixture
 
 `s` (source) -> `a` -> `b`. Input at 0: `{"n":1}`, key `k`. `a` answers `{"n":2}`
-after 10; `b` is quiet after 5. Expected:
+after 10; `b` is quiet after 5. Expected (this is `spec/fixtures/routing/chain-forward-with-cause`):
 
 ```
 {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":{"n":1}}}
@@ -633,17 +643,17 @@ after 10; `b` is quiet after 5. Expected:
 {"type":"quiet","t":15,"id":"#4","from":"b","to":["a"],"trace":"#1","replyTo":"#3","hops":3}
 ```
 
-To write first: the behaviours `test/` pins today, plus replace/cut, held
-replacement, threshold (same sender once, traces apart, `within`, consumed
-inputs never expire), an earlier input cutting a running call, `maxHops` and a
-loop, the alert storm at thresholds 1, 2 and 3, `to` limited to links, quiet
-forwarding nothing, a sealed composed neuron, timeout, crash and junk.
+The fixtures cover routing, threshold, staleness (issue 17 included), `maxHops`, composed
+neurons and sealing, every row of the 6.1 table that an engine can reach, the 6.2 order, the
+end of a run, level 1 (handshake, queueing, cancel, ping, restart), observers and, marked
+pending, the version 0.1 budget.
 
 ### 8.5 The observer rule
 
 A fixture MAY attach a scripted observer (one that logs, or injects into a
 source at a given time). Removing it MUST NOT change the events, except those
-that follow its injections (section 9).
+that follow its injections (section 9). CONFORMANCE.md 6 says how it is scripted and
+checked.
 
 ## 9. Observers (normative)
 
@@ -757,16 +767,17 @@ the Rust engine is compared with. It follows the specification, including the
 
 - **Neuron kinds**: `source`, `run`, `serve` and `network`. `http` and `human` are
   reported by `check` as warnings and refused by `run`.
-- **No fixtures yet** (section 8): the engine runs real processes on the real
-  clock, with no scripted programs or virtual clock, so it cannot run a fixture
-  today. Its tests assert invariants and the rules in sections 4 to 6 on small
-  networks of `sh` and `cat`.
-- **Observers** (section 9): none. `run` returns the finished trace; there is no
-  live stream. The `inject` note is never written.
+- **Fixtures** (section 8): `npm run engine -- conform spec/fixtures` runs them on a
+  virtual clock with scripted programs (`src/engine/virtual.ts`, a `Host` the engine takes in
+  place of real time and processes). Its other tests run real processes (`sh`, `cat`) for what
+  the fixtures cannot reach: bytes, process groups, the environment.
+- **Observers** (section 9): only the scripted observer of the fixtures (a function the
+  harness passes to `runNetwork`, with the `inject` note). `run` returns the finished trace;
+  there is no live stream.
 - **Same-instant order** (6.2 rules 1 and 5) holds because the engine is one
   synchronous event loop, not because a clock orders it; a call whose process
   ends in the same millisecond its input goes stale can go either way.
-- **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` is not.
+- **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` only for a scripted observer.
 - **Process start failure** (no such executable) is an `exit` error, `exit 127:`
   then the reason; the table in 6.1 has no row for it.
 - **The inside of a composed neuron** is available only through the `inner`

@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "max-inflight-queues-the-rest",
+  "description": "maxInflight 2 with three inputs: two run, the third waits for a slot; replies may come in any order.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

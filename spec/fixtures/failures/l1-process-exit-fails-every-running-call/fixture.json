@@ -1,0 +1,25 @@
+{
+  "fixture": 0,
+  "description": "When the process exits, every running call fails with crash; the process is restarted after the backoff.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":0,"source":"s","payload":2},
+    {"at":400,"source":"s","payload":3}
+  ],
+  "script": {
+    "a": {"calls":[{"when":1,"after":100,"reply":{"answer":1}},{"when":2,"after":100,"reply":{"answer":2}},{"when":3,"after":10,"reply":{"answer":3}}],"starts":[{"maxInflight":2,"end":{"after":50,"how":"exit"}},{}]},
+    "b": {"calls":[{"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"signal","t":0,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"error","t":50,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","message":"process failed","code":"crash","payload":{"type":"json","data":1}},
+    {"type":"error","t":50,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"neuron":"a","message":"process failed","code":"crash","payload":{"type":"json","data":2}},
+    {"type":"note","t":250,"neuron":"a","what":"restart"},
+    {"type":"signal","t":400,"id":"#3","from":"s","to":["a"],"trace":"#3","hops":0,"payload":{"type":"json","data":3}},
+    {"type":"answer","t":410,"id":"#4","from":"a","to":["s"],"trace":"#3","replyTo":"#3","hops":1,"payload":{"type":"json","data":3}},
+    {"type":"signal","t":410,"id":"#5","from":"a","to":["b"],"trace":"#3","cause":"#4","hops":2,"payload":{"type":"json","data":3}},
+    {"type":"quiet","t":410,"id":"#6","from":"b","to":["a"],"trace":"#3","replyTo":"#5","hops":3}
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "level1-replaces-256-bytes-accepted",
+  "description": "A reply key of exactly 256 bytes is accepted (257 is a protocol error, failures/l1-protocol-replaces-too-long).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

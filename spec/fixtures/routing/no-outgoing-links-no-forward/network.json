@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "no-outgoing-links-no-forward",
+  "description": "An answer from a neuron with no outgoing links is reported (to its sender) and forwarded nowhere.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "version": 0,
+  "name": "fan-in-two-inputs-two-calls",
+  "description": "Two senders into one neuron with no threshold: two inputs, two calls, each replying to its own sender.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    },
+    {
+      "id": "c",
+      "run": [
+        "neuron-c"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    },
+    {
+      "from": "a",
+      "to": "c"
+    },
+    {
+      "from": "b",
+      "to": "c"
+    }
+  ]
+}

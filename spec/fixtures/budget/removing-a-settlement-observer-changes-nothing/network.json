@@ -1,0 +1,29 @@
+{
+  "version": 0,
+  "name": "removing-a-settlement-observer-changes-nothing",
+  "description": "SPEC 8.5 with a budget: a scripted settlement observer reads the reserve and commit notes; without it the events are the same.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 6
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

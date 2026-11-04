@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "one-way-link",
+  "description": "Links are one way: b answers a, but the answer is a reply, never an input to a (a has one script entry and gets one call).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

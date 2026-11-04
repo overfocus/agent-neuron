@@ -1,0 +1,18 @@
+{
+  "fixture": 0,
+  "description": "A composed neuron is one neuron outside: the input enters at entry, the first reply of exit is the answer, and it forwards like any answer.",
+  "inputs": [
+    {"at":0,"source":"s","payload":{"n":1},"replaces":"k"}
+  ],
+  "script": {
+    "diag/e": {"calls":[{"after":10,"reply":{"answer":{"n":2}}}]},
+    "diag/x": {"calls":[{"after":5,"reply":{"answer":{"n":3}}}]},
+    "b": {"calls":[{"after":1,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":{"n":1}}},
+    {"type":"answer","t":15,"id":"#2","from":"diag","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"n":3}}},
+    {"type":"signal","t":15,"id":"#3","from":"diag","to":["b"],"trace":"#1","cause":"#2","hops":2,"replaces":"k","payload":{"type":"json","data":{"n":3}}},
+    {"type":"quiet","t":16,"id":"#4","from":"b","to":["diag"],"trace":"#1","replyTo":"#3","hops":3}
+  ]
+}

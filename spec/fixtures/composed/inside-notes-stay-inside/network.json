@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "inside-notes-stay-inside",
+  "description": "A restart of an inner level 1 process and the failure of the call it ran are not outer notes; the composed neuron only has its own error.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    }
+  ]
+}

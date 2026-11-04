@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "l1-protocol-to-names-a-stranger",
+  "description": "A to that names a neuron which is not an outgoing link is a protocol error.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}
