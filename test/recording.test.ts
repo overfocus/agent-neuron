@@ -7,14 +7,13 @@ import { INNER_IDS } from '../examples/alerts-demo.mjs';
 import { replay, start, step, type Trace, type TraceEvent } from '../examples/trace/replay.mjs';
 import { tap } from '../examples/trace/tap.mjs';
 import { Network, Neuron, text, type Adapter, type AdapterContext } from '../src/index.js';
+import { expectValidTrace } from './support/trace.js';
 
 // Every committed trace (docs/TRACE.md). Re-record with `npm run record` after changing a demo.
 const dir = new URL('../traces/', import.meta.url);
 const files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
 const raw = new Map(files.map((f) => [f, readFileSync(new URL(f, dir), 'utf8')]));
 const traces = new Map([...raw].map(([f, text]) => [f, JSON.parse(text) as Trace]));
-const REASONS = ['replaced', 'expired', 'hops'];
-const TYPES = ['signal', 'answer', 'quiet', 'drop', 'error', 'fail'];
 
 describe('committed traces', () => {
   it('has the expected recordings', () => {
@@ -23,35 +22,7 @@ describe('committed traces', () => {
 
   for (const [file, trace] of traces) {
     it(`${file} is valid`, () => {
-      expect(trace).toMatchObject({ format: 'agent-neuron-trace', version: 1 });
-      expect(trace.description).toEqual(expect.any(String));
-      expect(trace.library).toMatch(/^\d+\.\d+\.\d+/);
-      const ids = new Set(trace.neurons.map((n) => n.id));
-      expect(ids.size).toBe(trace.neurons.length);
-      for (const n of trace.neurons) expect([n.kind, n.description].every((s) => typeof s === 'string' && s)).toBe(true);
-      const hops = new Map<string, number>(); // signal id -> hops, from the first event that names it
-      let last = 0;
-      for (const e of trace.events) {
-        if (!TYPES.includes(e.type)) continue; // TRACE.md: a reader ignores event types it does not know
-        expect(Number.isInteger(e.t)).toBe(true);
-        expect(e.t).toBeGreaterThanOrEqual(last);
-        last = e.t;
-        if (e.type === 'fail') continue;
-        for (const id of [e.from!, ...(e.to ?? []), ...(e.neuron ? [e.neuron] : [])]) expect(ids).toContain(id);
-        if (e.type === 'drop') expect(REASONS).toContain(e.reason);
-        if (e.type === 'drop' || e.type === 'error') {
-          expect(hops.has(e.id!)).toBe(true); // it is about a signal already reported
-          continue;
-        }
-        const origin = e.replyTo ?? e.cause;
-        if (origin === undefined) expect(e.hops).toBe(0);
-        else {
-          expect(hops.has(origin)).toBe(true); // an earlier event's signal
-          expect(e.hops).toBe(hops.get(origin)! + 1);
-        }
-        for (const link of [e.replyTo, e.cause]) if (link !== undefined) expect(hops.has(link)).toBe(true);
-        hops.set(e.id!, e.hops!);
-      }
+      expectValidTrace(trace);
     });
   }
 

@@ -88,11 +88,14 @@ Rules you will hit:
 - **Logs go to stderr.** Level 1 stdout carries protocol lines only.
 - **Quiet is a choice.** An error (non-zero exit) forwards nothing too, but is
   recorded as a failure.
-- **Running a network.** There is no engine command yet: the TypeScript core
-  does not read network files, and the Rust engine is not written. Today you
-  can run a neuron by hand as above, and check a network file with the helper
-  `checkFile` in `test/support/network.ts` (it validates against the schema and
-  reports the findings of section 2.7).
+- **Running a network.** `npm run engine -- check <file>` validates a network file
+  (schema and the findings of section 2.7, with line and column). `npm run engine --
+  run <file> --inputs <jsonl> [--trace <out.json>]` runs it: the inputs file holds one
+  JSON object per line, `{"at": ms, "source": id, "payload": ..., "replaces": key}`
+  (`replaces` optional), and the run prints the answers of the neurons with no
+  outgoing links. Try `npm run demo:network` (the alert storm below). The TypeScript
+  library does not read network files; the reference engine is `src/engine/`
+  (Appendix C). Level 1, `http` and `human` neurons are not run yet.
 
 ## 1. Terms (informative)
 
@@ -503,8 +506,9 @@ module and the network view work unchanged.
 
 `format` and `version` as v1. `demo` is the network's `name`, or the file name
 (TRACE.md defines `demo` as a free name). `library` stays the engine's version
-string (`0.1.0`); an optional `engine` field names the engine. `description`
-from the file. `neurons`: `id`, `description`, `kind` (the kind field's name,
+string (`0.0.0` today); an optional `engine` field names the engine. `description`
+from the file (the engine writes an empty string if the file has none); a neuron
+with no `description` is written as `<kind> neuron`, so every neuron has one. `neurons`: `id`, `description`, `kind` (the kind field's name,
 `network` written `composed`) and `options` as set in the file
 (`threshold`, `within`, `maxHops`; defaults are not written). `links`: one
 `{from, to}` per link, directional. `summary` MAY be `{}`. A composed neuron's
@@ -729,3 +733,41 @@ differences:
 - `phase` on drops (`onDrop` reports one reason today; the recorder and the view add `phase` from the
   held inputs they replay);
 - the threshold stdin shape applies above 1 only.
+
+### The reference engine (`src/engine/`, `npm run engine`)
+
+A second engine, written to this specification, reads network files. It is
+separate from the library (`src/index.ts` is unchanged) and is the reference
+the Rust engine is compared with. It follows the specification, including the
+6.2 event order, where the library differs (the list above). Conformance gaps:
+
+- **Neuron kinds**: `run`, `source` and `network` only. `serve`, `http` and
+  `human` are reported by `check` as warnings and refused by `run`. So there is
+  no `restart`, `junk` or level 1 `protocol` behaviour.
+- **No fixtures yet** (section 8): the engine runs real processes on the real
+  clock, with no scripted programs or virtual clock, so it cannot run a fixture
+  today. Its tests assert invariants and the rules in sections 4 to 6 on small
+  networks of `sh` and `cat`.
+- **Observers** (section 9): none. `run` returns the finished trace; there is no
+  live stream. The `inject` note is never written.
+- **Same-instant order** (6.2 rules 1 and 5) holds because the engine is one
+  synchronous event loop, not because a clock orders it; a call whose process
+  ends in the same millisecond its input goes stale can go either way.
+- **Notes**: `cancel`, `term` and `kill` are written; the rest need level 1.
+- **Process start failure** (no such executable) is an `exit` error, `exit 127:`
+  then the reason; the table in 6.1 has no row for it.
+- **The inside of a composed neuron** is available only through the `inner`
+  option of `runNetwork` (CLI `--inner <out.json>`), an operator's tool outside
+  the trace (2.6); it is not specified.
+- **Payloads over 2000 characters** are cut to a preview in the trace (TRACE.md),
+  as the recorder does; the program still gets the whole value.
+- **POSIX only**: process groups, `kill(-pid)` and `sh`-style programs; no Windows.
+- **Engine defaults** (decision 0001): when a call ends the engine kills its
+  program's process group; a call settles 100 ms after the process exits even if
+  a child still holds stdout open; ids are numbered per scope, so outer ids do not
+  reveal inside work; the CLI kills every running group on SIGINT or SIGTERM.
+- **The staleness map is not pruned**: a list of finished work stays under its
+  (sender, key) until that key is next replaced, the same known limit as the
+  library, so a very long run with many distinct keys grows in memory.
+- **`check` positions** point at the key of the offending member, or the item of
+  an array, not at its value.
