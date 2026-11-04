@@ -1,0 +1,18 @@
+{
+  "fixture": 0,
+  "description": "The inner level 1 process is shared by every call: with maxInflight 1 the second call waits behind the first.",
+  "inputs": [
+    {"at":0,"source":"s","payload":"one"},
+    {"at":10,"source":"s","payload":"two"}
+  ],
+  "script": {
+    "diag/e": {"starts":[{}],"calls":[{"after":50,"reply":{"answer":"E1"}},{"after":50,"reply":{"answer":"E2"}}]},
+    "diag/x": {"calls":[{"after":0,"reply":{"quiet":true}},{"after":0,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"payload":{"type":"text","text":"one"}},
+    {"type":"signal","t":10,"id":"#2","from":"s","to":["diag"],"trace":"#2","hops":0,"payload":{"type":"text","text":"two"}},
+    {"type":"quiet","t":50,"id":"#3","from":"diag","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"quiet","t":100,"id":"#4","from":"diag","to":["s"],"trace":"#2","replyTo":"#2","hops":1}
+  ]
+}

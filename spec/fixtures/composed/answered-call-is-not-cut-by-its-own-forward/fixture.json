@@ -1,0 +1,19 @@
+{
+  "fixture": 0,
+  "description": "As the level 0 case: a composed neuron linked to itself with maxHops 2; the keyed forward of an answered call does not cut it.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1,"replaces":"k"}
+  ],
+  "script": {
+    "c/e": {"calls":[{"after":1,"reply":{"answer":1}},{"after":1,"reply":{"answer":1}}]},
+    "c/x": {"calls":[{"after":5,"reply":{"answer":2}},{"after":5,"reply":{"answer":3}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["c"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":1}},
+    {"type":"answer","t":6,"id":"#2","from":"c","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":2}},
+    {"type":"signal","t":6,"id":"#3","from":"c","to":["c"],"trace":"#1","cause":"#2","hops":2,"replaces":"k","payload":{"type":"json","data":2}},
+    {"type":"answer","t":12,"id":"#4","from":"c","to":["c"],"trace":"#1","replyTo":"#3","hops":3,"payload":{"type":"json","data":3}},
+    {"type":"signal","t":12,"id":"#5","from":"c","to":["c"],"trace":"#1","cause":"#4","hops":4,"replaces":"k","payload":{"type":"json","data":3}},
+    {"type":"drop","t":12,"id":"#5","from":"c","to":["c"],"trace":"#1","cause":"#4","hops":4,"neuron":"c","reason":"hops","payload":{"type":"json","data":3}}
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "exit-reply-cancels-the-rest-silently",
+  "description": "When exit replies, other inner work is cancelled without a trace of it: no drop, no note. Cancelled y never reaches exit again (x has one script entry, so a second call to it would fail the fixture).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    }
+  ]
+}

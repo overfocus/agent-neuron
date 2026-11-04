@@ -1,0 +1,31 @@
+{
+  "fixture": 0,
+  "description": "An observer injects into a source after b answers: the new trace is additional, and the traces without observer are unchanged.",
+  "inputs": [
+    {"at":0,"source":"s","payload":{"n":1}}
+  ],
+  "script": {
+    "a": {"calls":[{"after":10,"reply":{"answer":{"n":2}}},{"after":10,"reply":{"answer":{"n":10}}}]},
+    "b": {"calls":[{"after":5,"reply":{"quiet":true}},{"after":5,"reply":{"quiet":true}}]}
+  },
+  "observer": [
+    {"when":{"type":"quiet","from":"b"},"inject":{"after":10,"source":"s","payload":{"n":9}}}
+  ],
+  "independent": true,
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":{"n":1}}},
+    {"type":"answer","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"n":2}}},
+    {"type":"signal","t":10,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":{"n":2}}},
+    {"type":"quiet","t":15,"id":"#4","from":"b","to":["a"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"signal","t":25,"id":"#5","from":"s","to":["a"],"trace":"#5","hops":0,"payload":{"type":"json","data":{"n":9}}},
+    {"type":"answer","t":35,"id":"#6","from":"a","to":["s"],"trace":"#5","replyTo":"#5","hops":1,"payload":{"type":"json","data":{"n":10}}},
+    {"type":"signal","t":35,"id":"#7","from":"a","to":["b"],"trace":"#5","cause":"#6","hops":2,"payload":{"type":"json","data":{"n":10}}},
+    {"type":"quiet","t":40,"id":"#8","from":"b","to":["a"],"trace":"#5","replyTo":"#7","hops":3}
+  ],
+  "expectWithout": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":{"n":1}}},
+    {"type":"answer","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"n":2}}},
+    {"type":"signal","t":10,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":{"n":2}}},
+    {"type":"quiet","t":15,"id":"#4","from":"b","to":["a"],"trace":"#1","replyTo":"#3","hops":3}
+  ]
+}

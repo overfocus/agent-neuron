@@ -1,0 +1,19 @@
+{
+  "fixture": 0,
+  "description": "An input that arrives while the process is down waits and is written when the restarted process is ready; its timeout counts from then.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":300,"source":"s","payload":2}
+  ],
+  "script": {
+    "a": {"starts":[{"end":{"after":50}},{"ready":300}],"calls":[{"when":1,"after":100,"reply":{"answer":"one"}},{"when":2,"after":200,"reply":{"answer":"two"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":50,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","message":"process failed","code":"crash","payload":{"type":"json","data":1}},
+    {"type":"note","t":250,"neuron":"a","what":"restart"},
+    {"type":"signal","t":300,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"answer","t":750,"id":"#3","from":"a","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"two"}}
+  ]
+}

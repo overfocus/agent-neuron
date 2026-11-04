@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "As the first pong fixture with other times (pingEvery 200): after the pong at 450 the second early crash (550) waits 200 ms, so the restart notes are at 250 and 750.",
+  "notes": true,
+  "pingEvery": 200,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"starts":[{"end":{"after":50}},{"end":{"after":300}},{}],"calls":[{"after":1,"reply":{"quiet":true}}]},
+    "b": {"calls":[{"after":2000,"reply":{"answer":"slow"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"quiet","t":1,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"note","t":250,"neuron":"a","what":"restart"},
+    {"type":"note","t":750,"neuron":"a","what":"restart"},
+    {"type":"answer","t":2000,"id":"#3","from":"b","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"slow"}}
+  ]
+}

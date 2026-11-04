@@ -1,0 +1,53 @@
+{
+  "version": 0,
+  "name": "level1-to-limits-the-forward",
+  "description": "A reply \"to\" names some outgoing links; the forward lists them in link order whatever order the reply gives.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    },
+    {
+      "id": "c",
+      "run": [
+        "neuron-c"
+      ]
+    },
+    {
+      "id": "d",
+      "run": [
+        "neuron-d"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    },
+    {
+      "from": "a",
+      "to": "c"
+    },
+    {
+      "from": "a",
+      "to": "d"
+    }
+  ]
+}

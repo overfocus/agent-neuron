@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "timeout-is-not-an-error-when-stale",
+  "description": "A call that goes stale just before its timeout is cut (drop), not timed out (no error).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "timeout": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

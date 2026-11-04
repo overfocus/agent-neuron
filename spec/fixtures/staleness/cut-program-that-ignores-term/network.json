@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "cut-program-that-ignores-term",
+  "description": "A cut level 0 program that ignores SIGTERM is killed 2000 ms later (note kill); the run is not over before.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

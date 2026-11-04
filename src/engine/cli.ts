@@ -1,9 +1,11 @@
 // npm run engine -- check <file>
+// npm run engine -- conform <dir> [--only <text>]
 // npm run engine -- run <file> --inputs <jsonl> [--trace <out.json>] [--inner <out.json>]
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
+import { conform, report } from './conform.js';
 import { check, formatFinding, formatTrace, killGroups, readInjections, runNetwork, type Event } from './index.js';
 
-const usage = 'usage: engine check <file>\n       engine run <file> --inputs <jsonl> [--trace <out.json>] [--inner <out.json>]';
+const usage = 'usage: engine check <file>\n       engine conform <dir> [--only <text>]\n       engine run <file> --inputs <jsonl> [--trace <out.json>] [--inner <out.json>]';
 const [command, file, ...rest] = process.argv.slice(2);
 const flag = (name: string) => {
   const i = rest.indexOf(name);
@@ -21,7 +23,16 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 async function main(): Promise<number> {
-  if (!file || (command !== 'check' && command !== 'run')) return (console.error(usage), 2);
+  if (!file || (command !== 'check' && command !== 'run' && command !== 'conform')) return (console.error(usage), 2);
+  if (command === 'conform') {
+    if (!existsSync(file)) return (console.error(`engine: no such directory: ${file}`), 2);
+    const only = flag('--only');
+    if (rest.includes('--only') && (only === undefined || only.startsWith('--'))) return (console.error(usage), 2);
+    const results = await conform(file, only === undefined ? {} : { only });
+    if (!results.length) return (console.error(`engine: no fixtures under ${file}`), 2);
+    for (const line of report(results)) console.log(line);
+    return results.some((r) => r.status === 'fail') ? 1 : 0;
+  }
   if (command === 'check') {
     const findings = check(file);
     for (const f of findings) console.error(formatFinding(f));

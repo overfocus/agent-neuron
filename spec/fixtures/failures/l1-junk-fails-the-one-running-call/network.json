@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "l1-junk-fails-the-one-running-call",
+  "description": "A junk line while exactly one call runs: a note (line number from 1, ready is line 1) and the call fails, code junk.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

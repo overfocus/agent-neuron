@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "An inner threshold 3 neuron holds two inputs of call A; call B's third sender must not complete the group (calls A and B are different inner traces).",
+  "inputs": [
+    {"at":0,"source":"s","payload":"A"},
+    {"at":30,"source":"s","payload":"B"}
+  ],
+  "script": {
+    "diag/e": {"calls":[{"after":1,"reply":{"answer":"A"}},{"after":1,"reply":{"answer":"B"}}]},
+    "diag/d1": {"calls":[{"when":"A","after":10,"reply":{"answer":"a1"}},{"when":"B","after":10,"reply":{"quiet":true}}]},
+    "diag/d2": {"calls":[{"when":"A","after":10,"reply":{"answer":"a2"}},{"when":"B","after":10,"reply":{"quiet":true}}]},
+    "diag/d3": {"calls":[{"when":"A","after":10,"reply":{"quiet":true}},{"when":"B","after":10,"reply":{"answer":"b3"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"payload":{"type":"text","text":"A"}},
+    {"type":"signal","t":30,"id":"#2","from":"s","to":["diag"],"trace":"#2","hops":0,"payload":{"type":"text","text":"B"}},
+    {"type":"quiet","t":511,"id":"#3","from":"diag","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"quiet","t":541,"id":"#4","from":"diag","to":["s"],"trace":"#2","replyTo":"#2","hops":1}
+  ]
+}

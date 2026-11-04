@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "fan-out-replies-go-to-the-sender",
+  "description": "A source with two targets: each target replies to the source, in the order its call ends.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    }
+  ]
+}

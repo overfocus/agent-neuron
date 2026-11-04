@@ -1,0 +1,6 @@
+{
+  "fixture": 0,
+  "description": "A run with nothing injected reports no events.",
+  "inputs": [],
+  "expect": []
+}

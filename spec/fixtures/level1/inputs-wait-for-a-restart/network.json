@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "inputs-wait-for-a-restart",
+  "description": "An input that arrives while the process is down waits and is written when the restarted process is ready; its timeout counts from then.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ],
+      "timeout": 400
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

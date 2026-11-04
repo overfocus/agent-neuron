@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "l1-junk-counts-cancelled-calls-holding-a-slot",
+  "description": "A junk line with one live call and one cancelled call holding its slot cannot be attributed (two calls count): only the note; the live call answers.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

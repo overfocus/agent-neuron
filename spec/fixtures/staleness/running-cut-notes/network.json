@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "running-cut-notes",
+  "description": "The cut of a level 0 call is followed by the notes cancel and term, at the time it goes stale.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "Injections with the same at are processed in the order the fixture lists them, whatever the source order.",
+  "inputs": [
+    {"at":0,"source":"s2","payload":"two"},
+    {"at":0,"source":"s1","payload":"one"}
+  ],
+  "script": {
+    "a": {"calls":[{"when":"two","after":5,"reply":{"quiet":true}},{"when":"one","after":5,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s2","to":["a"],"trace":"#1","hops":0,"payload":{"type":"text","text":"two"}},
+    {"type":"signal","t":0,"id":"#2","from":"s1","to":["a"],"trace":"#2","hops":0,"payload":{"type":"text","text":"one"}},
+    {"type":"quiet","t":5,"id":"#3","from":"a","to":["s2"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"quiet","t":5,"id":"#4","from":"a","to":["s1"],"trace":"#2","replyTo":"#2","hops":1}
+  ]
+}

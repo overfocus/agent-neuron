@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "Injections are scheduled before the run: at a tie they are processed before the replies the run itself schedules.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":20,"source":"s","payload":2}
+  ],
+  "script": {
+    "a": {"calls":[{"after":20,"reply":{"answer":"one"}},{"after":5,"reply":{"answer":"two"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"signal","t":20,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"answer","t":20,"id":"#3","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"one"}},
+    {"type":"answer","t":25,"id":"#4","from":"a","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"two"}}
+  ]
+}

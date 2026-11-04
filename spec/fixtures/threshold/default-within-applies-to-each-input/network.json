@@ -1,0 +1,34 @@
+{
+  "version": 0,
+  "name": "default-within-applies-to-each-input",
+  "description": "Without within, each lone held input expires 10000 ms after it was held: here at 10020 and 13020.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "d1",
+      "run": [
+        "neuron-d1"
+      ]
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ],
+      "threshold": 2
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "d1"
+    },
+    {
+      "from": "d1",
+      "to": "h"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "l1-a-failed-neuron-answers-start-errors",
+  "description": "After 5 failed starts the neuron is failed: the call that was running fails with crash, the one queued behind it and every later input are errors, code start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

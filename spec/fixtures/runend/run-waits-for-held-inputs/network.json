@@ -1,0 +1,25 @@
+{
+  "version": 0,
+  "name": "run-waits-for-held-inputs",
+  "description": "A held input keeps its within timer, so the run ends only after the expired drop is reported.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ],
+      "threshold": 2,
+      "within": 300
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "h"
+    }
+  ]
+}

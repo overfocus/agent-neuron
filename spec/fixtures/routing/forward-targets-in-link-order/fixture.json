@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "The forward and the injection list their targets in link declaration order, not neuron declaration order.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":0,"reply":{"quiet":true}}]},
+    "b": {"calls":[{"after":5,"reply":{"answer":2}}]},
+    "c": {"calls":[{"after":0,"reply":{"quiet":true}},{"after":0,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["c","b"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"quiet","t":0,"id":"#2","from":"c","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"answer","t":5,"id":"#3","from":"b","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":2}},
+    {"type":"signal","t":5,"id":"#4","from":"b","to":["c","a"],"trace":"#1","cause":"#3","hops":2,"payload":{"type":"json","data":2}},
+    {"type":"quiet","t":5,"id":"#5","from":"c","to":["b"],"trace":"#1","replyTo":"#4","hops":3},
+    {"type":"quiet","t":5,"id":"#6","from":"a","to":["b"],"trace":"#1","replyTo":"#4","hops":3}
+  ]
+}

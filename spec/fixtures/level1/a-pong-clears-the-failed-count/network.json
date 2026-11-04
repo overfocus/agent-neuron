@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "a-pong-clears-the-failed-count",
+  "description": "After an early crash a pong proves the new process: its next early crash waits 200 ms again, not 400 (restart notes at 250 and 1000).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    }
+  ]
+}

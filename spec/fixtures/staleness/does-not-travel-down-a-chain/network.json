@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "does-not-travel-down-a-chain",
+  "description": "Staleness is not passed along: when s replaces, b (which works for a) is cut only when a itself emits a newer signal with the key.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

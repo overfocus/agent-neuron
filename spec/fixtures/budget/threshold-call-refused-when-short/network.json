@@ -1,0 +1,61 @@
+{
+  "version": 0,
+  "name": "threshold-call-refused-when-short",
+  "description": "The same network with budget 10: when h acts the pool holds 4 credits, so the call is refused with an error budget for the crossing input.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "d1",
+      "run": [
+        "neuron-d1"
+      ],
+      "cost": {
+        "credits": 3
+      }
+    },
+    {
+      "id": "d2",
+      "run": [
+        "neuron-d2"
+      ],
+      "cost": {
+        "credits": 3
+      }
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ],
+      "threshold": 2,
+      "within": 100,
+      "cost": {
+        "credits": 5
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "d1"
+    },
+    {
+      "from": "s",
+      "to": "d2"
+    },
+    {
+      "from": "d1",
+      "to": "h"
+    },
+    {
+      "from": "d2",
+      "to": "h"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

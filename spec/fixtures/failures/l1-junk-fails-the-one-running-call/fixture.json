@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "A junk line while exactly one call runs: a note (line number from 1, ready is line 1) and the call fails, code junk.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":10,"reply":{"junk":"not json at all"}}]},
+    "b": {"calls":[]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"note","t":10,"neuron":"a","what":"junk","line":2,"text":"not json at all"},
+    {"type":"error","t":10,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","message":"junk on stdout","code":"junk","payload":{"type":"json","data":1}}
+  ]
+}

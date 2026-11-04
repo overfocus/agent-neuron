@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "max-inflight-must-be-at-least-one",
+  "description": "ready with maxInflight 0 is a protocol error at the first start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

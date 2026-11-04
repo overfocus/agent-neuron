@@ -1,0 +1,28 @@
+{
+  "version": 0,
+  "name": "answered-call-is-not-cut-by-its-own-forward",
+  "description": "p links to itself with maxHops 2: the forward of an answered call carries the key and must not cut the call that made it.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "p",
+      "run": [
+        "neuron-p"
+      ],
+      "maxHops": 2
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "p"
+    },
+    {
+      "from": "p",
+      "to": "p"
+    }
+  ]
+}

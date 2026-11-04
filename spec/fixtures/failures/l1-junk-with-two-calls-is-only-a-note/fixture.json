@@ -1,0 +1,24 @@
+{
+  "fixture": 0,
+  "description": "A junk line with two calls running cannot be attributed: only the note; both calls then answer.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":0,"source":"s","payload":2}
+  ],
+  "script": {
+    "a": {"calls":[{"after":10,"reply":{"answer":"one","also":["oops"]}},{"after":30,"reply":{"answer":"two"}}],"starts":[{"maxInflight":2}]},
+    "b": {"calls":[{"reply":{"quiet":true}},{"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"signal","t":0,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"note","t":10,"neuron":"a","what":"junk","line":2,"text":"oops"},
+    {"type":"answer","t":10,"id":"#3","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"one"}},
+    {"type":"signal","t":10,"id":"#4","from":"a","to":["b"],"trace":"#1","cause":"#3","hops":2,"payload":{"type":"text","text":"one"}},
+    {"type":"quiet","t":10,"id":"#5","from":"b","to":["a"],"trace":"#1","replyTo":"#4","hops":3},
+    {"type":"answer","t":30,"id":"#6","from":"a","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"two"}},
+    {"type":"signal","t":30,"id":"#7","from":"a","to":["b"],"trace":"#2","cause":"#6","hops":2,"payload":{"type":"text","text":"two"}},
+    {"type":"quiet","t":30,"id":"#8","from":"b","to":["a"],"trace":"#2","replyTo":"#7","hops":3}
+  ]
+}

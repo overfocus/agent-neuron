@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "A held input made stale by a newer one with the same (sender, key) is dropped: replaced, phase waiting.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1,"replaces":"k"},
+    {"at":40,"source":"s","payload":2,"replaces":"k"}
+  ],
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["h"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":1}},
+    {"type":"signal","t":40,"id":"#2","from":"s","to":["h"],"trace":"#2","hops":0,"replaces":"k","payload":{"type":"json","data":2}},
+    {"type":"drop","t":40,"id":"#1","from":"s","to":["h"],"trace":"#1","hops":0,"neuron":"h","reason":"replaced","phase":"waiting","payload":{"type":"json","data":1}},
+    {"type":"drop","t":240,"id":"#2","from":"s","to":["h"],"trace":"#2","hops":0,"neuron":"h","reason":"expired","payload":{"type":"json","data":2}}
+  ]
+}

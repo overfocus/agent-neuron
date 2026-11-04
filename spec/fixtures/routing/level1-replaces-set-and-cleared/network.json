@@ -1,0 +1,43 @@
+{
+  "version": 0,
+  "name": "level1-replaces-set-and-cleared",
+  "description": "A level 1 reply may set the forward key (a string), clear it (null) or leave it inherited (absent).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "serve": [
+        "neuron-b"
+      ]
+    },
+    {
+      "id": "c",
+      "serve": [
+        "neuron-c"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    },
+    {
+      "from": "b",
+      "to": "c"
+    }
+  ]
+}

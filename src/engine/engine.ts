@@ -24,31 +24,56 @@ type Outcome = { answer: unknown; replaces?: string | null; to?: string[] } | { 
 
 const DEFAULT_WITHIN = 10_000, DEFAULT_TIMEOUT = 30_000, MAX_OUTPUT = 1 << 20, KILL_AFTER = 2_000, GRACE = 100, MAX_KEY = 256, PAYLOAD_CAP = 2000, PING_EVERY = 10_000, MAX_STARTS = 5, STABLE_AFTER = 1_000;
 const groups = new Set<number>(); // process groups of running programs
-const killGroup = (pid: number | undefined, signal: NodeJS.Signals) => {
+/** Time and processes: the seam the conformance fixtures use (SPEC 8). `realHost` is what runs; `src/engine/virtual.ts` is the other. */
+export interface Host {
+  now(): number;
+  setTimeout(fn: () => void, ms: number): NodeJS.Timeout;
+  clearTimeout(t: NodeJS.Timeout | undefined): void;
+  setInterval(fn: () => void, ms: number): NodeJS.Timeout;
+  clearInterval(t: NodeJS.Timeout | undefined): void;
+  launch(node: { spec: NeuronSpec; dir: string; path: string }): Proc;
+  killGroup(pid: number | undefined, signal: NodeJS.Signals): void;
+  alive(pid: number | undefined): boolean;
+  /** Virtual only: runs the next due wake-up (same instant: the order they were set); false when none is left. */
+  step?(): boolean;
+}
+const realKill = (pid: number | undefined, signal: NodeJS.Signals) => {
   try { process.kill(-pid!, signal); } catch { /* already gone */ }
 };
-const alive = (pid: number | undefined) => {
-  try { return pid !== undefined && (process.kill(-pid, 0), true); } catch { return false; }
+const realHost: Host = {
+  now: () => performance.now(),
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (t) => clearTimeout(t),
+  setInterval: (fn, ms) => setInterval(fn, ms),
+  clearInterval: (t) => clearInterval(t),
+  launch: (node) => launch(node),
+  killGroup: realKill,
+  alive: (pid) => {
+    try { return pid !== undefined && (process.kill(-pid, 0), true); } catch { return false; }
+  },
 };
+let host: Host = realHost; // swapped for the length of a virtual run (runNetwork)
+const killGroup = (pid: number | undefined, signal: NodeJS.Signals) => host.killGroup(pid, signal);
+const alive = (pid: number | undefined) => host.alive(pid);
 /** Signals every running program's process group: for a CLI that is itself being stopped. */
 export function killGroups(signal: NodeJS.Signals) {
-  for (const pid of groups) killGroup(pid, signal);
+  for (const pid of groups) realKill(pid, signal);
 }
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise((r) => host.setTimeout(r as () => void, ms));
 /** Resolves when no member of the process group is left, or after `ms`: the grace for what a leader left behind. */
 const groupGone = async (pid: number | undefined, ms: number) => {
   for (let waited = 0; waited < ms && alive(pid); waited += 20) await sleep(20);
 };
 const withKey = (replaces: string | undefined) => (replaces === undefined ? {} : { replaces });
 /** A program in its own process group, with only PATH and its `env` names (SPEC 2.4); the group is registered in `groups`. */
-const launch = (node: Node): Proc => {
+function launch(node: { spec: NeuronSpec; dir: string }): Proc {
   const spec = node.spec, cmd = (spec.run ?? spec.serve)!;
   const env: Record<string, string> = { PATH: process.env.PATH ?? '' };
   for (const name of spec.env ?? []) if (process.env[name] !== undefined) env[name] = process.env[name]!;
   const child = spawn(cmd[0]!, cmd.slice(1), { cwd: resolve(node.dir, spec.cwd ?? '.'), env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
   if (child.pid !== undefined) groups.add(child.pid);
   return child;
-};
+}
 
 /** One use of a network file: its neurons, and for a composed neuron its own inner Instance. */
 class Instance {
@@ -60,7 +85,7 @@ class Instance {
 }
 class Node {
   out: Node[] = [];
-  groups = new Map<string, Work[]>(); // threshold: trace -> held works
+  groups = new Map<string, Work[]>(); // threshold: scope and trace -> held works
   inner?: Instance;
   server?: Server; // serve neurons
   constructor(readonly spec: NeuronSpec, readonly dir: string, readonly path: string) {
@@ -121,7 +146,7 @@ class Server {
   }
 
   private spawn() {
-    const child = launch(this.node); // registers its process group
+    const child = host.launch(this.node); // registers its process group
     this.child = child;
     let buf = Buffer.alloc(0);
     this.line = 0;
@@ -146,10 +171,10 @@ class Server {
     });
     child.on('error', (e) => this.down(child, 'crash', `process failed: could not start ${this.node.spec.serve![0]}: ${e.message}`));
     // A helper that inherited stdout keeps 'close' from firing, so the exit itself is enough, after a grace for the last lines.
-    child.on('exit', () => setTimeout(() => this.down(child, 'crash', 'process failed'), GRACE));
+    child.on('exit', () => host.setTimeout(() => this.down(child, 'crash', 'process failed'), GRACE));
     child.on('close', () => this.down(child, 'crash', 'process failed'));
     this.write({ v: 1, type: 'hello', neuron: this.node.id });
-    this.startTimer = setTimeout(() => this.down(child, 'timeout', `no ready within ${this.ms} ms`), this.ms);
+    this.startTimer = host.setTimeout(() => this.down(child, 'timeout', `no ready within ${this.ms} ms`), this.ms);
   }
 
   private onLine(child: Proc, text: string) {
@@ -162,7 +187,7 @@ class Server {
     if (!m) return this.junk(raw);
     if (m.type === 'pong') {
       if (m.n === this.pinging) {
-        clearTimeout(this.pingHang);
+        host.clearTimeout(this.pingHang);
         this.pinging = undefined;
         this.failedStarts = 0; // it answers: this start has proved itself
       }
@@ -173,15 +198,15 @@ class Server {
     const mi = m?.maxInflight ?? 1;
     const bad = !m || m.type !== 'ready' ? 'the first line must be ready' : m.v !== 1 ? 'ready.v differs from hello.v' : !Number.isInteger(mi) || (mi as number) < 1 ? 'maxInflight must be an integer, at least 1' : '';
     if (bad) return this.down(child, 'protocol', `protocol: ${bad}`);
-    clearTimeout(this.startTimer);
+    host.clearTimeout(this.startTimer);
     this.ready = true;
-    this.readyAt = performance.now();
+    this.readyAt = host.now();
     this.maxInflight = mi as number;
-    this.pingTimer = setInterval(() => { // liveness, only when nothing is running (3.2)
+    this.pingTimer = host.setInterval(() => { // liveness, only when nothing is running (3.2)
       if (this.jobs.size || this.pinging !== undefined) return;
       this.pinging = ++this.pings;
       this.write({ type: 'ping', n: this.pinging });
-      this.pingHang = setTimeout(() => this.down(child, 'crash', 'process failed: no pong', true), this.ms);
+      this.pingHang = host.setTimeout(() => this.down(child, 'crash', 'process failed: no pong', true), this.ms);
     }, this.pingEvery);
     this.begin?.ok();
     this.begin = undefined;
@@ -203,7 +228,7 @@ class Server {
     const job = typeof m.re === 'number' ? this.jobs.get(m.re) : undefined;
     if (!job) return; // unknown or finished: discarded
     this.jobs.delete(job.re!);
-    clearTimeout(job.hang);
+    host.clearTimeout(job.hang);
     job.done(job.call.cancelled ? { quiet: true } : this.outcome(m)); // a cancelled call's reply is discarded
     this.pump();
   }
@@ -241,7 +266,7 @@ class Server {
       job.call.stop = () => { // cancel: advisory; the slot is kept until the neuron replies for it or `timeout` ms pass, then it is hung
         this.write({ type: 'cancel', re });
         const child = this.child!;
-        job.hang = setTimeout(() => this.down(child, 'crash', 'process failed: no reply to cancel'), this.ms);
+        job.hang = host.setTimeout(() => this.down(child, 'crash', 'process failed: no reply to cancel'), this.ms);
       };
       this.write({ type: 'signal', re, ...job.message });
       job.arm();
@@ -261,25 +286,25 @@ class Server {
     this.child = undefined;
     const wasReady = this.ready;
     this.ready = false;
-    clearTimeout(this.startTimer);
-    clearInterval(this.pingTimer);
-    clearTimeout(this.pingHang);
+    host.clearTimeout(this.startTimer);
+    host.clearInterval(this.pingTimer);
+    host.clearTimeout(this.pingHang);
     this.pinging = undefined;
     const why = this.err.trim();
     const text = code === 'crash' && why ? `${message}: ${why}` : message;
     for (const job of this.jobs.values()) {
-      clearTimeout(job.hang);
+      host.clearTimeout(job.hang);
       job.done(job.call.cancelled ? { quiet: true } : { error: text, code });
     }
     this.jobs.clear();
     this.terminate(child);
     if (this.begin) {
-      this.begin.no(new Error(`serve neuron "${this.node.path}" did not reach ready: ${text}`));
+      this.begin.no(Object.assign(new Error(`serve neuron "${this.node.path}" did not reach ready: ${text}`), { refusal: true }));
       this.begin = undefined;
       return;
     }
     if (this.stopping) return;
-    const proven = wasReady && !unproven && performance.now() - this.readyAt >= STABLE_AFTER;
+    const proven = wasReady && !unproven && host.now() - this.readyAt >= STABLE_AFTER;
     this.failedStarts = proven ? 0 : this.failedStarts + 1;
     if (this.failedStarts >= MAX_STARTS) { // failed: every input is an error until the engine restarts
       this.failed = true;
@@ -289,7 +314,7 @@ class Server {
       }
       return;
     }
-    this.restartTimer = setTimeout(() => {
+    this.restartTimer = host.setTimeout(() => {
       this.run.processNote(this.node, 'restart');
       this.spawn();
     }, Math.min(100 * 2 ** this.failedStarts, 5000));
@@ -316,10 +341,10 @@ class Server {
   /** End of input: close stdin; SIGTERM after 2 s, SIGKILL 2 s later. Silent (SPEC 3.2). */
   async stop() {
     this.stopping = true;
-    clearTimeout(this.startTimer);
-    clearInterval(this.pingTimer);
-    clearTimeout(this.pingHang);
-    clearTimeout(this.restartTimer);
+    host.clearTimeout(this.startTimer);
+    host.clearInterval(this.pingTimer);
+    host.clearTimeout(this.pingHang);
+    host.clearTimeout(this.restartTimer);
     const child = this.child, pid = child?.pid;
     this.child = undefined;
     if (child) {
@@ -335,17 +360,30 @@ class Server {
 }
 
 class Run {
-  t0 = performance.now();
+  t0 = host.now();
   scopes = 0; // scope ids (the staleness keys); never shown
   live = 1; // unfinished works, plus the injection loop; the run is over at 0 (SPEC 6.2 rule 6)
   stale = new Map<string, Work[]>(); // (scope, sender, key) -> unfinished works, in creation order
   events: Event[] = [];
   rootScope: Scope;
-  constructor(readonly root: Instance, readonly inner?: (path: string, e: Event) => void, readonly result?: (neuron: string, t: number, payload: unknown) => void) {
-    this.rootScope = new Scope('', root, (e) => this.events.push(e));
+  constructor(readonly root: Instance, readonly inner?: (path: string, e: Event) => void, readonly result?: (neuron: string, t: number, payload: unknown) => void, readonly observer?: Observer) {
+    this.rootScope = new Scope('', root, (e) => (this.events.push(e), this.observe(e)));
   }
 
-  now = () => Math.round(performance.now() - this.t0);
+  /** An observer (SPEC 9) sees outer events only and can inject into a source later; it is not part of the network. */
+  private observe(e: Event) {
+    if (typeof e.id !== 'string') return; // an observer sees signals, replies, drops and errors: events with an id, not notes
+    for (const inj of this.observer?.(e) ?? []) {
+      this.live++; // a pending injection keeps the run open (SPEC 6.2 rule 6)
+      host.setTimeout(() => {
+        this.report(this.rootScope, { type: 'note', neuron: inj.source, what: 'inject', trigger: e.id });
+        this.inject(inj);
+        if (--this.live === 0) this.over?.();
+      }, inj.at);
+    }
+  }
+
+  now = () => Math.round(host.now() - this.t0);
   report(scope: Scope, e: { type: string; [field: string]: unknown }) {
     const { type, ...rest } = e;
     scope.report?.({ type, t: this.now(), ...rest });
@@ -387,7 +425,7 @@ class Run {
       await this.stopServers();
       throw e;
     }
-    this.t0 = performance.now(); // the run's clock starts when every neuron is ready
+    this.t0 = host.now(); // the run's clock starts when every neuron is ready
   }
   stopServers = () => Promise.all(this.servers.map((sv) => sv.stop()));
 
@@ -435,44 +473,46 @@ class Run {
 
   // ---- threshold (SPEC 5.2) ----
   private hold(w: Work, k: number) {
-    const group = w.node.groups.get(w.sig.trace) ?? [];
+    const group = w.node.groups.get(this.group(w)) ?? [];
     const older = group.find((h) => h.sig.from === w.sig.from); // a sender counts once: the newer input replaces
     if (older) {
       this.ungroup(older);
       this.drop(older, 'replaced', 'waiting');
       this.retire(older);
     }
-    const held = [...(w.node.groups.get(w.sig.trace) ?? []), w];
+    const held = [...(w.node.groups.get(this.group(w)) ?? []), w];
     w.held = true;
     if (new Set(held.map((h) => h.sig.from)).size < k) {
-      w.node.groups.set(w.sig.trace, held);
-      w.timer = setTimeout(() => {
+      w.node.groups.set(this.group(w), held);
+      w.timer = host.setTimeout(() => {
         this.ungroup(w);
         this.drop(w, 'expired');
         this.retire(w);
       }, w.node.spec.within ?? DEFAULT_WITHIN);
       return;
     }
-    w.node.groups.delete(w.sig.trace);
+    w.node.groups.delete(this.group(w));
     for (const h of held) {
-      clearTimeout(h.timer);
+      host.clearTimeout(h.timer);
       h.held = false;
     }
     this.start(held);
   }
 
+  /** Inputs are grouped by (neuron, trace); ids are per scope, so the scope is part of the key: two calls of a composed neuron never share a group (SPEC 2.6, 5.2). */
+  private group = (w: Work) => `${w.scope.id}\0${w.sig.trace}`;
   private ungroup(w: Work) {
-    const rest = (w.node.groups.get(w.sig.trace) ?? []).filter((h) => h !== w);
-    if (rest.length) w.node.groups.set(w.sig.trace, rest);
-    else w.node.groups.delete(w.sig.trace);
-    clearTimeout(w.timer);
+    const rest = (w.node.groups.get(this.group(w)) ?? []).filter((h) => h !== w);
+    if (rest.length) w.node.groups.set(this.group(w), rest);
+    else w.node.groups.delete(this.group(w));
+    host.clearTimeout(w.timer);
     w.held = false;
   }
 
   /** Done with a work (replied, dropped, cancelled): it no longer counts as unfinished. */
   private retire(w: Work) {
     if (!w.scope.works.delete(w)) return;
-    clearTimeout(w.timer);
+    host.clearTimeout(w.timer);
     if (--this.live === 0) this.over?.();
     if (w.scope.works.size === 0) w.scope.onIdle?.();
   }
@@ -484,14 +524,14 @@ class Run {
     const ms = node.spec.timeout ?? DEFAULT_TIMEOUT;
     let timer: NodeJS.Timeout | undefined;
     const arm = () => { // counted from the start of the call: a serve call's, from the moment its signal is written
-      timer = setTimeout(() => {
-        if (call.cancelled) return;
+      timer = host.setTimeout(() => {
+        if (call.cancelled || call.finished) return;
         this.fail(call.crossing, { error: `timed out after ${ms} ms`, code: 'timeout' });
         this.cancel(call);
       }, ms);
     };
     const done = (o: Outcome) => { // the program is over (process ended or inner network answered)
-      clearTimeout(timer);
+      host.clearTimeout(timer);
       call.finished = true; // before replying: a keyed forward to itself must not cut the work it just answered
       if (!call.cancelled) this.reply(call.crossing, o);
       for (const w of inputs) this.retire(w);
@@ -501,9 +541,10 @@ class Run {
       node.server.submit({ call, message: (node.spec.threshold ?? 1) > 1 ? (value as object) : { payload: value }, arm, done });
       return;
     }
-    arm();
+    // The program's wake-ups are set before the timeout's: a reply due at the very instant of the timeout wins (SPEC 6.2 rule 7).
     if (node.inner) this.compose(call, node, value, done);
     else this.program(call, node, value, done);
+    if (!call.finished) arm();
   }
 
   private cancel(call: Call) {
@@ -515,7 +556,7 @@ class Run {
   /** Level 0: one process per call, in its own process group, which is killed when the call ends. */
   private program(call: Call, node: Node, value: unknown, done: (o: Outcome) => void) {
     const spec = node.spec, cmd = spec.run!, cwd = resolve(node.dir, spec.cwd ?? '.');
-    const child = launch(node), pid = child.pid;
+    const child = host.launch(node), pid = child.pid;
     const note = (what: string) => this.note(call.crossing, what);
     const stdout: Buffer[] = [], stderr: Buffer[] = []; // decoded once at the end: a character may span chunks
     let size = 0, errSize = 0, over = false, stopped = false, killed = false, exited = false, finished = false;
@@ -534,11 +575,12 @@ class Run {
     const settle = () => {
       if (finished) return;
       finished = true;
-      clearTimeout(killTimer);
-      clearTimeout(grace);
+      host.clearTimeout(killTimer);
+      host.clearTimeout(grace);
       killGroup(pid, 'SIGKILL'); // whatever the program left behind must not outlive its call
       if (pid !== undefined) groups.delete(pid);
       done(outcome());
+      if (over) note('kill'); // the failure first, then the note of the kill that caused it (SPEC 6.3)
     };
     // A cancelled call whose group still has members waits for the kill timer.
     const waiting = () => stopped && !killed && alive(pid);
@@ -549,7 +591,6 @@ class Run {
       if (size > MAX_OUTPUT && !over) {
         over = killed = true;
         killGroup(pid, 'SIGKILL');
-        note('kill');
       }
       if (!over) stdout.push(b);
     });
@@ -565,7 +606,7 @@ class Run {
     child.on('exit', (code, signal) => {
       exited = true;
       status = { code, signal };
-      if (!waiting()) grace = setTimeout(settle, GRACE); // stdout normally ends first; a child holding it open does not keep the call
+      if (!waiting()) grace = host.setTimeout(settle, GRACE); // stdout normally ends first; a child holding it open does not keep the call
     });
     child.on('close', () => { if (exited && !waiting()) settle(); });
     call.stop = () => { // cancel: SIGTERM to the group, SIGKILL 2 s later if anything remains (output is discarded)
@@ -573,7 +614,7 @@ class Run {
       stopped = true;
       killGroup(pid, 'SIGTERM');
       note('term');
-      killTimer = setTimeout(() => {
+      killTimer = host.setTimeout(() => {
         if (alive(pid)) {
           killed = true;
           killGroup(pid, 'SIGKILL');
@@ -639,13 +680,21 @@ class Run {
 
   // ---- the run ----
   over?: () => void;
+  private inject(inj: Injection) {
+    const source = this.root.nodes.get(inj.source)!;
+    const id = this.rootScope.next();
+    this.send({ id, trace: id, from: source.id, to: source.out.map((n) => n.id), hops: 0, payload: inj.payload, ...withKey(inj.replaces) }, this.rootScope);
+  }
   async injectAll(injections: Injection[]) {
-    for (const inj of [...injections].sort((a, b) => a.at - b.at)) {
-      const wait = inj.at - this.now();
-      if (wait > 0) await sleep(wait);
-      const source = this.root.nodes.get(inj.source)!;
-      const id = this.rootScope.next();
-      this.send({ id, trace: id, from: source.id, to: source.out.map((n) => n.id), hops: 0, payload: inj.payload, ...withKey(inj.replaces) }, this.rootScope);
+    if (host.step) { // virtual: every injection is scheduled before the run, in the order given, so at an instant it goes before anything the run schedules
+      this.live += injections.length;
+      for (const inj of injections) host.setTimeout(() => (this.inject(inj), --this.live === 0 && this.over?.()), inj.at);
+    } else {
+      for (const inj of [...injections].sort((a, b) => a.at - b.at)) {
+        const wait = inj.at - this.now();
+        if (wait > 0) await sleep(wait);
+        this.inject(inj);
+      }
     }
     if (--this.live === 0) this.over?.();
   }
@@ -673,14 +722,32 @@ export function readInjections(file: string): Injection[] {
   });
 }
 
+const VIRTUAL_LIMIT = 3_600_000; // a virtual run that is still going after an hour of virtual time is stuck (idle pings never stop)
+let active = 0; // runs in progress
+/** Waits for `p`; on a virtual host it also runs the clock, one wake-up at a time, letting promises settle in between. */
+async function drive<T>(p: Promise<T>): Promise<T> {
+  if (!host.step) return p;
+  let settled = false;
+  void p.then(() => (settled = true), () => (settled = true));
+  for (;;) {
+    await new Promise((r) => setImmediate(r));
+    if (settled) return p;
+    if (!host.step()) throw Object.assign(new Error('virtual run stalled: nothing is due and the run is not over'), { harness: true });
+    if (host.now() > VIRTUAL_LIMIT) throw Object.assign(new Error('virtual run did not end within an hour of virtual time'), { harness: true });
+  }
+}
+
 /**
  * Runs the network in `file` with the producer's `injections` and returns its trace.
  * Throws if the file does not check, uses a kind this engine lacks, or an injection names no source.
  * `inner` receives the events inside composed neurons (by instance path): an operator's tool, never in the trace.
  * `pingEvery` (ms, default 10000) is how often an idle serve neuron is pinged.
  * `result` receives the full answers of the neurons with no outgoing links (the trace cuts long payloads).
+ * `host` replaces time and processes (a virtual clock and scripted programs, SPEC 8); one virtual run at a time.
+ * `observer` is called with each outer event; the injections it returns (`at` is a delay in ms) enter later (SPEC 9).
  */
-export async function runNetwork(file: string, injections: Injection[], options: { pingEvery?: number; inner?: (path: string, e: Event) => void; result?: (neuron: string, t: number, payload: unknown) => void } = {}): Promise<Trace> {
+export type Observer = (e: Event) => Injection[] | void;
+export async function runNetwork(file: string, injections: Injection[], options: { pingEvery?: number; inner?: (path: string, e: Event) => void; result?: (neuron: string, t: number, payload: unknown) => void; host?: Host; observer?: Observer } = {}): Promise<Trace> {
   const errors = check(file).filter((f) => f.severity === 'error');
   if (errors.length) throw new Error(errors.map(formatFinding).join('\n'));
   const net = readNetwork(file);
@@ -694,15 +761,24 @@ export async function runNetwork(file: string, injections: Injection[], options:
   }
   for (const inj of injections) if (!root.nodes.get(inj.source)?.spec.source) throw new Error(`injection names "${inj.source}", which is not a source of ${file}`);
 
-  const run = new Run(root, options.inner, options.result);
-  await run.startServers(options.pingEvery ?? PING_EVERY); // throws if a serve neuron cannot reach ready
+  if (options.host ? active > 0 : host !== realHost) throw new Error('a virtual run needs the engine to itself: no other run may be active, and a real run cannot start during a virtual one');
+  const previous = host;
+  if (options.host) host = options.host;
+  active++;
+  const run = new Run(root, options.inner, options.result, options.observer);
   try {
-    await new Promise<void>((resolveRun) => {
-      run.over = resolveRun;
-      void run.injectAll(injections);
-    });
+    await drive(run.startServers(options.pingEvery ?? PING_EVERY)); // throws if a serve neuron cannot reach ready
+    try {
+      await drive(new Promise<void>((resolveRun) => {
+        run.over = resolveRun;
+        void run.injectAll(injections);
+      }));
+    } finally {
+      await drive(run.stopServers());
+    }
   } finally {
-    await run.stopServers();
+    active--;
+    host = previous;
   }
   const kind = (s: NeuronSpec) => (s.source ? 'source' : s.run ? 'run' : s.serve ? 'serve' : s.http ? 'http' : s.human ? 'human' : 'composed');
   return {

@@ -1,0 +1,13 @@
+{
+  "fixture": 0,
+  "description": "ready.v differing from hello.v is a protocol error at the first start, so the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[],"starts":[{"readyV":2}]},
+    "b": {"calls":[]}
+  },
+  "expect": []
+}

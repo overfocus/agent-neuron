@@ -1,0 +1,42 @@
+{
+  "version": 0,
+  "name": "pool-runs-out-on-the-second-neuron",
+  "description": "budget 10 credits, a and b cost 6: a runs; the input to b is refused with an error budget and the trace is finished exhausted.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 6
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "cost": {
+        "credits": 6
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

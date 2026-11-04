@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "default-max-inflight-is-one",
+  "description": "A ready without maxInflight allows one call at a time: the second input waits for the first (queued in order).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

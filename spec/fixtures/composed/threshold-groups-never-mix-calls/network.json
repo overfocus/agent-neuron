@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "threshold-groups-never-mix-calls",
+  "description": "Each call is a new inner trace: an inner threshold neuron never combines inputs of two calls.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    }
+  ]
+}

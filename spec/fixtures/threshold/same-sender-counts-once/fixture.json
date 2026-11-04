@@ -1,0 +1,25 @@
+{
+  "fixture": 0,
+  "description": "A sender counts once: x forwards twice on one trace, so the second input replaces the first (drop replaced, phase waiting) and h never reaches 2; the last one expires.",
+  "inputs": [
+    {"at":0,"source":"s","payload":0}
+  ],
+  "script": {
+    "p": {"calls":[{"after":10,"reply":{"answer":"p"}}]},
+    "q": {"calls":[{"after":20,"reply":{"answer":"q"}}]},
+    "x": {"calls":[{"when":"p","after":5,"reply":{"answer":"xp"}},{"when":"q","after":5,"reply":{"answer":"xq"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["p","q"],"trace":"#1","hops":0,"payload":{"type":"json","data":0}},
+    {"type":"answer","t":10,"id":"#2","from":"p","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"p"}},
+    {"type":"signal","t":10,"id":"#3","from":"p","to":["x"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"p"}},
+    {"type":"answer","t":15,"id":"#4","from":"x","to":["p"],"trace":"#1","replyTo":"#3","hops":3,"payload":{"type":"text","text":"xp"}},
+    {"type":"signal","t":15,"id":"#5","from":"x","to":["h"],"trace":"#1","cause":"#4","hops":4,"payload":{"type":"text","text":"xp"}},
+    {"type":"answer","t":20,"id":"#6","from":"q","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"q"}},
+    {"type":"signal","t":20,"id":"#7","from":"q","to":["x"],"trace":"#1","cause":"#6","hops":2,"payload":{"type":"text","text":"q"}},
+    {"type":"answer","t":25,"id":"#8","from":"x","to":["q"],"trace":"#1","replyTo":"#7","hops":3,"payload":{"type":"text","text":"xq"}},
+    {"type":"signal","t":25,"id":"#9","from":"x","to":["h"],"trace":"#1","cause":"#8","hops":4,"payload":{"type":"text","text":"xq"}},
+    {"type":"drop","t":25,"id":"#5","from":"x","to":["h"],"trace":"#1","cause":"#4","hops":4,"neuron":"h","reason":"replaced","phase":"waiting","payload":{"type":"text","text":"xp"}},
+    {"type":"drop","t":125,"id":"#9","from":"x","to":["h"],"trace":"#1","cause":"#8","hops":4,"neuron":"h","reason":"expired","payload":{"type":"text","text":"xq"}}
+  ]
+}

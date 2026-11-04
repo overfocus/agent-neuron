@@ -1,0 +1,18 @@
+{
+  "fixture": 0,
+  "description": "A held input that never gets company is dropped as expired after within; the run waits for it (SPEC 6.2 rule 6).",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "d1": {"calls":[{"after":20,"reply":{"answer":{"d":1}}}]},
+    "d2": {"calls":[{"after":20,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["d1","d2"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":20,"id":"#2","from":"d1","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"d":1}}},
+    {"type":"signal","t":20,"id":"#3","from":"d1","to":["h"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":{"d":1}}},
+    {"type":"quiet","t":20,"id":"#4","from":"d2","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"drop","t":120,"id":"#3","from":"d1","to":["h"],"trace":"#1","cause":"#2","hops":2,"neuron":"h","reason":"expired","payload":{"type":"json","data":{"d":1}}}
+  ]
+}

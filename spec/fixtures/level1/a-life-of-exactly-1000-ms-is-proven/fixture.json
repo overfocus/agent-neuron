@@ -1,0 +1,18 @@
+{
+  "fixture": 0,
+  "description": "A process that ends exactly 1000 ms after ready counts as proven: the restart delay is 100 ms (note restart at 1100), not 200.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"starts":[{"end":{"after":1000}},{}],"calls":[{"after":1,"reply":{"quiet":true}}]},
+    "b": {"calls":[{"after":3000,"reply":{"answer":"slow"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"quiet","t":1,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"note","t":1100,"neuron":"a","what":"restart"},
+    {"type":"answer","t":3000,"id":"#3","from":"b","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"slow"}}
+  ]
+}

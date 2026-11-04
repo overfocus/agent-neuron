@@ -1,0 +1,48 @@
+{
+  "version": 0,
+  "name": "a-loop-stops-when-the-pool-is-empty",
+  "description": "a and b link to each other, cost 1 each, budget 5, maxHops 100: the sixth call is refused with an error budget long before maxHops.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 1
+      },
+      "maxHops": 100
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "cost": {
+        "credits": 1
+      },
+      "maxHops": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    },
+    {
+      "from": "b",
+      "to": "a"
+    }
+  ],
+  "budget": {
+    "credits": 5
+  }
+}

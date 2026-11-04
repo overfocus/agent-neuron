@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "l0-killed-by-a-signal",
+  "description": "A program killed by a signal is an error, code exit, message \"signal SIGKILL:\".",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

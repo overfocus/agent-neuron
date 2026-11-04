@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "l1-line-over-1-mib-with-two-calls-is-a-crash",
+  "description": "A line over 1 MiB with two calls running: both fail with crash.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

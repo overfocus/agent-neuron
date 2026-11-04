@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "An idle neuron that does not pong within timeout is hung: killed (term) and restarted after the backoff.",
+  "notes": true,
+  "pingEvery": 1000,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"starts":[{"pong":false},{}],"calls":[{"after":1,"reply":{"quiet":true}}]},
+    "b": {"calls":[{"after":3500,"reply":{"answer":"slow"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"quiet","t":1,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"note","t":1300,"neuron":"a","what":"term"},
+    {"type":"note","t":1500,"neuron":"a","what":"restart"},
+    {"type":"answer","t":3500,"id":"#3","from":"b","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"slow"}}
+  ]
+}

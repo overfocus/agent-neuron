@@ -1,0 +1,26 @@
+{
+  "version": 0,
+  "description": "The network inside a composed neuron.",
+  "neurons": [
+    {
+      "id": "e",
+      "run": [
+        "neuron-e"
+      ]
+    },
+    {
+      "id": "z",
+      "run": [
+        "neuron-z"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "e",
+      "to": "z"
+    }
+  ],
+  "entry": "e",
+  "exit": "z"
+}

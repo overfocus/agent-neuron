@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "outer-timeout-cancels-the-inside",
+  "description": "The timeout of a composed neuron covers the whole call: one outer error, the inside cancelled without reports (only the outer cancel note).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json",
+      "timeout": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    }
+  ]
+}

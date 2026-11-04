@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "restart-after-a-long-life-waits-100-ms",
+  "description": "A process that lived over 1 s counts as proven: restart delay 100 ms each time (notes restart at 1600 and 3200).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    }
+  ]
+}

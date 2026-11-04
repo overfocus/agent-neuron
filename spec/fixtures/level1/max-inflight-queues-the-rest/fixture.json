@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "maxInflight 2 with three inputs: two run, the third waits for a slot; replies may come in any order.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":0,"source":"s","payload":2},
+    {"at":0,"source":"s","payload":3}
+  ],
+  "script": {
+    "a": {"starts":[{"maxInflight":2}],"calls":[{"when":1,"after":40,"reply":{"answer":"one"}},{"when":2,"after":20,"reply":{"answer":"two"}},{"when":3,"after":10,"reply":{"answer":"three"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"signal","t":0,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"signal","t":0,"id":"#3","from":"s","to":["a"],"trace":"#3","hops":0,"payload":{"type":"json","data":3}},
+    {"type":"answer","t":20,"id":"#4","from":"a","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"two"}},
+    {"type":"answer","t":30,"id":"#5","from":"a","to":["s"],"trace":"#3","replyTo":"#3","hops":1,"payload":{"type":"text","text":"three"}},
+    {"type":"answer","t":40,"id":"#6","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"one"}}
+  ]
+}

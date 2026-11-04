@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "outer-staleness-cancels-the-inside",
+  "description": "When the outer work goes stale the call is cut: one drop outside, the inside cancelled silently.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    }
+  ]
+}

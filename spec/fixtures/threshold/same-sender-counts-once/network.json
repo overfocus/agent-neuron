@@ -1,0 +1,59 @@
+{
+  "version": 0,
+  "name": "same-sender-counts-once",
+  "description": "A sender counts once: x forwards twice on one trace, so the second input replaces the first (drop replaced, phase waiting) and h never reaches 2; the last one expires.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "p",
+      "run": [
+        "neuron-p"
+      ]
+    },
+    {
+      "id": "q",
+      "run": [
+        "neuron-q"
+      ]
+    },
+    {
+      "id": "x",
+      "run": [
+        "neuron-x"
+      ]
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ],
+      "threshold": 2,
+      "within": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "p"
+    },
+    {
+      "from": "s",
+      "to": "q"
+    },
+    {
+      "from": "p",
+      "to": "x"
+    },
+    {
+      "from": "q",
+      "to": "x"
+    },
+    {
+      "from": "x",
+      "to": "h"
+    }
+  ]
+}

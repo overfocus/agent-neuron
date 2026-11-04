@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "early-crashes-double-the-backoff",
+  "description": "A process that dies within 1 s of ready counts as a failed start: delays 200, 400, 800 ms (restart notes at 250, 700, 1550).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    }
+  ]
+}

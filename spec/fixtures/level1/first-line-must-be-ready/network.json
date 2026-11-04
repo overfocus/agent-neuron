@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "first-line-must-be-ready",
+  "description": "A first line that is not a ready object refuses the start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

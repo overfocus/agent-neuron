@@ -1,0 +1,24 @@
+{
+  "fixture": 0,
+  "description": "Two distinct senders on different traces do not make a group: each trace holds one input and both expire.",
+  "inputs": [
+    {"at":0,"source":"s","payload":"A"},
+    {"at":50,"source":"s","payload":"B"}
+  ],
+  "script": {
+    "d1": {"calls":[{"when":"A","after":10,"reply":{"answer":"dA"}},{"when":"B","after":10,"reply":{"quiet":true}}]},
+    "d2": {"calls":[{"when":"A","after":10,"reply":{"quiet":true}},{"when":"B","after":10,"reply":{"answer":"dB"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["d1","d2"],"trace":"#1","hops":0,"payload":{"type":"text","text":"A"}},
+    {"type":"answer","t":10,"id":"#2","from":"d1","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"dA"}},
+    {"type":"signal","t":10,"id":"#3","from":"d1","to":["h"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"dA"}},
+    {"type":"quiet","t":10,"id":"#4","from":"d2","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"signal","t":50,"id":"#5","from":"s","to":["d1","d2"],"trace":"#5","hops":0,"payload":{"type":"text","text":"B"}},
+    {"type":"quiet","t":60,"id":"#6","from":"d1","to":["s"],"trace":"#5","replyTo":"#5","hops":1},
+    {"type":"answer","t":60,"id":"#7","from":"d2","to":["s"],"trace":"#5","replyTo":"#5","hops":1,"payload":{"type":"text","text":"dB"}},
+    {"type":"signal","t":60,"id":"#8","from":"d2","to":["h"],"trace":"#5","cause":"#7","hops":2,"payload":{"type":"text","text":"dB"}},
+    {"type":"drop","t":110,"id":"#3","from":"d1","to":["h"],"trace":"#1","cause":"#2","hops":2,"neuron":"h","reason":"expired","payload":{"type":"text","text":"dA"}},
+    {"type":"drop","t":160,"id":"#8","from":"d2","to":["h"],"trace":"#5","cause":"#7","hops":2,"neuron":"h","reason":"expired","payload":{"type":"text","text":"dB"}}
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "SPEC 6.3 rule A: a level 0 reply due at exactly the call's timeout is processed first (\"longer than timeout\" means strictly longer).",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":100,"reply":{"answer":"on time"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":100,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"on time"}}
+  ]
+}

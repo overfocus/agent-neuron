@@ -1,0 +1,31 @@
+{
+  "version": 0,
+  "name": "entry-to-exit-and-onward",
+  "description": "A composed neuron is one neuron outside: the input enters at entry, the first reply of exit is the answer, and it forwards like any answer.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json"
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    },
+    {
+      "from": "diag",
+      "to": "b"
+    }
+  ]
+}

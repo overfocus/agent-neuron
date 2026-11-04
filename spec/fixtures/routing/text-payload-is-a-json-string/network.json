@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "text-payload-is-a-json-string",
+  "description": "A string payload is text in the trace and a JSON string for the program; any other value is json.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

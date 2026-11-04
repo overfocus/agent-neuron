@@ -1,0 +1,29 @@
+{
+  "version": 0,
+  "name": "staleness-is-scoped-to-a-call",
+  "description": "Two calls of one instance with the same key (from different senders) do not cut each other inside: both complete.",
+  "neurons": [
+    {
+      "id": "s1",
+      "source": true
+    },
+    {
+      "id": "s2",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s1",
+      "to": "diag"
+    },
+    {
+      "from": "s2",
+      "to": "diag"
+    }
+  ]
+}

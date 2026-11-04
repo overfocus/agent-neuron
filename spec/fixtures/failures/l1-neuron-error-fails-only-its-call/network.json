@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "l1-neuron-error-fails-only-its-call",
+  "description": "Two level 1 calls at once: the one the neuron answers with an error fails with code neuron; the other answers and forwards.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

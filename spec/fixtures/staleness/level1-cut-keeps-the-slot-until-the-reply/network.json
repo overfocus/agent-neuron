@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "level1-cut-keeps-the-slot-until-the-reply",
+  "description": "A cut level 1 call gets a cancel (note); its slot stays taken until the neuron replies for it, so the next call starts only then.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

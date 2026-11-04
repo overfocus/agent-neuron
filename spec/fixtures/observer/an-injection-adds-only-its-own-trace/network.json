@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "an-injection-adds-only-its-own-trace",
+  "description": "An observer injects into a source after b answers: the new trace is additional, and the traces without observer are unchanged.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

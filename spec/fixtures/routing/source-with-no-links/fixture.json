@@ -1,0 +1,10 @@
+{
+  "fixture": 0,
+  "description": "An injection into a source with no outgoing links is a signal to nobody; nothing else happens.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":[],"trace":"#1","hops":0,"payload":{"type":"json","data":1}}
+  ]
+}

@@ -191,6 +191,22 @@ This engine runs `source`, level 0 (`run`), level 1 (`serve`) and composed
 [specification](docs/SPEC.md) (version 0, draft) and the gaps are in its
 Appendix C.
 
+### Conformance fixtures
+
+A second engine (the Rust one, later) must give the same events as this one on
+the same inputs. The shared test is [`spec/fixtures/`](spec/fixtures/): 148 (138 run, 10 pending)
+small fixtures, each a network file, scripted inputs, scripted neuron replies with
+latencies on a virtual clock, and the exact events expected, ids normalised. No
+process starts and no clock is read, so a run is exactly repeatable.
+
+```sh
+npm run engine -- conform spec/fixtures   # pass or fail per fixture; non-zero exit on a failure
+```
+
+The format and the command-line contract any engine implements are in
+[docs/CONFORMANCE.md](docs/CONFORMANCE.md). Ten fixtures under `budget/` are marked
+pending: they are the plan for the next specification version.
+
 ## The first example
 
 Three neurons wrapping three very different things:

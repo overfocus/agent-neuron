@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "no-key-is-never-stale",
+  "description": "Signals without a key never replace anything.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

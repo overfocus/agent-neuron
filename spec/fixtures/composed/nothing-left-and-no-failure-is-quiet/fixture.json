@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "If the inside goes idle without exit replying and nothing failed, the composed neuron is quiet.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "diag/e": {"calls":[{"after":10,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"quiet","t":10,"id":"#2","from":"diag","to":["s"],"trace":"#1","replyTo":"#1","hops":1}
+  ]
+}

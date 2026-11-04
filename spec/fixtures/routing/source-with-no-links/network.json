@@ -1,0 +1,18 @@
+{
+  "version": 0,
+  "name": "source-with-no-links",
+  "description": "An injection into a source with no outgoing links is a signal to nobody; nothing else happens.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": []
+}

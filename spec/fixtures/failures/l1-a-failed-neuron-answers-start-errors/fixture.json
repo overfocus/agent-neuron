@@ -1,0 +1,25 @@
+{
+  "fixture": 0,
+  "description": "After 5 failed starts the neuron is failed: the call that was running fails with crash, the one queued behind it and every later input are errors, code start.",
+  "notes": true,
+  "inputs": [
+    {"at":3210,"source":"s","payload":"one"},
+    {"at":3220,"source":"s","payload":"two"},
+    {"at":4000,"source":"s","payload":"later"}
+  ],
+  "script": {
+    "a": {"starts":[{"end":{"after":50,"how":"exit"}},{"end":{"after":50,"how":"exit"}},{"end":{"after":50,"how":"exit"}},{"end":{"after":50,"how":"exit"}},{"end":{"after":50,"how":"exit"}}],"calls":[{"when":"one","after":1000,"reply":{"answer":1}}]}
+  },
+  "expect": [
+    {"type":"note","t":250,"neuron":"a","what":"restart"},
+    {"type":"note","t":700,"neuron":"a","what":"restart"},
+    {"type":"note","t":1550,"neuron":"a","what":"restart"},
+    {"type":"note","t":3200,"neuron":"a","what":"restart"},
+    {"type":"signal","t":3210,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"text","text":"one"}},
+    {"type":"signal","t":3220,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"payload":{"type":"text","text":"two"}},
+    {"type":"error","t":3250,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","message":"process failed","code":"crash","payload":{"type":"text","text":"one"}},
+    {"type":"error","t":3250,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"neuron":"a","message":"neuron failed to start","code":"start","payload":{"type":"text","text":"two"}},
+    {"type":"signal","t":4000,"id":"#3","from":"s","to":["a"],"trace":"#3","hops":0,"payload":{"type":"text","text":"later"}},
+    {"type":"error","t":4000,"id":"#3","from":"s","to":["a"],"trace":"#3","hops":0,"neuron":"a","message":"neuron failed to start","code":"start","payload":{"type":"text","text":"later"}}
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "version": 0,
+  "name": "branches-draw-in-link-order",
+  "description": "budget 10, a and b cost 6, s -> a and s -> b: a (first in link order) runs, b is refused at t=0.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 6
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "cost": {
+        "credits": 6
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

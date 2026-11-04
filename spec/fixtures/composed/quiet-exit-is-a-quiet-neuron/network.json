@@ -1,0 +1,31 @@
+{
+  "version": 0,
+  "name": "quiet-exit-is-a-quiet-neuron",
+  "description": "If exit replies quiet, the composed neuron is quiet: a quiet event, nothing forwarded.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json"
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    },
+    {
+      "from": "diag",
+      "to": "b"
+    }
+  ]
+}

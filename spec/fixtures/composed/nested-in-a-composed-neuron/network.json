@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "nested-in-a-composed-neuron",
+  "description": "A composed neuron inside a composed neuron: still one signal in and one answer out, with instance paths diag/mid/e in the script.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "outer.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    }
+  ]
+}

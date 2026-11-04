@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "When the outer work goes stale the call is cut: one drop outside, the inside cancelled silently.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":"old","replaces":"k"},
+    {"at":40,"source":"s","payload":"new","replaces":"k"}
+  ],
+  "script": {
+    "diag/e": {"calls":[{"after":100,"reply":{"answer":1}},{"after":5,"reply":{"answer":2}}]},
+    "diag/x": {"calls":[{"after":5,"reply":{"answer":3}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"text","text":"old"}},
+    {"type":"signal","t":40,"id":"#2","from":"s","to":["diag"],"trace":"#2","hops":0,"replaces":"k","payload":{"type":"text","text":"new"}},
+    {"type":"drop","t":40,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"neuron":"diag","reason":"replaced","phase":"running","payload":{"type":"text","text":"old"}},
+    {"type":"note","t":40,"neuron":"diag","what":"cancel"},
+    {"type":"answer","t":50,"id":"#3","from":"diag","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"json","data":3}}
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "version": 0,
+  "name": "a-cut-call-commits-its-reservation",
+  "description": "A running call cut as stale commits its reservation (marked estimated) with the measured ms; the newer trace has its own pool.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 6
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

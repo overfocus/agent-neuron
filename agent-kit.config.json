@@ -9,7 +9,8 @@
       { "name": "rust test", "run": "npm run -s rust:test" },
       { "name": "rust build", "run": "npm run -s rust:build" },
       { "name": "test", "run": "npm run -s test" },
-      { "name": "build", "run": "npm run -s build", "build": true }
+      { "name": "build", "run": "npm run -s build", "build": true },
+      { "name": "conform", "run": "npm run -s engine -- conform spec/fixtures" }
     ]
   },
   "issues": { "denylist": [] }

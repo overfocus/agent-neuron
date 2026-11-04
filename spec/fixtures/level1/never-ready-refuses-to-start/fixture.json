@@ -1,0 +1,10 @@
+{
+  "fixture": 0,
+  "description": "A process that never says ready: the engine refuses to start.",
+  "refuses": true,
+  "inputs": [],
+  "script": {
+    "a": {"starts":[{"ready":false}]}
+  },
+  "expect": []
+}

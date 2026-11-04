@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "A process may take up to timeout to reach ready; the run clock starts when it has.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"starts":[{"ready":80}],"calls":[{"after":10,"reply":{"answer":"ok"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"ok"}}
+  ]
+}

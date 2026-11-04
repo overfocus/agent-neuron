@@ -1,0 +1,48 @@
+{
+  "version": 0,
+  "name": "a-free-loop-stops-at-maxhops",
+  "description": "The same loop at cost 0 with maxHops 6: the budget never runs out and maxHops stops it, with the budget untouched.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 0
+      },
+      "maxHops": 6
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "cost": {
+        "credits": 0
+      },
+      "maxHops": 6
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    },
+    {
+      "from": "b",
+      "to": "a"
+    }
+  ],
+  "budget": {
+    "credits": 5
+  }
+}

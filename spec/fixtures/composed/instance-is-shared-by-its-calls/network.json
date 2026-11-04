@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "instance-is-shared-by-its-calls",
+  "description": "The inner level 1 process is shared by every call: with maxInflight 1 the second call waits behind the first.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    }
+  ]
+}

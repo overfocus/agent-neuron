@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "Each call is a new inner trace: an inner threshold neuron never combines inputs of two calls.",
+  "inputs": [
+    {"at":0,"source":"s","payload":"A"},
+    {"at":0,"source":"s","payload":"B"}
+  ],
+  "script": {
+    "diag/e": {"calls":[{"after":1,"reply":{"answer":"A"}},{"after":1,"reply":{"answer":"B"}}]},
+    "diag/d1": {"calls":[{"when":"A","after":10,"reply":{"answer":"a1"}},{"when":"B","after":100,"reply":{"answer":"b1"}}]},
+    "diag/d2": {"calls":[{"when":"A","after":100,"reply":{"answer":"a2"}},{"when":"B","after":10,"reply":{"answer":"b2"}}]},
+    "diag/x": {"calls":[{"when":{"payload":"a2","inputs":["a1","a2"]},"after":5,"reply":{"answer":"doneA"}},{"when":{"payload":"b1","inputs":["b2","b1"]},"after":5,"reply":{"answer":"doneB"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["diag"],"trace":"#1","hops":0,"payload":{"type":"text","text":"A"}},
+    {"type":"signal","t":0,"id":"#2","from":"s","to":["diag"],"trace":"#2","hops":0,"payload":{"type":"text","text":"B"}},
+    {"type":"answer","t":106,"id":"#3","from":"diag","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"doneA"}},
+    {"type":"answer","t":106,"id":"#4","from":"diag","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"doneB"}}
+  ]
+}
