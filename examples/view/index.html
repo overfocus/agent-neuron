@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Network view</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/view.css">
+</head>
+<body>
+<header>
+  <h1>Network view</h1>
+  <form id="controls">
+    <label for="demo">Demo</label>
+    <select id="demo">
+      <option value="alerts">Alert storm</option>
+      <option value="typing">Typing</option>
+      <option value="suggest">Suggest (threshold)</option>
+    </select>
+    <button id="run" type="submit">Run</button>
+    <span id="state" role="status">Ready</span>
+  </form>
+</header>
+<main>
+  <section class="graph" aria-label="Network">
+    <svg id="graph" role="img" aria-label="The network, drawn from the signals seen so far. The log lists the same events as text."></svg>
+    <p class="legend">
+      <span>&#9679; signal</span><span>&#9670; answer</span><span>&#9671; quiet</span>
+      <span>&#10005; dropped</span><span>&#9650; error</span><span>&#9656; acting</span>
+    </p>
+  </section>
+  <section class="logbox" aria-label="Log">
+    <h2>Log</h2>
+    <ol id="log" role="log" aria-live="polite"></ol>
+  </section>
+</main>
+<script src="/view.js"></script>
+</body>
+</html>

@@ -33,7 +33,7 @@ const sleep = (ms, abort) =>
 // Invented metrics: error rate (%) per service. Only critical alerts are checked against them.
 const errorRate = { gateway: 9.4, payments: 7.8, checkout: 1.1, search: 0.6, inventory: 0.9 };
 
-export async function runAlerts(lib, { log = () => {} } = {}) {
+export async function runAlerts(lib, { log = () => {}, listeners = {} } = {}) {
   const { Network, Neuron, ShellAdapter, json, text } = lib;
   const quiet = () => text('');
   const stats = { alerts: 0, flags: 0, calls: 0, cut: 0, heldReplaced: 0, expired: 0, diagnoses: 0 };
@@ -64,6 +64,7 @@ export async function runAlerts(lib, { log = () => {} } = {}) {
 
   const net = new Network({
     onSignal: (s) => {
+      listeners.onSignal?.(s);
       signals.push(s);
       if (!s.replyTo || s.payload.type === 'text') return; // only non-empty answers matter
       const d = s.payload.data;
@@ -81,13 +82,14 @@ export async function runAlerts(lib, { log = () => {} } = {}) {
       }
     },
     onDrop: (s, id, reason) => {
+      listeners.onDrop?.(s, id, reason);
       if (reason === 'expired') stats.expired++;
       else if (reason === 'replaced' && id === 'hypothesis' && callOf.has(s.id)) {
         stats.cut++;
         cutSince.set(s.payload.data.service, (cutSince.get(s.payload.data.service) ?? 0) + 1);
       } else if (reason === 'replaced' && id === 'hypothesis') stats.heldReplaced++; // a waiting flag, not a call
     },
-    onError: (e, s, id) => log(`error ${id}: ${e.message}`),
+    onError: (e, s, id) => (listeners.onError?.(e, s, id), log(`error ${id}: ${e.message}`)),
   });
 
   // the verdict comes from the inner network; carry the hypothesis's own fields alongside it

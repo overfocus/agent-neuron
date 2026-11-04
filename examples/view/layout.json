@@ -1,0 +1,30 @@
+{
+  "route": "/",
+  "viewports": ["390x664", "1280x720"],
+  "settle": 250,
+  "states": [
+    {
+      "name": "first screen",
+      "assert": [
+        { "kind": "inView", "selector": "#run", "min": 30 },
+        { "kind": "inView", "selector": "svg#graph", "min": 200 },
+        { "kind": "noHScroll" }
+      ]
+    },
+    {
+      "name": "phone: the log is below the graph",
+      "viewports": ["390x664"],
+      "assert": [{ "kind": "top", "selector": ".logbox", "min": 400 }]
+    },
+    {
+      "name": "desktop: the log is beside the graph",
+      "viewports": ["1280x720"],
+      "assert": [{ "kind": "inView", "selector": ".logbox", "min": 200 }]
+    },
+    {
+      "name": "after a run starts",
+      "steps": [{ "click": "#run" }, { "wait": 1800 }],
+      "assert": [{ "kind": "count", "selector": ".node", "min": 3 }, { "kind": "noHScroll" }]
+    }
+  ]
+}

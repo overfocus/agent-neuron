@@ -248,7 +248,7 @@ built yet. Every signal carries a `trace` shared by everything it leads to;
 answers record the signal they answer (`replyTo`), and `send` and `emit` take
 an optional `cause` to continue a trace. Nothing passes answers on by itself,
 and the network keeps no store of past signals. Listeners for `emit` work (`onSignal`, `onError`, `onDrop`) are
-called safely: if one throws, the error is swallowed. A small Rust program also runs as a neuron through the shell adapter (`npm run demo:rust`), showing the wrapper is not tied to one language. Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md).
+called safely: if one throws, the error is swallowed. A small Rust program also runs as a neuron through the shell adapter (`npm run demo:rust`), showing the wrapper is not tied to one language. A local page draws any of three demos live as they run (`npm run view`). Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md).
 
 ## Run the first example
 
@@ -270,6 +270,18 @@ A search box types a query one letter at a time; three neurons with
 different latencies answer or stay quiet, and work made stale by the next
 letter is aborted and printed as dropped. Answers do not repeat the prefix:
 the demo finds it through `replyTo`. Made-up catalogue, no network.
+
+## Watch a demo
+
+```sh
+npm run view
+```
+
+Builds, then prints a `http://127.0.0.1:<port>/` address (a free port, this machine only). Open it, pick
+the alert storm, typing or suggest demo and press Run: the network is drawn
+from its traffic as it happens, with answers, dropped work and held inputs
+labelled, and a log of the same events beside or below it. Stop the server with Ctrl+C. No
+framework, no outside requests.
 
 ## Run the Rust demo
 

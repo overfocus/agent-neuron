@@ -25,6 +25,9 @@
     "demo:rust": "npm run -s build && npm run -s rust:build && node examples/rust.mjs",
     "demo:composed": "npm run -s build && npm run -s rust:build && node examples/composed.mjs",
     "check": "npm run -s typecheck && npm run -s rust:test && npm run -s rust:build && npm run -s test && npm run -s build",
+    "view": "npm run -s build && node examples/view/server.mjs",
+    "check:browser": "node scripts/kit.mjs check-browser",
+    "check:layout": "node scripts/kit.mjs check-layout",
     "verify": "node scripts/kit.mjs verify",
     "verify:receipt": "node scripts/kit.mjs verify-receipt",
     "ship": "node scripts/kit.mjs ship",
@@ -34,6 +37,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
+    "playwright-core": "^1.64.1",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7"
   }
