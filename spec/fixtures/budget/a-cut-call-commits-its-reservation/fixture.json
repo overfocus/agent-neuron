@@ -14,7 +14,7 @@
     {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":1}},
     {"type":"note","t":0,"neuron":"a","what":"reserve","units":{"credits":6}},
     {"type":"signal","t":40,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"replaces":"k","payload":{"type":"json","data":2}},
-    {"type":"drop","t":40,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"replaces":"k","neuron":"a","reason":"replaced","phase":"running","payload":{"type":"json","data":1}},
+    {"type":"drop","t":40,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","reason":"replaced","phase":"running","payload":{"type":"json","data":1}},
     {"type":"note","t":40,"neuron":"a","what":"cancel"},
     {"type":"note","t":40,"neuron":"a","what":"term"},
     {"type":"note","t":40,"neuron":"a","what":"commit","units":{"credits":6},"ms":40,"basis":"estimated"},

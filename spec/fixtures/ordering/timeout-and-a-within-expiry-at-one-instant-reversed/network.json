@@ -1,0 +1,36 @@
+{
+  "version": 0,
+  "name": "timeout-and-a-within-expiry-at-one-instant-reversed",
+  "description": "SPEC 6.2 rule 1: the within expiry set before the call's timeout, both due at 100, goes first: the expired drop, then the error.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ],
+      "threshold": 2,
+      "within": 100
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "timeout": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "h"
+    },
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "version": 0,
+  "name": "exit-reply-null-key-clears-the-forward-key",
+  "description": "SPEC 2.6 and 4.4: \"replaces\": null in the reply of exit clears the key: the forward carries none, though the outer input had one.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "c",
+      "network": "inner.network.json"
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "c"
+    },
+    {
+      "from": "c",
+      "to": "b"
+    }
+  ]
+}

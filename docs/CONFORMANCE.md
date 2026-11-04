@@ -83,9 +83,13 @@ were set (SPEC 6.2 rule 1), with these fixed points so that engines agree:
 - Calls started by one event (the targets of one signal, in `to` order) set their wake-ups in
   that order, so their scripted replies at one instant are processed in that order.
 - Held inputs set their `within` wake-up when they are held.
+- **A call's timeout is an ordinary wake-up**, set when the call starts: at level 0 after the program's own
+  wake-ups (hence the last point of this list), at level 1 when the `signal` line is written. At an instant it has no place of
+  its own: set before another call's reply or a held input's `within` expiry, it goes before it; set after, after
+  (SPEC 6.2 rule 1). So with `s` linked to `a` (timeout 100, never replies) and then `b` (replies after 100), the
+  error of `a` comes before the answer of `b`; with the links the other way round, after.
 - A call that ends at the very instant its input goes stale counts as stale (6.2 rule 5); with
   an injection that replaces it, this follows from the first point.
-
 - **A call's outcome due at the instant of its `timeout` is processed first** (SPEC 6.2 rule 7):
   a program's reply wake-up is set before the call's timeout wake-up, so the reply wins.
 - A scripted process that ends (by its own script or by a signal) is known to the engine at
@@ -96,8 +100,12 @@ Fixtures avoid the one tie the specification does not decide: a ping due at the 
 injection.
 
 The run is **over** (SPEC 6.2 rule 6) when no work is running, queued or held, no injection is
-still to come, and no observer injection is pending. The engine then stops its programs
-silently (no events). A held input keeps the run open until its `expired` drop.
+still to come, no observer injection is pending, and no cancelled work is left behind. A kill grace
+already under way for any process group the engine has terminated, cancelled or crashed, keeps the run
+open until the group is gone, and its `kill` note is recorded. The engine then stops its programs
+silently (no events). A held input keeps the run open until its `expired` drop. A pending restart delay
+or idle ping does not: the engine stops the programs silently when the run is over, so no `restart`
+note follows.
 
 ### 4.2 Time zero
 
@@ -142,6 +150,7 @@ A **call** entry answers one call of the program:
 | `after` | Latency in ms from the start of the call (level 0: when the process starts; level 1: when the `signal` line is written). Default 0. |
 | `reply` | The outcome (5.2). |
 | `ignoreTerm` | Level 0 and 1: the program survives SIGTERM until it ends or is killed with SIGKILL (default: SIGTERM ends it at once). |
+| `leaves` | Level 0: when the program ends, by itself or on SIGTERM, a member of its group stays alive. It ignores SIGTERM and ends only on SIGKILL (5.4). |
 | `onCancel` | Level 1: `{"after": ms, "reply": {...}}`. When a `cancel` for this call arrives, the neuron abandons its scheduled reply and sends this one `after` ms later. Without it the neuron ignores `cancel` and replies as scheduled. |
 
 Each call uses **the first entry not yet used** that matches. A call no entry matches is a
@@ -159,6 +168,7 @@ At level 0 (a program that reads stdin once):
 | `{"error": "text"}` | writes `text` to stderr and exits 1 |
 | `{"junk": "text"}` | prints `text` (not JSON) and exits 0 |
 | `{"crash": true}` | is killed by SIGKILL |
+| `{"crash": "SIGUSR1"}` | is killed by the named signal (any signal name) |
 | `{"hang": true}` | never ends by itself |
 | `{"overlong": true}` | prints more than 1 MiB |
 
@@ -193,13 +203,15 @@ The n-th process the engine starts for a `serve` neuron (n from 1, restarts incl
 | `pong` | ms to answer each `ping` (default 0); `false`: never |
 | `end` | `{"after": ms, "how": "exit" or "closeStdout" or "error"}`: `after` ms after `ready`, the process exits with status 1 (`exit`, the default), closes its stdout but stays alive (`closeStdout`), or writes `{"type":"error","message":...}` without `re` (`error`) |
 | `ignoreTerm` | as for calls |
+| `leaves` | as for calls: when the process ends, a member of its group stays alive (until SIGKILL) |
 | `stderr` | text written to stderr when the process starts |
 
 ### 5.4 Processes and signals
 
 A scripted process is in the process group the engine starts. SIGTERM to the group ends it at
 once (unless `ignoreTerm`), SIGKILL always; a level 1 process also ends when its stdin is closed. A process that has ended
-no longer replies. The engine learns that a process ended at the same virtual instant. The
+no longer replies. The engine learns that a process ended at the same virtual instant. With `leaves`, the
+group still has a live member after its process ended: SIGTERM does not end it, SIGKILL does. The
 engine's notes about the group are those of SPEC 6.3: `term` only if the group still had a live
 member when SIGTERM was sent, `kill` only if it had when SIGKILL was sent (after the 2000 ms
 grace, or at once for level 0 output over 1 MiB), each after the event that reports the call.
@@ -215,9 +227,16 @@ only). The engine records the injection as a note `{"type":"note","t":T,"neuron"
 (`ID` the `id` of the event that fired the rule) just before the injected signal. An observer
 sees the outer network only. An empty list is an observer that only reads.
 
-SPEC 8.5 is checked by running twice. With the observer, the events must equal `expect`.
-Without it, they must equal `expectWithout` (or `expect`, if the observer has no rules). And
-two checks that need no expectation of their own: the events before the first `inject` note
+SPEC 8.5 is checked by running twice, and which list belongs to which run is fixed:
+
+1. The run **with** the observer MUST give exactly `expect`.
+2. The run **without** it (same inputs and script, the rules removed) MUST give exactly `expectWithout`,
+   if the fixture has one. With no `expectWithout`: if the observer has no rules, that run MUST equal `expect`;
+   if it has rules, that run is compared with no list at all, only by the two checks below. `expectWithout`
+   is never a stand-in for `expect`, and `expect` is never a stand-in for a missing `expectWithout` when
+   the observer has rules.
+
+And two checks that need no expectation of their own: the events before the first `inject` note
 are identical in both runs, and if `independent` is true (or nothing was injected), removing
 the events of the traces that start at an injection leaves exactly the events of the run
 without the observer. Notes take no part in that second check (a note names a neuron, not a
@@ -259,3 +278,14 @@ The reference engine: `npm run engine -- conform spec/fixtures` (about 1 s with 
 are scripted, not parsed); payloads over 2000 characters; `check` (SPEC 2.7); the fail-open
 behaviour of a slow or crashed observer; the file formats of `trace` output. The 6.1 row for
 `http` has no fixture until an engine runs `http` neurons.
+
+Not covered, on purpose or for lack of a model:
+
+- **Signal names** beyond `SIGKILL` and `SIGUSR1`: the fixtures prove the name (not the number) is used, not that
+  an engine names every signal the operating system can deliver. That mapping is each engine's own tests' business.
+- **A survivor in a real process group.** `leaves` models a member that outlives its process, for a cut level 0 call
+  and for a level 1 process that exits by itself. It does not model one for a level 0 timeout, a level 0 output over
+  1 MiB, a level 1 hang or an over-long line, nor a member that ends by itself during the grace.
+- **A composed neuron's `exit` reply carrying `to`**: only its `replaces` is pinned (SPEC 2.6).
+- **A restart delay and a pending kill grace racing**: a restart that is due while the old group is still being
+  killed.

@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "SPEC 6.3: a level 1 process exits by itself but leaves a group member: SIGTERM and the note term at once, SIGKILL and the note kill 2000 ms later. The kill grace keeps the run open, so it ends at 2050 after the kill, with no restart (SPEC 6.2 rule 6).",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"starts":[{"end":{"after":50},"leaves":true}],"calls":[{"after":1000,"reply":{"answer":"x"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":50,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","message":"process failed","code":"crash","payload":{"type":"json","data":1}},
+    {"type":"note","t":50,"neuron":"a","what":"term"},
+    {"type":"note","t":2050,"neuron":"a","what":"kill"}
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "l1-process-exits-and-leaves-a-survivor",
+  "description": "SPEC 6.3: a level 1 process exits by itself but leaves a group member: SIGTERM and the note term at once, SIGKILL and the note kill 2000 ms later. The kill grace keeps the run open, so it ends at 2050 after the kill, with no restart (SPEC 6.2 rule 6).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

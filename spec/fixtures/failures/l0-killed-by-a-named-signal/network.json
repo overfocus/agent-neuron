@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "l0-killed-by-a-named-signal",
+  "description": "SPEC 6.1: a program killed by a signal is an error, message \"signal S:\" with S the signal's name (SIGUSR1), not its number.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

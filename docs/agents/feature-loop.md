@@ -39,7 +39,8 @@ The plugin's agents are generic and read this section for what is true only
 here. One line each:
 
 - **Gates:** `npm run verify` is the kit's verify over the config's
-  `verify.steps`: typecheck, Rust test and build, test (Vitest), build (`tsc` to `dist/`); it
+  `verify.steps`: typecheck, Rust test and build, test (Vitest), build (`tsc` to `dist/`), conform
+  (`npm run engine -- conform spec/fixtures`, every active conformance fixture); it
   writes `.verify/receipt.json`.
 - **Browser gate:** the network view (`examples/view/`) is the only UI. Start
   `npm run view`, then `npm run check:browser -- --base <url> --routes /

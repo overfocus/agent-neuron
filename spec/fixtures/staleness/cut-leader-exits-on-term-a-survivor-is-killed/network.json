@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "cut-leader-exits-on-term-a-survivor-is-killed",
+  "description": "SPEC 6.3: a cut level 0 program exits on SIGTERM but leaves a group member that ignores it: the group still has a live member, so SIGKILL and the note kill come 2000 ms after term, and the run is not over before.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

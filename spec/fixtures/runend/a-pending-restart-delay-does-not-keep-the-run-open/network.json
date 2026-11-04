@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "a-pending-restart-delay-does-not-keep-the-run-open",
+  "description": "SPEC 6.2 rule 6: a restart delay is not work. The idle process of a crashes at 50, its restart is due at 250, and the run ends at 100 with the last answer of b: no restart note, the engine stops everything silently.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    }
+  ]
+}

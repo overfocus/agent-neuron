@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "SPEC 6.2 rule 6: a restart delay is not work. The idle process of a crashes at 50, its restart is due at 250, and the run ends at 100 with the last answer of b: no restart note, the engine stops everything silently.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"starts":[{"end":{"after":50}}],"calls":[{"after":1,"reply":{"quiet":true}}]},
+    "b": {"calls":[{"after":100,"reply":{"answer":2}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"quiet","t":1,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"answer","t":100,"id":"#3","from":"b","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":2}}
+  ]
+}

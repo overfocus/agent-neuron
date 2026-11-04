@@ -1,0 +1,18 @@
+{
+  "fixture": 0,
+  "description": "SPEC 2.6 and 4.4: the key in the reply of exit is the composed neuron's reply key: the forward carries it instead of the outer input's key.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1,"replaces":"k"}
+  ],
+  "script": {
+    "c/e": {"calls":[{"after":1,"reply":{"answer":2}}]},
+    "c/x": {"calls":[{"after":1,"reply":{"answer":3,"replaces":"z"}}]},
+    "b": {"calls":[{"after":1,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["c"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":1}},
+    {"type":"answer","t":2,"id":"#2","from":"c","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":3}},
+    {"type":"signal","t":2,"id":"#3","from":"c","to":["b"],"trace":"#1","cause":"#2","hops":2,"replaces":"z","payload":{"type":"json","data":3}},
+    {"type":"quiet","t":3,"id":"#4","from":"b","to":["c"],"trace":"#1","replyTo":"#3","hops":3}
+  ]
+}
