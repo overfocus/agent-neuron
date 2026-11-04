@@ -1,0 +1,23 @@
+{
+  "$schema": "../network.schema.json",
+  "version": 0,
+  "name": "alerts-python-serve",
+  "description": "Alert storm triage, with the hypothesis neuron in Python, long-lived (level 1): cheap detectors flag alerts, a slow neuron runs only when two detectors agree, a composed neuron finds the root cause.",
+  "neurons": [
+    { "id": "alerts", "description": "Where alerts enter. The producer tags each with a replaces key (its service).", "source": true },
+    { "id": "logs", "description": "Flags an alert when the log has error lines for its service.", "run": ["sh", "../../examples/alerts/detect-logs.sh", "../../examples/alerts/logs.txt"] },
+    { "id": "deploys", "description": "Flags an alert when its service was deployed in the last 30 minutes.", "run": ["sh", "../../examples/alerts/detect-deploys.sh", "../../examples/alerts/deploys.txt"] },
+    { "id": "metrics", "description": "Flags a critical alert when the service's error rate is above 5%.", "run": ["node", "neurons/metrics.mjs"] },
+    { "id": "hypothesis", "description": "A 500 ms stand-in for a model call, in Python as one long-lived process; acts once two distinct detectors flag one alert.", "serve": ["python3", "neurons/hypothesis_serve.py", "500"], "threshold": 2, "within": 500 },
+    { "id": "diagnosis", "description": "Composed: finds the root cause and the deploy to look at.", "network": "diagnosis.network.json" }
+  ],
+  "links": [
+    { "from": "alerts", "to": "logs" },
+    { "from": "alerts", "to": "deploys" },
+    { "from": "alerts", "to": "metrics" },
+    { "from": "logs", "to": "hypothesis" },
+    { "from": "deploys", "to": "hypothesis" },
+    { "from": "metrics", "to": "hypothesis" },
+    { "from": "hypothesis", "to": "diagnosis" }
+  ]
+}

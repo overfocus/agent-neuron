@@ -192,7 +192,7 @@ export function check(file: string, seen: string[] = [], shown?: string): Findin
     if (n.cwd !== undefined && !existsSync(cwd)) add('error', `${at}.cwd`, `working directory "${n.cwd}" not found`);
     const cmd = n.run?.[0] ?? n.serve?.[0];
     if (cmd && !onPath(cmd, cwd)) add('warning', `${at}.${n.run ? 'run' : 'serve'}`, `executable "${cmd}" not found`);
-    if (n.serve || n.http || n.human) add('warning', at, `neuron "${n.id}" is ${n.serve ? 'serve' : n.http ? 'http' : 'human'}: this engine runs source, run and network neurons only`);
+    if (n.http || n.human) add('warning', at, `neuron "${n.id}" is ${n.http ? 'http' : 'human'}: this engine runs source, run, serve and network neurons only`);
     if (n.network === undefined) return;
     const inner = resolve(dirname(file), n.network);
     if (seen.includes(inner) || inner === here) return add('error', `${at}.network`, 'a network file may not contain itself');

@@ -95,7 +95,16 @@ Rules you will hit:
   (`replaces` optional), and the run prints the answers of the neurons with no
   outgoing links. Try `npm run demo:network` (the alert storm below). The TypeScript
   library does not read network files; the reference engine is `src/engine/`
-  (Appendix C). Level 1, `http` and `human` neurons are not run yet.
+  (Appendix C). `http` and `human` neurons are not run yet.
+- **Running a level 1 neuron.** Put the quick-start program above in a file,
+  say `flag.py`, and name it in a network file as
+  `{ "id": "flag", "serve": ["python3", "flag.py"] }`; the engine starts it with the
+  engine and talks to it over the pipe, so there is nothing to start by hand. A complete
+  one (a threshold neuron that handles `cancel`, 29 lines) is
+  `spec/examples/neurons/hypothesis_serve.py`; `spec/examples/alerts-python-serve.network.json`
+  runs the alert storm with it: `npm run demo:network -- spec/examples/alerts-python-serve.network.json`.
+  By hand, `printf '{"v":1,"type":"hello","neuron":"x"}\n{"type":"signal","re":1,"payload":{"n":1}}\n' | python3 flag.py`
+  prints `ready` and then the answer.
 
 ## 1. Terms (informative)
 
@@ -741,9 +750,8 @@ separate from the library (`src/index.ts` is unchanged) and is the reference
 the Rust engine is compared with. It follows the specification, including the
 6.2 event order, where the library differs (the list above). Conformance gaps:
 
-- **Neuron kinds**: `run`, `source` and `network` only. `serve`, `http` and
-  `human` are reported by `check` as warnings and refused by `run`. So there is
-  no `restart`, `junk` or level 1 `protocol` behaviour.
+- **Neuron kinds**: `source`, `run`, `serve` and `network`. `http` and `human` are
+  reported by `check` as warnings and refused by `run`.
 - **No fixtures yet** (section 8): the engine runs real processes on the real
   clock, with no scripted programs or virtual clock, so it cannot run a fixture
   today. Its tests assert invariants and the rules in sections 4 to 6 on small
@@ -753,7 +761,7 @@ the Rust engine is compared with. It follows the specification, including the
 - **Same-instant order** (6.2 rules 1 and 5) holds because the engine is one
   synchronous event loop, not because a clock orders it; a call whose process
   ends in the same millisecond its input goes stale can go either way.
-- **Notes**: `cancel`, `term` and `kill` are written; the rest need level 1.
+- **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` is not.
 - **Process start failure** (no such executable) is an `exit` error, `exit 127:`
   then the reason; the table in 6.1 has no row for it.
 - **The inside of a composed neuron** is available only through the `inner`
@@ -771,3 +779,34 @@ the Rust engine is compared with. It follows the specification, including the
   library, so a very long run with many distinct keys grows in memory.
 - **`check` positions** point at the key of the offending member, or the item of
   an array, not at its value.
+- **Level 1 (`serve`)** follows 3.2 and 6.1. Where the text is silent the engine chose:
+  - a queued call (waiting for a slot) that goes stale is dropped as `replaced`, phase
+    `waiting`, with no `cancel` note; if it belongs to a threshold call, the whole call
+    is removed and one drop is written, for the crossing input;
+  - the `timeout` of a call starts when its `signal` line is written, not when it joins the queue;
+  - a cancelled call keeps its slot until its reply or `timeout` more ms; then the process is
+    hung (code `crash` for the calls still running, `term`, `kill` and `restart` notes). The run
+    is not over until the slot is free, so the trace records the kill;
+  - "exactly one call running" for junk counts every call holding a slot, cancelled ones
+    included; a cancelled one is never failed, so then only the note is written. A call failed
+    for junk gives its slot up at once and a later reply for it is discarded;
+  - before `ready`, any first line other than a valid `ready` (junk, a wrong `v`, a bad
+    `maxInflight`) is a failed start; the engine does not restart a neuron whose first start
+    fails, it refuses to start. After a later start fails, backoff and the limit of 5 apply;
+  - `ping` is sent every 10 s while nothing is running (the text gives no interval;
+    `runNetwork`'s `pingEvery` option changes it), with `timeout` to answer;
+  - a `restart` note is written when the new process is spawned, after the backoff;
+  - the `error` message of a `crash` is `process failed`, then the first 500 bytes of stderr;
+  - the engine's clock starts when every serve neuron is ready, so `at` in an inputs file
+    does not include start-up;
+  - at the end of the run stdin is closed and a process that has not exited is sent SIGTERM
+    after 2 s and SIGKILL 2 s later, silently; the run returns after the processes are gone;
+  - a `term` or `kill` note for a process that dies on its own is written only if part of its
+    process group is still alive.
+- **Measured** on one machine (Apple M3, macOS, Python 3.14, an idle machine; not a benchmark, not asserted
+  by any test): per signal, a level 0 Python neuron costs a process start, median 19.7 ms (p95 21.6 ms, 40
+  runs of `hypothesis.py`); a level 1 neuron costs a round trip over the pipe, median 0.04 ms (p95 0.07 ms,
+  300 calls of `hypothesis_serve.py` with a 0 ms model call, one thread per call included). Against the alert
+  storm's detector budget of about 150 ms, a level 0 Python detector spends about 13% of it on start-up, a
+  level 1 one under 0.1%. A level 1 neuron pays its start once, at engine start (about the same 20 ms). The
+  engine adds routing on top of both.
