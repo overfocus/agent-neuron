@@ -1,0 +1,31 @@
+{
+  "version": 0,
+  "name": "exit-reply-key-sets-the-forward-key",
+  "description": "SPEC 2.6 and 4.4: the key in the reply of exit is the composed neuron's reply key: the forward carries it instead of the outer input's key.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "c",
+      "network": "inner.network.json"
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "c"
+    },
+    {
+      "from": "c",
+      "to": "b"
+    }
+  ]
+}

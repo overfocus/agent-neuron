@@ -1,0 +1,34 @@
+{
+  "version": 0,
+  "name": "timeout-and-another-calls-reply-at-one-instant-reversed",
+  "description": "SPEC 6.2 rule 1: the same tie with the links the other way round: b's reply wake-up was set before a's timeout, so the answer goes first.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "timeout": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "b"
+    },
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "version": 0,
+  "name": "timeout-and-another-calls-reply-at-one-instant-in-order-set",
+  "description": "SPEC 6.2 rule 1: a timeout is an ordinary wake-up; it and another call's reply due at one instant run in the order they were set (here the timeout of a, which started first, goes first).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "timeout": 100
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    }
+  ]
+}

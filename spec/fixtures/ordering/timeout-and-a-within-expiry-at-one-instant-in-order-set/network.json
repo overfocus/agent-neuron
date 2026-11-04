@@ -1,0 +1,36 @@
+{
+  "version": 0,
+  "name": "timeout-and-a-within-expiry-at-one-instant-in-order-set",
+  "description": "SPEC 6.2 rule 1: a call's timeout set before a held input's within expiry, both due at 100, goes first: the error, then the expired drop.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "timeout": 100
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ],
+      "threshold": 2,
+      "within": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "h"
+    }
+  ]
+}

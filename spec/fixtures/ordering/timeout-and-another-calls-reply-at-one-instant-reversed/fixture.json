@@ -1,0 +1,19 @@
+{
+  "fixture": 0,
+  "description": "SPEC 6.2 rule 1: the same tie with the links the other way round: b's reply wake-up was set before a's timeout, so the answer goes first.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":0,"reply":{"hang":true}}]},
+    "b": {"calls":[{"after":100,"reply":{"answer":2}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["b","a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":100,"id":"#2","from":"b","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":2}},
+    {"type":"error","t":100,"id":"#1","from":"s","to":["b","a"],"trace":"#1","hops":0,"neuron":"a","message":"timed out after 100 ms","code":"timeout","payload":{"type":"json","data":1}},
+    {"type":"note","t":100,"neuron":"a","what":"cancel"},
+    {"type":"note","t":100,"neuron":"a","what":"term"}
+  ]
+}

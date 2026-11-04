@@ -7,8 +7,8 @@ import type { Host } from './engine.js';
 
 type Timer = { due: number; seq: number; fn: () => void; cancelled: boolean };
 type Reply = Record<string, unknown>;
-type Entry = { when?: unknown; after?: number; reply: Reply; ignoreTerm?: boolean; onCancel?: { after?: number; reply: Reply } };
-type Start = { ready?: number | false; maxInflight?: number; first?: unknown; readyV?: number; pong?: number | false; end?: { after?: number; how?: 'exit' | 'closeStdout' | 'error' }; ignoreTerm?: boolean; stderr?: string };
+type Entry = { when?: unknown; after?: number; reply: Reply; ignoreTerm?: boolean; leaves?: boolean; onCancel?: { after?: number; reply: Reply } };
+type Start = { ready?: number | false; maxInflight?: number; first?: unknown; readyV?: number; pong?: number | false; end?: { after?: number; how?: 'exit' | 'closeStdout' | 'error' }; ignoreTerm?: boolean; leaves?: boolean; stderr?: string };
 export type Script = Record<string, { calls?: Entry[]; starts?: Start[] }>;
 
 const BIG = 1 << 20;
@@ -60,7 +60,7 @@ export class VirtualHost implements Host {
     return p as never;
   };
   killGroup = (pid: number | undefined, signal: NodeJS.Signals) => this.procs.get(pid!)?.signal(signal);
-  alive = (pid: number | undefined) => this.procs.get(pid!)?.up ?? false;
+  alive = (pid: number | undefined) => { const p = this.procs.get(pid!); return !!p && (p.up || p.member); };
 
   /** The first unused entry whose `when` equals the program's input (none: matches anything). A miss is the fixture's fault. */
   take(path: string, input: unknown): Entry {
@@ -74,6 +74,9 @@ export class VirtualHost implements Host {
 /** A scripted program: level 0 acts when stdin closes; level 1 speaks the protocol over its pipes. */
 class VProc extends EventEmitter {
   up = true;
+  /** `leaves`: a member of the group that outlives the process, ignores SIGTERM and ends only on SIGKILL (5.4). */
+  member = false;
+  private lingers: boolean;
   private ignoreTerm: boolean;
   private inflight = new Map<number, { entry: Entry; timer: NodeJS.Timeout | undefined }>();
   stdout = new EventEmitter();
@@ -82,11 +85,13 @@ class VProc extends EventEmitter {
   constructor(private host: VirtualHost, private level: 0 | 1, private path: string, private start: Start, readonly pid: number) {
     super();
     this.ignoreTerm = start.ignoreTerm ?? false;
+    this.lingers = start.leaves ?? false;
   }
 
   private later(ms: number, fn: () => void) { return this.host.setTimeout(() => this.up && fn(), ms); }
   private out(m: unknown) { this.stdout.emit('data', Buffer.from(typeof m === 'string' ? `${m}\n` : `${JSON.stringify(m)}\n`)); }
   signal(sig: NodeJS.Signals) {
+    if (sig === 'SIGKILL') this.member = false;
     if (sig === 'SIGTERM' && this.ignoreTerm) return;
     this.die(null, sig);
   }
@@ -94,6 +99,7 @@ class VProc extends EventEmitter {
   private die(code: number | null, sig: NodeJS.Signals | null = null) {
     if (!this.up) return;
     this.up = false;
+    this.member = this.lingers && sig !== 'SIGKILL';
     this.stdout.emit('end');
     this.emit('exit', code, sig);
     this.emit('close', code, sig);
@@ -104,6 +110,7 @@ class VProc extends EventEmitter {
   private onInput(text: string) {
     const entry = this.host.take(this.path, JSON.parse(text));
     if (entry.ignoreTerm) this.ignoreTerm = true;
+    if (entry.leaves) this.lingers = true;
     this.later(entry.after ?? 0, () => this.finish(entry.reply));
   }
   private finish(r: Reply) {
@@ -111,7 +118,7 @@ class VProc extends EventEmitter {
     else if (r.quiet) this.die(0);
     else if ('error' in r) { this.stderr.emit('data', Buffer.from(String(r.error))); this.die(1); }
     else if ('junk' in r) { this.stdout.emit('data', Buffer.from(String(r.junk))); this.die(0); }
-    else if (r.crash) this.die(null, 'SIGKILL');
+    else if (r.crash) this.die(null, r.crash === true ? 'SIGKILL' : (r.crash as NodeJS.Signals));
     else if (r.overlong) this.stdout.emit('data', Buffer.alloc(BIG + 1, 97));
     // hang: nothing, ever
   }

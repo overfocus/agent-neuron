@@ -102,6 +102,16 @@ const mutations: { name: string; edits: [from: string, to: string, count?: numbe
   { name: 'junk not counting a cancelled call that holds a slot', edits: [['if (this.jobs.size !== 1) return;', 'if ([...this.jobs.values()].filter((j) => !j.call.cancelled).length !== 1) return;']] },
   { name: 'a TypeError while a start is refused', edits: [['this.begin.no(Object.assign(', '(undefined as unknown as { x: { y: number } }).x.y; this.begin.no(Object.assign(']] },
   { name: 'a level 0 kill note before the error', edits: [["      if (over) note('kill'); // the failure first, then the note of the kill that caused it (SPEC 6.3)\n", ''], ["        over = killed = true;\n        killGroup(pid, 'SIGKILL');", "        over = killed = true;\n        note('kill');\n        killGroup(pid, 'SIGKILL');"]] },
+  { name: 'a timeout going last among the wake-ups of its instant', edits: [
+    ['      timer = host.setTimeout(() => {\n        if (call.cancelled || call.finished) return;', '      timer = host.setTimeout(() => host.setTimeout(() => {\n        if (call.cancelled || call.finished) return;'],
+    ['      }, ms);\n    };\n    const done', '      }, 0), ms);\n    };\n    const done']] },
+  { name: 'a signal number instead of its name', edits: [['`signal ${status.signal}: ${why}`', '`signal ${({ SIGUSR1: 30 } as Record<string, number>)[status.signal] ?? status.signal}: ${why}`']] },
+  { name: 'no kill for a survivor of a cut level 0 program', edits: [['        if (alive(pid)) {\n          killed = true;', '        if (alive(pid) && !exited) {\n          killed = true;']] },
+  { name: 'no kill for a survivor of a level 1 process', edits: [['too\n      if (alive(pid)) {', 'too\n      if (false as boolean) {']] },
+  { name: 'a pending restart delay keeping the run open', edits: [[
+    "    this.restartTimer = host.setTimeout(() => {\n      this.run.processNote(this.node, 'restart');\n      this.spawn();\n    },",
+    "    this.run.live++;\n    this.restartTimer = host.setTimeout(() => {\n      this.run.processNote(this.node, 'restart');\n      this.spawn();\n      if (--this.run.live === 0) this.run.over?.();\n    },"]] },
+  { name: 'a composed reply without the key of exit', edits: [['      this.cancelScope(scope);\n      done(o);', "      this.cancelScope(scope);\n      done('answer' in o ? { answer: o.answer } : o);"]] },
   { name: 'an error code renamed', edits: [["code: 'neuron' }", "code: 'error' }"]] },
 ];
 

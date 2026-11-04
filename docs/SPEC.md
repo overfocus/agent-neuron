@@ -224,7 +224,9 @@ Per call:
    composed neuron's id (a name that exists only inside; a reply to it is
    recorded inside and is not an input to anything), and the outer input's
    replaces key.
-2. The first reply of `exit`, an answer or quiet, is the composed neuron's reply.
+2. The first reply of `exit`, an answer or quiet, is the composed neuron's reply, with the
+   `replaces` it carries: a string sets the key of the forward (4.4), `null` clears it, absent
+   inherits the outer input's key.
    Remaining inner work for the call is cancelled without reports.
 3. If the inner network has nothing running, queued or held for the call and
    `exit` has not replied, the composed neuron is quiet; if an inner neuron
@@ -499,13 +501,18 @@ affected. Failures of stale work are not errors.
 | composed neuron with no reply after an inner failure | `inner` | `no answer: an inner neuron failed` | |
 | level 1 `error` with `re` | `neuron` | the neuron's message | |
 
+`S` in `signal S:` is the signal's name (`SIGKILL`, `SIGUSR1`), never its number.
+
 ### 6.2 Event order
 
 An engine MUST report events in this order, so that two engines produce the same
 list.
 
 1. Work due at the same instant is processed in the order it was scheduled ([CONFORMANCE.md](CONFORMANCE.md) 4.1 says what
-   that means for injections and for calls started by one event).
+   that means for injections and for calls started by one event). A call's timeout and a held input's
+   `within` expiry are scheduled like any other wake-up and have no place of their own at an instant: a timeout
+   scheduled before another call's reply or before an expiry goes before it, one scheduled after goes after.
+   A timeout is scheduled when its call starts; rule 7 is the one exception.
 2. A signal's event is reported first, then, at the same `t`, **immediately
    after it**: (a) the drops of the work that signal made stale, in the order
    that work was created; (b) for each target in `to` order, its delivery
@@ -514,17 +521,19 @@ list.
 4. A running drop is reported when the work goes stale; a `note` for the
    cancel follows it, and the later `term` and `kill` notes at their own times.
 5. A call that ends exactly when its input goes stale counts as stale.
-6. A **run is over** when nothing is running or queued, no timer is pending, and no
+6. A **run is over** when nothing is running or queued, no input is held, no injection is still to come, and no
    cancelled work is left behind: a cancelled level 0 program's process group must be gone
    (after the kill, if it ignored SIGTERM) and a cancelled level 1 call's slot must be free
    (the neuron replied for it, or was treated as hung). The trace records those kills.
    Held inputs keep their `within` timers, so an engine that waits for the end
-   reports their `expired` drops. A fixture runs the virtual clock until nothing
+   reports their `expired` drops. A pending restart delay or idle ping is not work: it does not keep the run
+   open, and the engine stops the process silently when the run ends (no `restart` note). A fixture runs the virtual clock until nothing
    is due. A real engine's "wait until idle" MAY stop earlier, ignoring held
    inputs (the TypeScript `idle` does); then their drops are not reported.
 7. A call's outcome due at the same instant as its `timeout` is processed first: a call
    times out only if it is strictly longer than `timeout`. (A level 0 program's reply, a
-   level 1 reply, the exit of a composed neuron: whatever ends the call at that instant.)
+   level 1 reply, the exit of a composed neuron: whatever ends the call at that instant.) A timeout has no
+   other privilege: against anything else due at that instant, rule 1 decides.
 
 ### 6.3 Process notes
 
@@ -538,9 +547,11 @@ then the notes of what the engine does to the process, in the order `cancel`, `t
   without a `cancel` note.
 - `term`: when the engine sends SIGTERM to a process group that still has a live member (a
   cancelled level 0 call; a level 1 process that crashed, hung, or wrote a line over 1 MiB).
-  Nothing is written for a group that is already empty.
+  Nothing is written for a group that is already empty. A group's members are the process and whatever it
+  left running in the group: a program that exits on SIGTERM but leaves a child that ignores it still has a
+  live member.
 - `kill`: when the engine sends SIGKILL to a group that still has a live member: 2000 ms
-  after `term` if anything remained, or at once for level 0 output over 1 MiB (the `error`
+  after `term` if anything remained (so also when the process itself ended on SIGTERM and left a member), or at once for level 0 output over 1 MiB (the `error`
   first, then the note).
 - `restart`: when the new level 1 process is spawned, after the backoff delay, not when it is
   scheduled.
@@ -588,7 +599,7 @@ v1 readers, which ignore what they do not know, are unaffected):
 | Addition | Rule |
 |---|---|
 | `phase` (`waiting` or `running`) on `drop` | MUST on reason `replaced`; MUST NOT on `hops` or `expired` |
-| `replaces` on `signal` | MUST when the signal has a key |
+| `replaces` on `signal` | MUST when the signal has a key; on `signal` events only, never on `drop`, `error`, `answer` or `quiet` |
 | `code` on `error` | MUST, from the 6.1 table |
 | `note` event: `what` is `junk` (with `line`, `text`), `cancel`, `term`, `kill`, `restart` or `inject` (with `trigger`) | MUST, as 6.3 says (fixtures with `notes` compare them) |
 | `engine` header field | MAY |
@@ -607,7 +618,7 @@ when `d1`'s new forward is emitted at 60:
 {"type":"signal","t":40,"id":"#6","from":"s","to":["d1","d2"],"trace":"#6","hops":0,"replaces":"k","payload":{"type":"json","data":{"n":2}}}
 {"type":"answer","t":60,"id":"#7","from":"d1","to":["s"],"trace":"#6","replyTo":"#6","hops":1,"payload":{"type":"json","data":{"d":1}}}
 {"type":"signal","t":60,"id":"#8","from":"d1","to":["h"],"trace":"#6","cause":"#7","hops":2,"replaces":"k","payload":{"type":"json","data":{"d":1}}}
-{"type":"drop","t":60,"id":"#5","from":"d2","to":["h"],"trace":"#1","cause":"#4","hops":2,"replaces":"k","neuron":"h","reason":"replaced","phase":"running","payload":{"type":"json","data":{"d":2}}}
+{"type":"drop","t":60,"id":"#5","from":"d2","to":["h"],"trace":"#1","cause":"#4","hops":2,"neuron":"h","reason":"replaced","phase":"running","payload":{"type":"json","data":{"d":2}}}
 ```
 
 (The example stops at the drop; `d2` then replies at 60 too.) The drop names `#5`, the crossing input from `d2`, which was not replaced;
@@ -641,7 +652,7 @@ A directory with a network file (and the composed files it names) and `fixture.j
   program's input value (3.1) is used (no `when` matches anything); no match is a harness
   failure. `after` is the latency in ms from the call's start. `reply` is
   `{"answer": P, "replaces"?: K or null, "to"?: [ids]}`, `{"quiet": true}`, `{"error": "message"}`,
-  `{"junk": "text"}`, `{"crash": true}`, `{"hang": true}` or `{"overlong": true}`; a level 1
+  `{"junk": "text"}`, `{"crash": true}` (or `{"crash": "SIGUSR1"}`: killed by that named signal), `{"hang": true}` or `{"overlong": true}`; a level 1
   neuron also has `starts` (ready latency, `maxInflight`, pong, when the process ends) and
   `onCancel`. The script stands in for the process layer, so fixtures test what the engine does
   with an outcome, not byte parsing.
@@ -793,7 +804,7 @@ differences:
 
 A second engine, written to this specification, reads network files. It is
 separate from the library (`src/index.ts` is unchanged) and is the reference
-the Rust engine is compared with. It follows the specification, including the
+any further engine is compared with (a Rust one was tried and stopped: decision 0005). It follows the specification, including the
 6.2 event order, where the library differs (the list above). Conformance gaps:
 
 - **Neuron kinds**: `source`, `run`, `serve` and `network`. `http` and `human` are
