@@ -40,7 +40,7 @@ describe('network schema v0', () => {
     expect(checkFile(join(examples, 'alerts.network.json'))).toEqual([]);
     expect(checkFile(join(examples, 'diagnosis.network.json'))).toEqual([]);
     expect(checkFile(join(examples, 'alerts-python.network.json'))).toEqual([]);
-    expect(check(join(examples, 'alerts-python.network.json'))).toEqual([]); // no warnings either: every executable is found
+    expect(check(join(examples, 'alerts-python.network.json')).filter((f) => !f.message.startsWith('executable'))).toEqual([]); // no other warnings (python3 itself may be absent)
   });
 
   it('reports file, line and column, and suggests the nearest id', () => {
@@ -51,6 +51,13 @@ describe('network schema v0', () => {
     expect(check(file)).toEqual([{ severity: 'error', file, line: 20, column: 7, message: 'link names unknown neuron "hypothsis" (did you mean "hypothesis"?)' }]);
     writeFileSync(file, '{ "version": 0, "neurons": [');
     expect(check(file)[0]?.message).toContain('not valid JSON');
+  });
+
+  it('names a composed file relative to the outer file, and checks that cwd exists', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'spec-'));
+    writeFileSync(join(dir, 'in.network.json'), JSON.stringify({ version: 0, entry: 'a', exit: 'a', neurons: [{ id: 'a', run: ['true'], cwd: 'nowhere' }] }));
+    writeFileSync(join(dir, 'out.network.json'), JSON.stringify({ version: 0, neurons: [{ id: 'c', network: 'in.network.json' }] }));
+    expect(check(join(dir, 'out.network.json'))).toEqual([expect.objectContaining({ severity: 'error', file: 'in.network.json', message: 'working directory "nowhere" not found' })]);
   });
 
   it('warns, and does not fail, for an executable it cannot find', () => {

@@ -506,8 +506,9 @@ module and the network view work unchanged.
 
 `format` and `version` as v1. `demo` is the network's `name`, or the file name
 (TRACE.md defines `demo` as a free name). `library` stays the engine's version
-string (`0.1.0`); an optional `engine` field names the engine. `description`
-from the file. `neurons`: `id`, `description`, `kind` (the kind field's name,
+string (`0.0.0` today); an optional `engine` field names the engine. `description`
+from the file (the engine writes an empty string if the file has none); a neuron
+with no `description` is written as `<kind> neuron`, so every neuron has one. `neurons`: `id`, `description`, `kind` (the kind field's name,
 `network` written `composed`) and `options` as set in the file
 (`threshold`, `within`, `maxHops`; defaults are not written). `links`: one
 `{from, to}` per link, directional. `summary` MAY be `{}`. A composed neuron's
@@ -760,5 +761,13 @@ the Rust engine is compared with. It follows the specification, including the
   the trace (2.6); it is not specified.
 - **Payloads over 2000 characters** are cut to a preview in the trace (TRACE.md),
   as the recorder does; the program still gets the whole value.
+- **POSIX only**: process groups, `kill(-pid)` and `sh`-style programs; no Windows.
+- **Engine defaults** (decision 0001): when a call ends the engine kills its
+  program's process group; a call settles 100 ms after the process exits even if
+  a child still holds stdout open; ids are numbered per scope, so outer ids do not
+  reveal inside work; the CLI kills every running group on SIGINT or SIGTERM.
+- **The staleness map is not pruned**: a list of finished work stays under its
+  (sender, key) until that key is next replaced, the same known limit as the
+  library, so a very long run with many distinct keys grows in memory.
 - **`check` positions** point at the key of the offending member, or the item of
   an array, not at its value.

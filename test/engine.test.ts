@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { INNER_IDS } from '../examples/alerts-demo.mjs';
 import { replay, start, step, type Trace } from '../examples/trace/replay.mjs';
-import { formatTrace, readInjections, runNetwork, type Injection, type Trace as EngineTrace } from '../src/engine/index.js';
+import { check, formatTrace, readInjections, runNetwork, type Injection, type Trace as EngineTrace } from '../src/engine/index.js';
 import { expectValidTrace } from './support/trace.js';
 
 const examples = fileURLToPath(new URL('../spec/examples/', import.meta.url));
@@ -178,6 +178,51 @@ describe('routing and level 0 processes', () => {
   });
 });
 
+describe('call lifecycle', () => {
+  it('does not cut a call that has answered when its keyed forward comes back to itself', async () => {
+    const t = await run([echo('p', { maxHops: 2 })], [['s', 'p'], ['p', 'p']], [inject(0, 1, 'k')]);
+    expect(events(t, 'drop').map((e) => e.reason)).toEqual(['hops']);
+    expect(events(t, 'answer')).toHaveLength(2);
+  });
+
+  it('does the same through a composed neuron, and check refuses a composed id that is an inner id', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'engine-'));
+    const inner = (a: string) => ({ version: 0, entry: a, exit: 'out', neurons: [echo(a), echo('out')], links: [{ from: a, to: 'out' }] });
+    writeFileSync(join(dir, 'in.network.json'), JSON.stringify(inner('in')));
+    writeFileSync(join(dir, 'c.network.json'), JSON.stringify({ version: 0, neurons: [{ id: 's', source: true }, { id: 'c', network: 'in.network.json', maxHops: 2 }], links: [{ from: 's', to: 'c' }, { from: 'c', to: 'c' }] }));
+    const t = await runNetwork(join(dir, 'c.network.json'), [inject(0, 1, 'k')]);
+    expect(events(t, 'drop').map((e) => e.reason)).toEqual(['hops']);
+    writeFileSync(join(dir, 'same.network.json'), JSON.stringify({ version: 0, neurons: [{ id: 's', source: true }, { id: 'in', network: 'in.network.json' }], links: [{ from: 's', to: 'in' }] }));
+    expect(check(join(dir, 'same.network.json'))).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('same id as a neuron inside in.network.json') })]);
+  });
+
+  it('decodes a long non-ASCII answer whole, whatever the chunking', async () => {
+    const answers: unknown[] = [];
+    const file = join(mkdtempSync(join(tmpdir(), 'engine-')), 'n.network.json');
+    const program = 'process.stdout.write(JSON.stringify("a" + "\u20ac".repeat(300000)))';
+    writeFileSync(file, JSON.stringify({ version: 0, neurons: [{ id: 's', source: true }, { id: 'p', run: ['node', '-e', program] }], links: [{ from: 's', to: 'p' }] }));
+    await runNetwork(file, [inject(0, 1)], { result: (_n, _t, payload) => answers.push(payload) });
+    expect(answers).toEqual(['a' + '\u20ac'.repeat(300000)]);
+  });
+
+  it('kills what a program leaves behind, and does not wait for a child that holds stdout open', async () => {
+    const orphan = await run([sh('o', 'sleep 38 >/dev/null 2>&1 & echo 1')], [['s', 'o']], [inject(0, 1)]);
+    expect(events(orphan, 'answer')).toHaveLength(1);
+    expect(spawnSync('pgrep', ['-f', 'sleep 38']).status).toBe(1); // none left
+    const held = await run([sh('h', 'echo 1; sleep 3 &', { timeout: 1500 })], [['s', 'h']], [inject(0, 1)]);
+    expect(events(held, 'answer')).toHaveLength(1);
+    expect(events(held, 'error')).toEqual([]);
+  }, 10_000);
+
+  it('numbers ids per scope: outer ids are consecutive around a composed call', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'engine-'));
+    writeFileSync(join(dir, 'in.network.json'), JSON.stringify({ version: 0, entry: 'a', exit: 'b', neurons: [echo('a'), echo('b')], links: [{ from: 'a', to: 'b' }] }));
+    writeFileSync(join(dir, 'o.network.json'), JSON.stringify({ version: 0, neurons: [{ id: 's', source: true }, { id: 'c', network: 'in.network.json' }, echo('z')], links: [{ from: 's', to: 'c' }, { from: 'c', to: 'z' }] }));
+    const t = await runNetwork(join(dir, 'o.network.json'), [inject(0, 1)]);
+    expect(t.events.filter((e) => e.type !== 'note').map((e) => e.id)).toEqual(['1', '2', '3', '4']);
+  });
+});
+
 describe('refusals before a run', () => {
   const one = (neuron: Spec) => {
     const file = join(mkdtempSync(join(tmpdir(), 'engine-')), 'n.network.json');
@@ -193,6 +238,13 @@ describe('refusals before a run', () => {
   it('refuses a file that does not check, and an injection into something that is not a source', async () => {
     await expect(runNetwork(one({ id: 'x', run: ['true'], bogus: 1 }), [])).rejects.toThrow('unknown field "bogus"');
     await expect(runNetwork(one({ id: 'x', run: ['true'] }), [{ at: 0, source: 'x', payload: 1 }])).rejects.toThrow('not a source');
+  });
+
+  it('enforces the injection limits itself, not only when reading a file', async () => {
+    const net = one({ id: 'x', run: ['true'] });
+    await expect(runNetwork(net, [{ at: 0, source: 's', payload: 1, replaces: 'k'.repeat(257) }])).rejects.toThrow('256 bytes');
+    await expect(runNetwork(net, [{ at: -5, source: 's', payload: 1 }])).rejects.toThrow('"at"');
+    await expect(runNetwork(net, [{ at: Number.NaN, source: 's', payload: 1 }])).rejects.toThrow('"at"');
   });
 
   it('reads inputs strictly: line number, at, source, payload, a key of at most 256 bytes', () => {

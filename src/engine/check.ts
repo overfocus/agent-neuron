@@ -3,7 +3,7 @@
 // shortcut: the validator implements only the JSON Schema keywords that file uses (the ones handled in `validate`);
 // upgrade to a real validator if the schema grows keywords beyond these.
 import { existsSync, readFileSync } from 'node:fs';
-import { delimiter, dirname, join, resolve } from 'node:path';
+import { delimiter, dirname, join, normalize, resolve } from 'node:path';
 
 export type NeuronSpec = {
   id: string; description?: string;
@@ -131,8 +131,11 @@ const onPath = (cmd: string, cwd: string) =>
 /** Reads and parses a network file; throws if it is not JSON. Does not validate. */
 export const readNetwork = (file: string): NetworkFile => JSON.parse(readFileSync(file, 'utf8')) as NetworkFile;
 
-/** Everything `check` must report (SPEC 2.7); composed files are checked too, relative to `file`. Errors make the file unusable. */
-export function check(file: string, seen: string[] = []): Finding[] {
+/**
+ * Everything `check` must report (SPEC 2.7); composed files are checked too, relative to `file`. Errors make the file unusable.
+ * `shown` is only for composed files: their path relative to the outer file's directory, which findings name them by.
+ */
+export function check(file: string, seen: string[] = [], shown?: string): Finding[] {
   const out: Finding[] = [];
   if (!existsSync(file)) return [{ severity: 'error', file, message: 'file not found' }];
   const text = readFileSync(file, 'utf8');
@@ -140,13 +143,13 @@ export function check(file: string, seen: string[] = []): Finding[] {
   try {
     net = JSON.parse(text) as NetworkFile;
   } catch (e) {
-    return [{ severity: 'error', file, message: `not valid JSON: ${(e as Error).message}` }];
+    return [{ severity: 'error', file: shown ?? file, message: `not valid JSON: ${(e as Error).message}` }];
   }
   const where = positions(text);
   const add = (severity: Finding['severity'], path: string, message: string) => {
     const offset = where.get(path);
     const before = offset === undefined ? undefined : text.slice(0, offset).split('\n');
-    out.push({ severity, file, ...(before && { line: before.length, column: before.at(-1)!.length + 1 }), message });
+    out.push({ severity, file: shown ?? file, ...(before && { line: before.length, column: before.at(-1)!.length + 1 }), message });
   };
   const problems = validate(net);
   if (problems.length) {
@@ -186,6 +189,7 @@ export function check(file: string, seen: string[] = []): Finding[] {
   net.neurons.forEach((n, i) => {
     const at = `$.neurons[${i}]`;
     const cwd = resolve(dirname(file), n.cwd ?? '.');
+    if (n.cwd !== undefined && !existsSync(cwd)) add('error', `${at}.cwd`, `working directory "${n.cwd}" not found`);
     const cmd = n.run?.[0] ?? n.serve?.[0];
     if (cmd && !onPath(cmd, cwd)) add('warning', `${at}.${n.run ? 'run' : 'serve'}`, `executable "${cmd}" not found`);
     if (n.serve || n.http || n.human) add('warning', at, `neuron "${n.id}" is ${n.serve ? 'serve' : n.http ? 'http' : 'human'}: this engine runs source, run and network neurons only`);
@@ -193,10 +197,11 @@ export function check(file: string, seen: string[] = []): Finding[] {
     const inner = resolve(dirname(file), n.network);
     if (seen.includes(inner) || inner === here) return add('error', `${at}.network`, 'a network file may not contain itself');
     if (!existsSync(inner)) return add('error', `${at}.network`, `file not found: ${n.network}`);
-    const found = check(inner, [...seen, here]);
+    const found = check(inner, [...seen, here], normalize(join(dirname(shown ?? '.'), n.network)));
     out.push(...found);
     if (found.some((f) => f.severity === 'error')) return;
     const sub = readNetwork(inner);
+    if (sub.neurons.some((x) => x.id === n.id)) add('error', `${at}.id`, `neuron "${n.id}" has the same id as a neuron inside ${n.network}: a composed neuron's id must not be one of its inner ids`);
     for (const key of ['entry', 'exit'] as const) if (!sub[key]) add('error', `${at}.network`, `${n.network} is used as a composed neuron and needs "${key}"`);
     if (sub.neurons.some((x) => x.source)) add('error', `${at}.network`, `${n.network} is used as a composed neuron and may not contain a source`);
     if (sub.exit && (sub.links ?? []).some((l) => l.from === sub.exit)) add('error', `${at}.network`, `${n.network}: "exit" may not have outgoing links`);
