@@ -13,6 +13,8 @@ export type TraceEvent = {
   via?: 'emit' | 'send';
   neuron?: string;
   reason?: 'replaced' | 'expired' | 'hops';
+  /** On a `replaced` drop: whether the work was held (`waiting`) or its call was running. */
+  phase?: 'waiting' | 'running';
   message?: string;
   payload?: { type: 'text'; text: string; truncated?: boolean } | { type: 'json'; data?: unknown; truncated?: boolean; preview?: string };
 };

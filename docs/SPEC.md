@@ -714,8 +714,6 @@ differences:
 - one-way links (`connect` links both ways today);
 - automatic forwarding along links (callers forward today); `emit` `to` limited
   to outgoing links;
-- a running threshold call is cut by any replaced input (#17), not only the
-  crossing one;
 - a composed neuron is one shared inner network per instance (the demo builds a
   fresh one per call);
 - a default `timeout` of 30 s (none today);
@@ -723,5 +721,6 @@ differences:
 - process-group kill with SIGKILL after 2 s (the adapter kills the child only);
 - level 0 is JSON both ways (the shell adapter writes text raw and reads
   non-JSON as text);
-- `phase` on drops (`onDrop` reports one reason today);
+- `phase` on drops (`onDrop` reports one reason today; the recorder and the view add `phase` from the
+  held inputs they replay);
 - the threshold stdin shape applies above 1 only.

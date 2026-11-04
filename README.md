@@ -89,6 +89,11 @@ crossed it last. Details:
 - Held inputs get no answer of their own, and no drop once consumed, even if
   the run is aborted or fails. The run's answer is for the input that crossed
   the threshold.
+- A running call is cut when any input it acted on is replaced by a newer emit
+  (same sender, same `replaces` key), not only the one that crossed: its adapter
+  is aborted and `onDrop(crossingInput, id, 'replaced')` is reported once. The
+  other inputs report nothing. The trace tells it from a held input's drop by
+  `phase` (`running` or `waiting`).
 - An input still held after `within` ms (default 10000) is dropped with
   `onDrop(..., 'expired')`. An input whose `emit` is replaced (same `replaces`
   key, newer emit) is dropped as `'replaced'` and stops counting.
@@ -245,7 +250,7 @@ All of these are up for debate; experiments should inform them.
 The first example works: shell, HTTP and human adapters, neurons with
 bidirectional links, and a network that broadcasts or targets signals
 (`src/`). A send that does not wait for answers (`emit`) can replace older work from
-the same sender, and adapters stop when it is dropped. A neuron can wait for a `threshold` of distinct senders on one trace (`npm run demo:suggest`). An alert storm demo (`npm run demo:alerts`) puts threshold, stale-work dropping, wrapped scripts and a composed diagnosis neuron together. Link strength,
+the same sender, and adapters stop when it is dropped. A neuron can wait for a `threshold` of distinct senders on one trace (`npm run demo:suggest`); its running call is cut when any input it acted on is replaced. An alert storm demo (`npm run demo:alerts`) puts threshold, stale-work dropping, wrapped scripts and a composed diagnosis neuron together. Link strength,
 rewiring, ignore conditions, limits other than `maxHops`, and passive/active channels are not
 built yet. Every signal carries a `trace` shared by everything it leads to;
 answers record the signal they answer (`replyTo`), and `send` and `emit` take
