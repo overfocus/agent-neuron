@@ -1,0 +1,40 @@
+{"at":0,"source":"alerts","payload":{"id":1,"at":0,"service":"gateway","severity":"crit","message":"p99 latency above 2s on edge routes"},"replaces":"gateway"}
+{"at":150,"source":"alerts","payload":{"id":2,"at":150,"service":"gateway","severity":"crit","message":"upstream connection resets rising"},"replaces":"gateway"}
+{"at":300,"source":"alerts","payload":{"id":3,"at":300,"service":"gateway","severity":"crit","message":"502 rate above budget"},"replaces":"gateway"}
+{"at":457,"source":"alerts","payload":{"id":4,"at":457,"service":"search","severity":"crit","message":"query latency above target"},"replaces":"search"}
+{"at":530,"source":"alerts","payload":{"id":5,"at":530,"service":"checkout","severity":"warn","message":"cart submit failing for some users"},"replaces":"checkout"}
+{"at":607,"source":"alerts","payload":{"id":6,"at":607,"service":"search","severity":"crit","message":"index refresh lagging"},"replaces":"search"}
+{"at":680,"source":"alerts","payload":{"id":7,"at":680,"service":"checkout","severity":"warn","message":"order confirmation timeouts"},"replaces":"checkout"}
+{"at":757,"source":"alerts","payload":{"id":8,"at":757,"service":"search","severity":"crit","message":"cache hit ratio dropped"},"replaces":"search"}
+{"at":903,"source":"alerts","payload":{"id":9,"at":903,"service":"payments","severity":"crit","message":"card authorisation latency high"},"replaces":"payments"}
+{"at":1053,"source":"alerts","payload":{"id":10,"at":1053,"service":"payments","severity":"crit","message":"ledger write timeouts"},"replaces":"payments"}
+{"at":1211,"source":"alerts","payload":{"id":11,"at":1211,"service":"inventory","severity":"warn","message":"stock sync job failing"},"replaces":"inventory"}
+{"at":1361,"source":"alerts","payload":{"id":12,"at":1361,"service":"inventory","severity":"warn","message":"reservation conflicts rising"},"replaces":"inventory"}
+{"at":1500,"source":"alerts","payload":{"id":13,"at":1500,"service":"gateway","severity":"warn","message":"request queue depth growing"},"replaces":"gateway"}
+{"at":1511,"source":"alerts","payload":{"id":14,"at":1511,"service":"inventory","severity":"warn","message":"warehouse feed delayed"},"replaces":"inventory"}
+{"at":1650,"source":"alerts","payload":{"id":15,"at":1650,"service":"gateway","severity":"warn","message":"p99 latency above 2s on edge routes"},"replaces":"gateway"}
+{"at":1955,"source":"alerts","payload":{"id":16,"at":1955,"service":"checkout","severity":"crit","message":"checkout error budget burning"},"replaces":"checkout"}
+{"at":2105,"source":"alerts","payload":{"id":17,"at":2105,"service":"checkout","severity":"crit","message":"retry storm on order service"},"replaces":"checkout"}
+{"at":2253,"source":"alerts","payload":{"id":18,"at":2253,"service":"payments","severity":"warn","message":"payment retries piling up"},"replaces":"payments"}
+{"at":2255,"source":"alerts","payload":{"id":19,"at":2255,"service":"checkout","severity":"crit","message":"cart submit failing for some users"},"replaces":"checkout"}
+{"at":2403,"source":"alerts","payload":{"id":20,"at":2403,"service":"payments","severity":"warn","message":"settlement job delayed"},"replaces":"payments"}
+{"at":2557,"source":"alerts","payload":{"id":21,"at":2557,"service":"search","severity":"warn","message":"slow suggestions endpoint"},"replaces":"search"}
+{"at":2707,"source":"alerts","payload":{"id":22,"at":2707,"service":"search","severity":"warn","message":"query latency above target"},"replaces":"search"}
+{"at":2857,"source":"alerts","payload":{"id":23,"at":2857,"service":"search","severity":"warn","message":"index refresh lagging"},"replaces":"search"}
+{"at":3000,"source":"alerts","payload":{"id":24,"at":3000,"service":"gateway","severity":"crit","message":"upstream connection resets rising"},"replaces":"gateway"}
+{"at":3011,"source":"alerts","payload":{"id":25,"at":3011,"service":"inventory","severity":"crit","message":"stale counts reported"},"replaces":"inventory"}
+{"at":3150,"source":"alerts","payload":{"id":26,"at":3150,"service":"gateway","severity":"crit","message":"502 rate above budget"},"replaces":"gateway"}
+{"at":3161,"source":"alerts","payload":{"id":27,"at":3161,"service":"inventory","severity":"crit","message":"stock sync job failing"},"replaces":"inventory"}
+{"at":3311,"source":"alerts","payload":{"id":28,"at":3311,"service":"inventory","severity":"crit","message":"reservation conflicts rising"},"replaces":"inventory"}
+{"at":3753,"source":"alerts","payload":{"id":29,"at":3753,"service":"payments","severity":"crit","message":"card authorisation latency high"},"replaces":"payments"}
+{"at":3903,"source":"alerts","payload":{"id":30,"at":3903,"service":"payments","severity":"crit","message":"ledger write timeouts"},"replaces":"payments"}
+{"at":3907,"source":"alerts","payload":{"id":31,"at":3907,"service":"search","severity":"crit","message":"cache hit ratio dropped"},"replaces":"search"}
+{"at":4057,"source":"alerts","payload":{"id":32,"at":4057,"service":"search","severity":"crit","message":"slow suggestions endpoint"},"replaces":"search"}
+{"at":4205,"source":"alerts","payload":{"id":33,"at":4205,"service":"checkout","severity":"crit","message":"order confirmation timeouts"},"replaces":"checkout"}
+{"at":4355,"source":"alerts","payload":{"id":34,"at":4355,"service":"checkout","severity":"crit","message":"checkout error budget burning"},"replaces":"checkout"}
+{"at":4505,"source":"alerts","payload":{"id":35,"at":4505,"service":"checkout","severity":"crit","message":"retry storm on order service"},"replaces":"checkout"}
+{"at":4811,"source":"alerts","payload":{"id":36,"at":4811,"service":"inventory","severity":"info","message":"warehouse feed delayed"},"replaces":"inventory"}
+{"at":4950,"source":"alerts","payload":{"id":37,"at":4950,"service":"gateway","severity":"info","message":"request queue depth growing"},"replaces":"gateway"}
+{"at":4953,"source":"alerts","payload":{"id":38,"at":4953,"service":"payments","severity":"info","message":"payment retries piling up"},"replaces":"payments"}
+{"at":5107,"source":"alerts","payload":{"id":39,"at":5107,"service":"search","severity":"info","message":"query latency above target"},"replaces":"search"}
+{"at":5555,"source":"alerts","payload":{"id":40,"at":5555,"service":"checkout","severity":"info","message":"cart submit failing for some users"},"replaces":"checkout"}

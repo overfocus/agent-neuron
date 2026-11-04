@@ -159,6 +159,32 @@ standalone is looking inside, not the outer network reaching in. It does
 not show learning, which does not exist yet: each call is its own process,
 so "each use learns on its own" holds only because nothing is kept.
 
+## Run a network file
+
+A network can be a file instead of code: neurons, one-way links, thresholds,
+and each neuron's program as a command. The reference engine (`src/engine/`,
+also importable as `agent-neuron/engine`) reads it, with no caller code:
+
+```sh
+npm run engine -- check spec/examples/alerts.network.json
+npm run engine -- run spec/examples/alerts.network.json \
+  --inputs spec/examples/alerts.inputs.jsonl --trace storm.json
+npm run demo:network        # the alert storm from its file, summarised from the trace
+```
+
+`check` validates the file against the schema and reports what a schema cannot
+(unknown ids with a "did you mean", a missing composed file, a cycle without
+`maxHops`), with line and column. `run` injects the timed inputs into the
+file's sources (one JSON object per line: `at` in ms, `source`, `payload`,
+optional `replaces`), runs every neuron as a process, forwards answers along
+links, and writes a [trace](docs/TRACE.md) that the replay module and the
+network view read. A neuron is any program: `spec/examples/neurons/` has the
+same `hypothesis` neuron in JavaScript and in Python, and
+`alerts-python.network.json` swaps one for the other. This engine runs level 0
+(`run`), `source` and composed (`network`) neurons; the rest of the
+[specification](docs/SPEC.md) (version 0, draft) and the gaps are in its
+Appendix C.
+
 ## The first example
 
 Three neurons wrapping three very different things:

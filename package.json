@@ -10,6 +10,10 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./engine": { "types": "./dist/engine/index.d.ts", "default": "./dist/engine/index.js" }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
@@ -19,6 +23,8 @@
     "demo:typing": "npm run -s build && node examples/typing.mjs",
     "demo:suggest": "npm run -s build && node examples/suggest.mjs",
     "demo:alerts": "npm run -s build && node examples/alerts.mjs",
+    "engine": "npm run -s build && node dist/engine/cli.js",
+    "demo:network": "npm run -s build && node examples/network.mjs",
     "demo:loop": "npm run -s build && node examples/loop.mjs",
     "rust:build": "cargo build --release --manifest-path rust/Cargo.toml",
     "rust:test": "cargo test --manifest-path rust/Cargo.toml",

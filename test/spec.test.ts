@@ -4,9 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { checkFile, schema, validate } from './support/network.js';
+import { check, validate } from '../src/engine/index.js';
 
 const examples = fileURLToPath(new URL('../spec/examples/', import.meta.url));
+const schema = JSON.parse(readFileSync(new URL('../spec/network.schema.json', import.meta.url), 'utf8')) as Record<string, any>;
+/** The messages of the errors `engine check` finds in `file` (warnings are not errors). */
+const checkFile = (file: string) => check(file).filter((f) => f.severity === 'error').map((f) => f.message);
 const read = (name: string) => JSON.parse(readFileSync(join(examples, name), 'utf8')) as Record<string, any>;
 
 /** Write a copy of the alert storm (and its composed file) with `edit` applied to the outer file; return the errors `check` finds. */
@@ -36,6 +39,25 @@ describe('network schema v0', () => {
   it('accepts the alert storm and its composed neuron, files and all', () => {
     expect(checkFile(join(examples, 'alerts.network.json'))).toEqual([]);
     expect(checkFile(join(examples, 'diagnosis.network.json'))).toEqual([]);
+    expect(checkFile(join(examples, 'alerts-python.network.json'))).toEqual([]);
+    expect(check(join(examples, 'alerts-python.network.json'))).toEqual([]); // no warnings either: every executable is found
+  });
+
+  it('reports file, line and column, and suggests the nearest id', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'spec-'));
+    const file = join(dir, 'a.network.json');
+    const net = { version: 0, neurons: [{ id: 'logs', run: ['true'] }, { id: 'hypothesis', run: ['true'] }], links: [{ from: 'logs', to: 'hypothsis' }] };
+    writeFileSync(file, JSON.stringify(net, null, 2));
+    expect(check(file)).toEqual([{ severity: 'error', file, line: 20, column: 7, message: 'link names unknown neuron "hypothsis" (did you mean "hypothesis"?)' }]);
+    writeFileSync(file, '{ "version": 0, "neurons": [');
+    expect(check(file)[0]?.message).toContain('not valid JSON');
+  });
+
+  it('warns, and does not fail, for an executable it cannot find', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'spec-'));
+    const file = join(dir, 'a.network.json');
+    writeFileSync(file, JSON.stringify({ version: 0, neurons: [{ id: 'a', run: ['no-such-program-here'] }] }));
+    expect(check(file)).toEqual([expect.objectContaining({ severity: 'warning', message: 'executable "no-such-program-here" not found' })]);
   });
 
   it('refuses an unknown field, at the top and on a neuron', () => {

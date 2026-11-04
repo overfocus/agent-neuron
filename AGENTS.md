@@ -28,6 +28,9 @@ npm run demo:suggest   # builds, then runs examples/suggest.mjs (the typing demo
 npm run example     # builds, then runs examples/first.mjs (pipe a reply into stdin: echo approve | npm run example)
 npm run demo:typing # builds, then runs examples/typing.mjs (send without waiting, dropping stale work)
 npm run demo:alerts # builds, then runs the alert storm triage demo (about 6 s)
+npm run demo:network # builds, then runs the same storm from its network file with the engine (about 7 s); `-- <network file>` for another
+npm run engine -- check <file>   # builds, then validates a network file (schema and SPEC 2.7 findings, with line and column)
+npm run engine -- run <file> --inputs <jsonl> [--trace out.json] [--inner out.json]  # runs it; prints the answers of neurons with no outgoing links
 npm run view        # builds, then serves the network view on a free 127.0.0.1 port; prints the URL and pid (stop it with kill <pid>)
 npm run record -- <alerts|typing|suggest> [--threshold n] [--out file]  # builds, runs the demo, writes traces/<demo>.json (docs/TRACE.md)
 npm run check:browser -- --base <url> --routes / --checks examples/view/checks.json  # needs the view running
@@ -97,6 +100,7 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 | The demos (`npm run example`, `demo:typing`, `demo:loop`, `demo:suggest`, `demo:alerts`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand, except `demo:alerts`: `test/alerts.test.ts` |
 | The network view (`npm run view`): a Node server, one page, no framework | `examples/view/` | `test/view.test.ts` (server); `examples/view/checks.json` and `layout.json` and `layout-suggest.json` (browser, by hand) |
 | The specification, version 0 (network file, neuron contract, routing; [docs/SPEC.md](docs/SPEC.md)), its decisions (`docs/decisions/`), the closed schema and the alert storm as network files (`spec/`) | `docs/SPEC.md`, `spec/` | `test/spec.test.ts` (schema, examples, broken copies, the example programs) |
+| The reference engine for network files (`npm run engine`, subpath `agent-neuron/engine`): `check.ts` (validator and `check`), `engine.ts` (routing, threshold, staleness, level 0 processes, composed neurons, trace), `cli.ts`. Separate from the library: `src/index.ts` does not export it | `src/engine/` | `test/engine.test.ts` (the storm in JavaScript and Python, small networks of real processes), `test/spec.test.ts` (`check`) |
 | Trace recorder and replay (`npm run record`): `examples/trace/` (tap, scenarios, record, replay) and the recorded files in `traces/` | `examples/trace/`, `traces/` | `test/recording.test.ts` (validity, replay, privacy of every committed trace) |
 | Rust neurons (std-only): `catalogue` (library + binary; `npm run demo:rust`) and `music`, a composed neuron with its own inner network (`npm run demo:composed`) | `rust/` | `cargo test` in each crate; `test/rust.test.ts` and `test/composed.test.ts` drive the built binaries |
 
@@ -149,6 +153,7 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
   `examples/trace/scenarios.mjs`, and the page counts with `examples/trace/replay.mjs`, served as `/replay.js`. A demo hooks the view through `listeners` and `log`
   options on `runTyping` and `runAlerts`, called before the demo's own
   handlers (a listener that throws skips the demo's own handler for that event, so the view's only serialise and write); terminal output is unchanged and `src/` knows nothing of the view.
+- The engine (`src/engine/`) runs real processes on the real clock, so its tests use `sh` and `cat` and assert invariants, never exact timings. It runs `run`, `source` and `network` neurons only (serve, http, human: `check` warns, `run` refuses); its gaps are in SPEC Appendix C. `engine run` reads inputs with `at` relative to the start of the run. A program gets only `PATH` and its `env` names, so a Python neuron needs `python3` on `PATH` (the Python variant test skips with a warning without it). `spec/examples/alerts.inputs.jsonl` is `examples/alerts/alerts.json` with each alert keyed by its service; `test/engine.test.ts` checks they agree. `test/support/trace.ts` holds the trace validity checks that `recording.test.ts` and `engine.test.ts` share.
 - `examples/` imports from `../dist/`, not `src/`, so it needs a build first
   (`npm run example`, `demo:typing` and `demo:rust` build). The demos have no
   tests (run them by hand), except `demo:alerts`: `test/alerts.test.ts` imports
