@@ -62,15 +62,16 @@ describe('the alert storm, run from its network file (no caller code)', () => {
   storm('alerts.network.json');
   if (!hasPython) console.warn('python3 not found: the Python hypothesis variant is skipped');
   storm('alerts-python.network.json', !hasPython);
+  storm('alerts-python-serve.network.json', !hasPython); // level 1: the same neuron as one long-lived process
 });
 
 // Small networks of real processes (sh, cat) for the rules the storm does not pin down.
 type Spec = Record<string, unknown> & { id: string };
-function run(neurons: Spec[], links: [string, string][], inputs: Injection[], extra: Record<string, unknown> = {}): Promise<EngineTrace> {
+function run(neurons: Spec[], links: [string, string][], inputs: Injection[], extra: Record<string, unknown> = {}, options: { pingEvery?: number } = {}): Promise<EngineTrace> {
   const file = join(mkdtempSync(join(tmpdir(), 'engine-')), 'n.network.json');
   const all = [{ id: 's', source: true }, ...neurons];
   writeFileSync(file, JSON.stringify({ version: 0, neurons: all, links: links.map(([from, to]) => ({ from, to })), ...extra }));
-  return runNetwork(file, inputs);
+  return runNetwork(file, inputs, options);
 }
 const inject = (at: number, payload: unknown, replaces?: string): Injection => ({ at, source: 's', payload, ...(replaces !== undefined && { replaces }) });
 const events = (t: EngineTrace, type: string) => t.events.filter((e) => e.type === type);
@@ -230,9 +231,9 @@ describe('refusals before a run', () => {
     return file;
   };
 
-  it('says plainly that serve, http and human are not run by this engine', async () => {
-    await expect(runNetwork(one({ id: 'x', serve: ['true'] }), [])).rejects.toThrow('unsupported neuron kinds in v0 of the engine: x (serve)');
-    await expect(runNetwork(one({ id: 'x', http: 'http://127.0.0.1:1' }), [])).rejects.toThrow(/x \(http\)/);
+  it('says plainly that http and human are not run by this engine', async () => {
+    await expect(runNetwork(one({ id: 'x', http: 'http://127.0.0.1:1' }), [])).rejects.toThrow('unsupported neuron kinds in v0 of the engine: x (http)');
+    await expect(runNetwork(one({ id: 'x', human: true }), [])).rejects.toThrow(/x \(human\)/);
   });
 
   it('refuses a file that does not check, and an injection into something that is not a source', async () => {
@@ -259,5 +260,145 @@ describe('refusals before a run', () => {
     expect(read('{"at":0,"payload":1}')).toThrow('"source"');
     expect(read('{"at":0,"source":"s"}')).toThrow('"payload"');
     expect(read(JSON.stringify({ at: 0, source: 's', payload: 1, replaces: 'k'.repeat(257) }))).toThrow('256 bytes');
+  });
+});
+
+// Level 1: test/support/serve.mjs is a scriptable neuron that logs what it receives (flags and payloads: see that file).
+describe('level 1 serve neurons', () => {
+  const script = fileURLToPath(new URL('./support/serve.mjs', import.meta.url));
+  const made = () => join(mkdtempSync(join(tmpdir(), 'engine-serve-')), 'log.jsonl');
+  const srv = (id: string, log: string, flags: string[] = [], extra: Record<string, unknown> = {}): Spec => ({ id, serve: ['node', script, log, ...flags], ...extra });
+  const seen = (log: string) => readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { type: string; re?: number });
+  const notes = (t: EngineTrace) => events(t, 'note').map((e) => e.what);
+  const data = (e: EngineTrace["events"][number]) => (e.payload as { data?: unknown; text?: string }).data ?? (e.payload as { text?: string }).text;
+
+  it('says hello, numbers calls with re, queues past maxInflight, and gives a threshold neuron its inputs', async () => {
+    const log = made();
+    const t = await run([srv('x', log)], [['s', 'x']], [inject(0, 1), inject(0, 2), inject(0, 3)]);
+    expectValidTrace(t as unknown as Trace);
+    expect(events(t, 'answer').map((e) => data(e))).toEqual([1, 2, 3]);
+    expect(seen(log)[0]).toEqual({ v: 1, type: 'hello', neuron: 'x' });
+    expect(seen(log).filter((m) => m.type === 'signal').map((m) => m.re)).toEqual([1, 2, 3]);
+    const k = await run([echo('p'), echo('q'), srv('h', made(), [], { threshold: 2 })], [['s', 'p'], ['s', 'q'], ['p', 'h'], ['q', 'h']], [inject(0, 7)]);
+    expect(events(k, 'answer').find((e) => e.from === 'h')!.payload).toMatchObject({ data: [7, 7] });
+  });
+
+  it('sends cancel to the running process, discards its late reply, and drops a queued call as waiting', async () => {
+    const log = made();
+    // A runs and is cut by D; B waits for a slot and is replaced by C; the slot is kept until A replies for its re
+    const t = await run([srv('x', log)], [['s', 'x']], [inject(0, { hold: 1 }, 'a'), inject(50, { n: 'B' }, 'b'), inject(100, { n: 'C' }, 'b'), inject(150, { n: 'D' }, 'a')]);
+    expectValidTrace(t as unknown as Trace);
+    expect(events(t, 'drop').map((e) => [e.reason, e.phase, (data(e) as { n?: string }).n ?? 'A'])).toEqual([['replaced', 'waiting', 'B'], ['replaced', 'running', 'A']]);
+    expect(seen(log).filter((m) => m.type === 'cancel')).toEqual([{ type: 'cancel', re: 1 }]); // only the running call is told
+    expect(notes(t)).toEqual(['cancel']);
+    expect(events(t, 'answer').map((e) => data(e))).toEqual([{ n: 'C' }, { n: 'D' }]); // "late" is discarded
+  });
+
+  it('times out a hung call, records cancel and term, kills what ignores SIGTERM, restarts, and carries on', async () => {
+    const t = await run([srv('x', made(), ['stubborn'], { timeout: 150 })], [['s', 'x']], [inject(0, { hang: 1 }), inject(500, 'again')]);
+    expect(events(t, 'error').map((e) => [e.code, e.message])).toEqual([['timeout', 'timed out after 150 ms']]);
+    expect(notes(t)).toEqual(['cancel', 'term', 'restart', 'kill']);
+    expect(events(t, 'answer').map((e) => data(e))).toEqual(['again']);
+  }, 15_000);
+
+  it('turns a junk line into a note, and fails the call only when exactly one call is running', async () => {
+    const one = await run([srv('x', made())], [['s', 'x']], [inject(0, { say: ['not json', { type: 'answer', payload: 1 }] })]);
+    expect(events(one, 'error').map((e) => [e.code, e.message])).toEqual([['junk', 'junk on stdout: not json']]);
+    expect(events(one, 'note')).toEqual([expect.objectContaining({ what: 'junk', line: 2, text: 'not json', neuron: 'x' })]); // line 1 was ready
+    expect(events(one, 'answer')).toHaveLength(0); // the late answer for the failed call is discarded
+    const many = await run([srv('x', made(), ['many'], { timeout: 300 })], [['s', 'x']], [inject(0, { hang: 1 }), inject(0, { say: ['oops', { type: 'answer', payload: 2 }] })]);
+    expect(events(many, 'note').filter((e) => e.what === 'junk')).toHaveLength(1);
+    expect(events(many, 'error').map((e) => e.code)).toEqual(['timeout']); // the hung call; junk failed nobody
+    expect(events(many, 'answer').map((e) => data(e))).toEqual([2]);
+  });
+
+  it('fails every running call when the process exits, restarts it with backoff, and the network carries on', async () => {
+    const t = await run([srv('x', made(), ['many']), echo('after')], [['s', 'x'], ['x', 'after']], [inject(0, { hang: 1 }), inject(0, { exit: 1 }), inject(700, 'next')]);
+    expectValidTrace(t as unknown as Trace);
+    expect(events(t, 'error').map((e) => e.code)).toEqual(['crash', 'crash']);
+    expect(events(t, 'error')[0]!.message).toMatch(/^process failed/);
+    expect(notes(t)).toEqual(['restart']);
+    expect(events(t, 'answer').map((e) => [e.from, data(e)])).toEqual([['x', 'next'], ['after', 'next']]);
+  });
+
+  it('is failed after 5 failed starts: every input is an error with code start', async () => {
+    const t = await run([srv('x', made(), ['failrestart'])], [['s', 'x']], [inject(0, { exit: 1 }), inject(200, 'queued'), inject(3700, 'after')]);
+    expect(events(t, 'error').map((e) => e.code)).toEqual(['crash', 'start', 'start']);
+    expect(events(t, 'error')[1]!.message).toBe('neuron failed to start');
+    expect(notes(t)).toEqual(Array(4).fill('restart')); // the first crash came within a second of ready, so it counts as a failed start
+  }, 15_000);
+
+  it('notices a crash even when a helper keeps stdout open, and restarts', async () => {
+    const t = await run([srv('x', made())], [['s', 'x']], [inject(0, { helper: 1 }), inject(600, 'next')]);
+    expect(events(t, 'error').map((e) => e.code)).toEqual(['crash']);
+    expect(notes(t)).toEqual(['term', 'restart']); // the helper stayed in the process group until SIGTERM
+    expect(events(t, 'answer').map((e) => data(e))).toEqual(['next']);
+  });
+
+  it('fails the one running call with output for a line over 1 MiB, several with crash, and restarts', async () => {
+    const big = 'x'.repeat((1 << 20) + 10);
+    const one = await run([srv('x', made())], [['s', 'x']], [inject(0, { say: [{ type: 'answer', payload: big }] })]);
+    expect(events(one, 'error').map((e) => [e.code, e.message])).toEqual([['output', 'output too large']]);
+    const many = await run([srv('x', made(), ['many'])], [['s', 'x']], [inject(0, { hang: 1 }), inject(0, { say: [{ type: 'answer', payload: big }] })]);
+    expect(events(many, 'error').map((e) => e.code)).toEqual(['crash', 'crash']);
+  });
+
+  it('answers an error reply without a message with a protocol error', async () => {
+    const t = await run([srv('x', made())], [['s', 'x']], [inject(0, { say: [{ type: 'error' }] })]);
+    expect(events(t, 'error').map((e) => e.code)).toEqual(['protocol']);
+  });
+
+  it('refuses to start when a serve neuron cannot reach ready', async () => {
+    const refuse = (serve: string[], why: RegExp, extra: Record<string, unknown> = {}) => {
+      const file = join(mkdtempSync(join(tmpdir(), 'engine-')), 'n.network.json');
+      writeFileSync(file, JSON.stringify({ version: 0, neurons: [{ id: 's', source: true }, { id: 'x', serve, ...extra }], links: [{ from: 's', to: 'x' }] }));
+      return expect(runNetwork(file, [])).rejects.toThrow(why);
+    };
+    await refuse(['node', '-e', 'process.exit(1)'], /serve neuron "x" did not reach ready: process failed/);
+    await refuse(['sh', '-c', 'echo \'{"type":"hello"}\'; exec sleep 3'], /the first line must be ready/);
+    await refuse(['sh', '-c', 'echo \'{"v":2,"type":"ready"}\'; exec sleep 3'], /ready\.v differs from hello\.v/);
+    await refuse(['sh', '-c', 'exec sleep 3'], /no ready within 100 ms/, { timeout: 100 });
+    await refuse(['no-such-program-here'], /could not start no-such-program-here/);
+  });
+
+  it('applies a reply\'s to and replaces, and fails a call whose reply has a bad shape (code protocol)', async () => {
+    const reply = async (fields: object | undefined) => {
+      const t = await run([srv('x', made()), echo('a'), echo('b')], [['s', 'x'], ['x', 'a'], ['x', 'b']], [inject(0, { say: [{ type: 'answer', ...fields }] }, 'k')]);
+      return { signals: events(t, 'signal').slice(1), errors: events(t, 'error'), answers: events(t, 'answer').filter((e) => e.from === 'x') };
+    };
+    expect((await reply({ payload: 1 })).signals[0]).toMatchObject({ to: ['a', 'b'], replaces: 'k' });
+    expect((await reply({ payload: 1, to: ['b', 'a'] })).signals[0]).toMatchObject({ to: ['a', 'b'] }); // link declaration order
+    expect((await reply({ payload: 1, to: ['b'] })).signals[0]).toMatchObject({ to: ['b'] });
+    expect((await reply({ payload: 1, replaces: 'new' })).signals[0]).toMatchObject({ replaces: 'new' });
+    expect((await reply({ payload: 1, replaces: null })).signals[0]).not.toHaveProperty('replaces');
+    const none = await reply({ payload: 1, to: [] });
+    expect([none.signals.length, none.answers.length]).toEqual([0, 1]); // reported, forwarded to nobody
+    for (const bad of [{ payload: 1, to: ['zzz'] }, { payload: 1, to: 'a' }, { payload: 1, replaces: 'k'.repeat(257) }, { payload: 1, replaces: 5 }, undefined]) {
+      const r = await reply(bad);
+      expect(r.errors.map((e) => [e.code, e.message])).toEqual([['protocol', expect.stringMatching(/^protocol: /)]]);
+      expect(r.answers).toHaveLength(0);
+    }
+  });
+
+  it('pings an idle neuron, and restarts one that does not pong', async () => {
+    const log = made();
+    const ok = await run([srv('x', log, [], { timeout: 300 })], [['s', 'x']], [inject(0, 1), inject(400, 2)], {}, { pingEvery: 30 });
+    expect(seen(log).filter((m) => m.type === 'ping').length).toBeGreaterThan(0);
+    expect(notes(ok)).toEqual([]);
+    expect(events(ok, 'answer').map((e) => data(e))).toEqual([1, 2]);
+    const dead = await run([srv('x', made(), ['noping'], { timeout: 100 })], [['s', 'x']], [inject(0, 1), inject(600, 2)], {}, { pingEvery: 30 });
+    expect(notes(dead).slice(0, 2)).toEqual(['term', 'restart']);
+    expect(data(events(dead, 'answer')[0]!)).toBe(1);
+  }, 15_000);
+
+  it('keeps one process for a serve neuron inside a composed neuron, shared by every call', async () => {
+    const log = made(), dir = mkdtempSync(join(tmpdir(), 'engine-'));
+    writeFileSync(join(dir, 'in.network.json'), JSON.stringify({ version: 0, entry: 'in', exit: 'in', neurons: [srv('in', log)], links: [] }));
+    writeFileSync(join(dir, 'outer.network.json'), JSON.stringify({ version: 0, neurons: [{ id: 's', source: true }, { id: 'c', network: 'in.network.json' }], links: [{ from: 's', to: 'c' }] }));
+    const t = await runNetwork(join(dir, 'outer.network.json'), [inject(0, 1), inject(100, 2)]);
+    expect(events(t, 'answer').map((e) => data(e))).toEqual([1, 2]);
+    expect(seen(log).filter((m) => m.type === 'hello')).toHaveLength(1);
+    expect(seen(log).filter((m) => m.type === 'signal').map((m) => m.re)).toEqual([1, 2]);
+    expect(JSON.stringify(t)).not.toContain('"in"');
   });
 });

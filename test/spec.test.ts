@@ -40,6 +40,7 @@ describe('network schema v0', () => {
     expect(checkFile(join(examples, 'alerts.network.json'))).toEqual([]);
     expect(checkFile(join(examples, 'diagnosis.network.json'))).toEqual([]);
     expect(checkFile(join(examples, 'alerts-python.network.json'))).toEqual([]);
+    expect(check(join(examples, 'alerts-python-serve.network.json')).filter((f) => !f.message.startsWith('executable'))).toEqual([]);
     expect(check(join(examples, 'alerts-python.network.json')).filter((f) => !f.message.startsWith('executable'))).toEqual([]); // no other warnings (python3 itself may be absent)
   });
 

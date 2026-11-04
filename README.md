@@ -180,8 +180,14 @@ optional `replaces`), runs every neuron as a process, forwards answers along
 links, and writes a [trace](docs/TRACE.md) that the replay module and the
 network view read. A neuron is any program: `spec/examples/neurons/` has the
 same `hypothesis` neuron in JavaScript and in Python, and
-`alerts-python.network.json` swaps one for the other. This engine runs level 0
-(`run`), `source` and composed (`network`) neurons; the rest of the
+`alerts-python.network.json` swaps one for the other. A neuron can also be one
+long-lived process speaking JSON lines (`"serve"`, level 1): the engine starts it
+once, matches replies to calls, sends it `cancel` for stale work, pings it, and
+restarts it with backoff if it dies. `hypothesis_serve.py` is that neuron in 29
+lines of standard-library Python, and `alerts-python-serve.network.json` runs the
+storm with it (`npm run demo:network -- spec/examples/alerts-python-serve.network.json`).
+This engine runs `source`, level 0 (`run`), level 1 (`serve`) and composed
+(`network`) neurons; the rest of the
 [specification](docs/SPEC.md) (version 0, draft) and the gaps are in its
 Appendix C.
 
