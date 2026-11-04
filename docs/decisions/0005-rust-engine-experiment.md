@@ -94,7 +94,7 @@ It exposed holes in the specification and fixtures, closed in the commit that ca
   `runend/a-pending-restart-delay-does-not-keep-the-run-open`. This is what the TS engine did; the text
   said "no timer is pending", which could be read the other way.
 - **A composed neuron's reply carries `exit`'s `replaces`** (SPEC 2.6): two fixtures (set and `null`).
-- **Lead decision, for Kevin to confirm:** a kill grace already under way for any process group the engine has
+- **Lead decision, confirmed by Kevin (2026-11-04):** a kill grace already under way for any process group the engine has
   terminated, cancelled or crashed, keeps the run open and its `kill` note is recorded (SPEC 6.2 rule 6, CONFORMANCE 4.1).
   This is what TS does; the text covered only cancelled work.
 - CONFORMANCE 6 (which list each observer run is compared with) is now spelled out; `docs/agents/feature-loop.md`
@@ -108,3 +108,5 @@ It exposed holes in the specification and fixtures, closed in the commit that ca
 
 Any new engine starts from the fixtures, which are the contract, and from a written formatting rule
 (rustfmt, width 140 at most) so a size criterion means something.
+
+Kevin confirmed on 2026-11-04 the spec rule changes in this record: a pending restart delay does not keep a run open; a kill grace under way for cancelled or crashed work does, and its `kill` note is recorded; wake-ups at one instant run in the order they were set (a call's own outcome before its timeout); `replaces` appears only on signal events; a composed reply takes its exit neuron's `replaces` (a key sets it, null clears it, absent inherits).
