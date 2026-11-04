@@ -50,9 +50,10 @@ The file is written one neuron and one event per line, so diffs read well.
 ```
 format       "agent-neuron-trace"
 version      1
-demo         "alerts" | "typing" | "suggest"
+demo         a free name for the run: "alerts", "typing", "suggest", or an engine's network `name` (readers must not assume one of the three)
 description  one line about the run
-library      the library VERSION that ran it (no dates, hosts or paths anywhere)
+library      the library or engine VERSION that ran it (no dates, hosts or paths anywhere)
+engine       optional: the name of the engine that wrote it, when it is not the TypeScript library
 parameters   (alerts only) { threshold }: the setting this run was recorded with
 neurons      [ ... ]   declared up front, including neurons that never send
 links        [ ... ]   the connections, declared up front, so the network can be drawn before any traffic
@@ -64,7 +65,8 @@ summary      { ... }   the demo's own numbers
 
 ```
 id           the neuron's id; every from, to and neuron in the events is one of these
-kind         what it wraps: "source", "js", "shell script", "model stand-in", "composed"
+kind         what it wraps: "source", "js", "shell script", "model stand-in", "composed"; an engine
+             following docs/SPEC.md writes "source", "run", "serve", "http", "human" or "composed"
 description  a short sentence. A shell-wrapped neuron names its script by file name only
 options      when set: { threshold, within, maxHops }
 ```
@@ -74,7 +76,7 @@ A composed neuron is one neuron: its inner network never appears.
 ### links
 
 ```
-from, to     two neuron ids that are connected (links are two-way in the library)
+from, to     two neuron ids; a link is one-way in the format (the TypeScript library links both ways, and records both)
 strength     optional number: how much a signal from `from` counts toward `to`'s threshold. Default 1
 ```
 
@@ -92,6 +94,7 @@ Nothing in the library uses strength yet, so no trace sets it. Replay already ho
 | `drop` | work for a signal was dropped at `neuron`, `reason` `replaced`, `expired` or `hops` |
 | `error` | `neuron` failed handling a signal; `message` |
 | `fail` | the run itself failed; `message` only |
+| `note` | optional, from engines following docs/SPEC.md: a process fact (`neuron`, `what`: `junk`, `cancel`, `term`, `kill`, `restart`, `inject`; plus `line`, `text` or `trigger`). No signal fields |
 
 Every event except `fail` carries the signal's fields: `id`, `from`, `to` (list), `trace`, `replyTo` and `cause` when set, and `hops`.
 `trace` is the chain id: the id of the first signal of a chain, shared by every signal
@@ -99,6 +102,11 @@ that answers or follows it. A threshold neuron groups its held inputs by it. It 
 the file or the run: one file holds many traces.
 A `signal` event may also carry `via`: `"emit"` or `"send"`, how it was sent. Absent means
 `emit`. The recorder does not write it yet (the library does not report it).
+
+Optional fields from docs/SPEC.md, which readers may ignore: `replaces` on `signal` (the stale-work key);
+`phase` on `drop` (`waiting` or `running`: whether the work had started; a running drop of a threshold call
+may name the crossing input even when a different, earlier input was the one replaced); `code` on `error`
+(`exit`, `output`, `junk`, `http`, `protocol`, `timeout`, `crash`, `start`, `inner`, `neuron`).
 
 For `drop` and `error` they describe the signal that was dropped or that failed
 (`id` names an earlier event), plus `neuron`, `reason` or `message`, and the

@@ -119,7 +119,7 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
   *does it say how neurons connect, or how one decides?* Only the first kind
   gets in, and only with a decision record in `docs/decisions/` that says what
   it costs against the budget. A change to the file, the protocol or the
-  routing is a change to `docs/SPEC.md`, the schema and the fixtures together.
+  routing is a change to `docs/SPEC.md`, the schema and the fixtures (once they exist) together.
 - Every feature that adds or changes visible behaviour adds or updates a demo
   and its row in `docs/DEMOS.md`.
 - Library code has no side effects on import, and the core takes no

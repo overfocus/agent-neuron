@@ -2,10 +2,11 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { checkFile, schema, validate } from './support/network.js';
 
-const examples = new URL('../spec/examples/', import.meta.url).pathname;
+const examples = fileURLToPath(new URL('../spec/examples/', import.meta.url));
 const read = (name: string) => JSON.parse(readFileSync(join(examples, name), 'utf8')) as Record<string, any>;
 
 /** Write a copy of the alert storm (and its composed file) with `edit` applied to the outer file; return the errors `check` finds. */
@@ -23,7 +24,7 @@ function broken(edit: (net: Record<string, any>) => void, inner?: (net: Record<s
 describe('network schema v0', () => {
   it('is closed and versioned', () => {
     expect(schema.$schema).toContain('json-schema.org');
-    expect(schema.$id).toMatch(/network\.schema\.json$/);
+    expect(schema.$id).toBe('urn:agent-neuron:schema:network:0');
     expect(schema.additionalProperties).toBe(false);
     expect(validate({ version: 0, neurons: [{ id: 'a', source: true }] })).toEqual([]);
     expect(validate({ version: 1, neurons: [{ id: 'a', source: true }] })).not.toEqual([]);
@@ -47,6 +48,11 @@ describe('network schema v0', () => {
     expect(broken((n) => (n.neurons[1].cwd = '{{service}}')).join()).toContain('must not match');
     // shortcut by design: a string like "service == 'gateway'" is a valid literal argument; the schema cannot tell
     expect(broken((n) => (n.neurons[1].run = ['sh', 'detect.sh', "service == 'gateway'"]))).toEqual([]);
+  });
+
+  it('needs entry and exit together', () => {
+    expect(broken((n) => (n.entry = 'logs')).join()).toContain('"entry" needs "exit"');
+    expect(broken((n) => (n.exit = 'logs')).join()).toContain('"exit" needs "entry"');
   });
 
   it('refuses a neuron of two kinds, an option on the wrong kind, and within without threshold', () => {

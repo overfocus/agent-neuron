@@ -1,857 +1,727 @@
 # agent-neuron specification, version 0
 
-Status: draft. Version 0 may change in any way until it is called 1; every
-change to it is a commit to this file, to `spec/network.schema.json` and to
-the conformance fixtures together.
-
-The words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Every
-section is marked **normative** (the rules an engine or a neuron has to
-follow) or **informative** (explanation and examples; no rules). Where an
-informative text and a normative one disagree, the normative one wins.
+Status: draft. Version 0 may change in any way until it is called 1; a change
+is one commit to this file, `spec/network.schema.json` and the fixtures
+together. MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Each section
+is marked **normative** (rules) or **informative** (no rules). If they
+disagree, the normative one wins. Reasons for the decisions are in
+[decisions/](decisions/0001-spec-v0.md), not here.
 
 Contents
 
-1. Purpose and scope
-2. Terms
-3. The network file
-4. Routing
-5. Threshold, within, maxHops and stale work
-6. Level 0: the one-shot contract
-7. Level 1: the line protocol
-8. Errors, timeouts, crashes, junk and stderr
-9. The trace an engine writes
-10. Conformance
-11. Out of version 0
-12. Walk-through: one alert
-13. Appendix: a Python neuron on each level; the TypeScript library
+0. Quick start for neuron authors (informative)
+1. Terms (informative)
+2. The network file (normative)
+3. The neuron contract: level 0, level 1, http, human (normative)
+4. Routing (normative)
+5. Threshold, hops and staleness (normative)
+6. Failures and event order (normative)
+7. The trace (normative)
+8. Conformance (normative)
+9. Observers (normative)
 
-Decisions behind this document, with their reasons: [decisions/0001-spec-v0.md](decisions/0001-spec-v0.md).
+Appendices (informative): A. Walk-through: one alert. B. Out of version 0.
+C. How the TypeScript library differs.
 
-## 1. Purpose and scope (informative)
+## 0. Quick start for neuron authors (informative)
 
-An **engine** runs a network of **neurons**: programs, in any language, that
-the engine starts, feeds signals and listens to. Three things are specified,
-and nothing else is:
+A neuron is a program. The engine starts it, gives it JSON on stdin, and reads
+JSON from stdout. You do not link a library.
 
-1. **The network file**: JSON that says which neurons exist, what each one
-   wraps and how they connect. Schema: [spec/network.schema.json](../spec/network.schema.json).
-2. **The neuron contract**: how an engine talks to the program inside a
-   neuron. Level 0 (one process per signal, stdin and stdout) and level 1
-   (one long-lived process, JSON lines).
-3. **The routing rule**: where a neuron's answer goes next, and how stale
-   work is cut, with no code outside the network.
+**Level 0** (default, `"run": [...]`): one process per signal. Read one JSON
+value, print one JSON value, or print nothing to say nothing.
 
-The protocol, not a library, is the product. Any engine that follows this
-file can run any network file and any neuron. The TypeScript core in `src/`
-is the first engine; a Rust engine is expected to compete on the same
-conformance fixtures (section 10).
+```python
+import json, sys
+alert = json.load(sys.stdin)                 # the payload: any JSON value
+if isinstance(alert, dict) and alert.get("severity") == "crit":
+    print(json.dumps({"service": alert["service"]}))   # an answer
+# printing nothing is "quiet": nothing is forwarded
+```
 
-The rule that keeps the file honest: **JSON holds literals and references
-only. If a key has to read a payload to mean anything, it does not belong in
-the file.** Gates, filters, transforms and prompt templates are programs, and
-a filter is a small neuron.
+Try it by hand: `echo '{"severity":"crit","service":"gateway"}' | python3 flag.py`.
 
-## 2. Terms (normative)
+A neuron whose `threshold` is more than 1 gets one value shaped
+`{"payload": P, "inputs": [P1, P2, ...]}` (`inputs` in arrival order, the
+input that crossed last, `payload` that same input). Any other neuron gets the
+bare payload:
 
-- **Neuron**: an entry in a network file with an `id` and exactly one **kind**.
-- **Kind**: `source`, `run`, `serve`, `http`, `human` or `network`.
+```json
+{"payload": {"d": 2}, "inputs": [{"d": 1}, {"d": 2}]}
+```
+
+**Level 1** (`"serve": [...]`): one long-lived process, JSON lines. Use it for
+speed or for state kept between calls.
+
+```python
+import json, sys
+
+def send(m):
+    sys.stdout.write(json.dumps(m) + "\n")
+    sys.stdout.flush()                       # always flush
+
+json.loads(sys.stdin.readline())             # hello
+send({"v": 1, "type": "ready", "maxInflight": 1})
+for line in sys.stdin:                       # end of input = shut down
+    m = json.loads(line)
+    if m["type"] == "signal":
+        # the payload may be any JSON value; "inputs" is present only if threshold > 1
+        values = m.get("inputs", [m["payload"]])
+        n = sum(v.get("n", 0) for v in values if isinstance(v, dict))
+        if n:
+            send({"type": "answer", "re": m["re"], "payload": {"n": n}})
+        else:
+            send({"type": "quiet", "re": m["re"]})
+    elif m["type"] == "ping":
+        send({"type": "pong", "n": m["n"]})
+```
+
+Rules you will hit:
+
+- **Output is JSON, always.** A text answer is `print(json.dumps("some text"))`,
+  with the quotes. A bare `print("some text")` is not JSON and fails the call
+  (code `junk`). Input is the same: a text payload arrives as a JSON string.
+- **Environment.** Your program sees only `PATH` and the variables named in the
+  neuron's `env`. No `HOME`, no virtualenv variables, no API keys unless you
+  list their names (`"env": ["OPENAI_API_KEY"]`). Use an absolute interpreter
+  path, or name what the interpreter needs.
+- **Logs go to stderr.** Level 1 stdout carries protocol lines only.
+- **Quiet is a choice.** An error (non-zero exit) forwards nothing too, but is
+  recorded as a failure.
+- **Running a network.** There is no engine command yet: the TypeScript core
+  does not read network files, and the Rust engine is not written. Today you
+  can run a neuron by hand as above, and check a network file with the helper
+  `checkFile` in `test/support/network.ts` (it validates against the schema and
+  reports the findings of section 2.7).
+
+## 1. Terms (informative)
+
+- **Neuron**: an entry in a network file, with an `id` and one **kind**
+  (`source`, `run`, `serve`, `http`, `human`, `network`). Kind means this and
+  nothing else.
 - **Program**: what a `run`, `serve`, `http` or `human` neuron wraps.
-- **Source**: a neuron with no program. A producer outside the network
+- **Source**: a neuron with no program. A **producer** outside the network
   **injects** payloads into it.
-- **Payload**: any JSON value. A string is a text payload; any other value is a
-  JSON payload. This is the whole difference.
-- **Signal**: one message in the network. Fields: `id`, `trace`, `from`, `to`
-  (list of neuron ids), `payload`, `hops`, and when set `replyTo`, `cause`,
-  `replaces`. The engine sets all of them; programs never do. Ids are opaque
-  strings: compare them, never parse them.
-- **Link**: a one-way connection `from -> to`. A neuron's **outgoing links**
-  are those it is `from`. Two-way is two links.
-- **Sender** of a signal: its `from`.
-- **Input**: a signal delivered to a neuron.
-- **Answer**: what a neuron says to an input. **Quiet** is an answer that
-  says nothing.
-- **Forward**: the signal the engine emits along a neuron's outgoing links
-  because it answered.
-- **Chain**: the signals connected by `replyTo` and `cause`. `trace` is the
-  id of the chain's first signal.
-- **Hops**: 0 for a root signal; an answer or a forward is its origin's hops
-  plus one.
-- **Replaces key**: an opaque string, at most 256 bytes, on a signal.
-- **Work**: one input at one neuron, from delivery to answer. Work is **held**
-  until its program starts (waiting for a threshold or a free slot) and
-  **running** from then on.
-- **Call**: one run of a program for one input, or for one threshold crossing.
-- **Instance path**: the neuron's id, prefixed by the ids of the composed
-  neurons it is inside, joined with `/` (`diagnosis/topology`). Used for
-  scripting fixtures and, later, for state; never visible outside the
-  composed neuron it is inside.
+- **Payload**: any JSON value. A string is a text payload, anything else a JSON
+  payload.
+- **Signal**: a message. Fields `id`, `trace`, `from`, `to` (neuron ids),
+  `payload`, `hops`, and when set `replyTo`, `cause`, `replaces`. The engine sets
+  all of them; programs never do. Ids are opaque: compare, never parse.
+- **Link**: one-way `from -> to`. A neuron's outgoing links are those it is
+  `from`. The **sender** of a signal is its `from`; a signal delivered to a
+  neuron is an **input** there.
+- **Reply**: a neuron's non-failing response to an input: an **answer** (has a
+  payload) or **quiet** (none). A failure is an **error**, not a reply.
+- **Forward**: the signal the engine emits along outgoing links after an answer.
+- **Chain**: signals connected by `replyTo` and `cause`; `trace` is the id of its
+  first signal. **Hops**: 0 on a root signal, one more than the signal an
+  answer or forward follows.
+- **Replaces key**: an opaque string of at most 256 bytes on a signal.
+- **Work**: one input at one neuron until its reply. Work is **waiting** until
+  its program starts, then **running**. Waiting is **held** (threshold) or
+  **queued** (a level 1 neuron with all its slots running).
+- **Call**: one run of a program, for one input or one threshold crossing.
+  A neuron **acts** when its threshold is met: that starts a call.
+- **Instance**: one use of a network file. Its **instance path** is the ids of
+  the composed neurons around a neuron, then its id, joined by `/`.
 
-## 3. The network file (normative)
+## 2. The network file (normative)
 
-A network file is one JSON object, UTF-8. The schema is closed: an engine
-MUST reject any field the schema does not list, at any level, and MUST reject
-a `version` it does not implement (naming the versions it does). Values are
-literals: a string is used exactly as written, with no interpolation, no
-conditions and no expressions. The schema rejects the two common
-interpolation syntaxes (`${...}` and `{{...}}`) in the places a literal is
-expected; it cannot prove that a string is not an expression, so the rule
-above, not the pattern, is what binds.
+One UTF-8 JSON object. The schema ([spec/network.schema.json](../spec/network.schema.json))
+is closed: an engine MUST reject any field it does not list, and a `version`
+it does not implement. Values are literals: used exactly as written, with no
+interpolation, conditions or expressions. The schema rejects `${...}` and
+`{{...}}` where a literal is expected; it cannot prove a string is not an
+expression, so the rule binds, not the pattern. Its `$id` is a URN
+(`urn:agent-neuron:schema:network:0`) because the repository is private; it
+becomes a URL when the repository is public.
 
-### 3.1 Top level
+### 2.1 Top level
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `$schema` | string | none | Path or URL of the schema, for editors. Ignored by engines. |
-| `version` | `0` | required | The file format version. |
-| `name` | string, 1 to 64 chars | none | A name for the network; written to the trace as `demo`. |
-| `description` | string | none | Prose for humans. JSON has no comments; this is where they go. |
-| `neurons` | array of neurons, at least 1 | required | The neurons (3.2). |
-| `links` | array of links | `[]` | The connections (3.5). |
-| `entry` | neuron id | none | With `exit`: where a composed neuron's input goes in (3.6). |
-| `exit` | neuron id | none | With `entry`: whose answer is the composed neuron's answer. |
+| `$schema` | string | none | For editors; ignored. |
+| `version` | `0` | required | Format version. |
+| `name` | string, 1 to 64 | none | A name for the network (written to the trace as `demo`). |
+| `description` | string | none | Prose; JSON has no comments. |
+| `neurons` | array, at least 1 | required | 2.2. |
+| `links` | array | `[]` | 2.5. |
+| `entry`, `exit` | neuron id | none | Both or neither (schema). Needed when the file is used by `network` (2.6). |
 
-### 3.2 A neuron
+### 2.2 A neuron
 
-Every neuron has:
+`id` (required, `^[A-Za-z][A-Za-z0-9_-]{0,63}$`, unique in the file),
+`description` (string; SHOULD be set, it reaches the trace), exactly one kind
+field (2.3), and the options its kind allows (2.4).
 
-| Field | Type | Default | Meaning |
+### 2.3 Kinds
+
+| Field | Value | Program | Contract |
 |---|---|---|---|
-| `id` | string, `^[A-Za-z][A-Za-z0-9_-]{0,63}$` | required | Unique in the file. |
-| `description` | string | none | What it is, in a sentence. SHOULD be set; it reaches the trace. |
+| `source` | `true` | none; receives nothing | injection, 4.1 |
+| `run` | command | the command | level 0, 3.1 |
+| `serve` | command | the command, long-lived | level 1, 3.2 |
+| `http` | `http://` or `https://` URL | an endpoint | 3.3 |
+| `human` | `true` | a person | 3.4 |
+| `network` | path | another network file | 2.6 |
 
-and exactly one kind field (3.3), and the options (3.4) its kind allows.
+A command is a non-empty array of literal strings: argument 0 is the
+executable (looked up on `PATH` unless it contains `/`), the rest are passed
+verbatim, no shell. Relative paths inside a command are relative to the
+program's working directory.
 
-### 3.3 Kinds
+### 2.4 Options
 
-| Kind field | Value | Program | Contract |
-|---|---|---|---|
-| `source` | `true` | none | Receives nothing; payloads are injected (4.1). |
-| `run` | command: non-empty array of literal strings | the command | Level 0 (section 6). |
-| `serve` | command | the command, long-lived | Level 1 (section 7). |
-| `http` | URL literal, `http://` or `https://` | an HTTP endpoint | Level 0 over HTTP (6.4). |
-| `human` | `true` | a person | Level 0 through a person (6.5). Thin. |
-| `network` | path literal | another network file | A composed neuron (3.6). |
-
-A command is an argument vector: element 0 is the executable, found on
-`PATH` unless it contains a `/`; the rest are passed verbatim. No shell is
-involved. A relative path inside a command is relative to the working
-directory of the process (see `cwd`), not to the file.
-
-### 3.4 Options
-
-| Option | Type | Default | Allowed on | Meaning |
+| Option | Type | Default | On | Meaning |
 |---|---|---|---|---|
-| `threshold` | integer, at least 1 | none | run, serve, http, human | Act only when this many **distinct senders** have each sent an input on one trace (5.2). |
-| `within` | integer ms, 1 to 3600000 | 10000 | with `threshold` only | How long a held input waits for the others. |
-| `maxHops` | integer, at least 0 | none (no limit) | all but source | Refuse a signal with more hops than this (5.4). |
-| `timeout` | integer ms, 1 to 3600000 | 30000 | all but source | Longest a call may take, from when the program starts (8.2). For `network`, the whole composed call. |
-| `env` | array of unique variable names | `[]` | run, serve | Names of environment variables passed through from the engine. Names only: no values, no interpolation. |
-| `cwd` | path literal | the directory of the network file | run, serve | Working directory of the program; relative paths are relative to the directory of the network file. |
-
-A program's environment is empty except for `PATH` and the names in `env`
-(a name the engine does not have is left unset).
-
-`threshold` and `within` are not allowed on a `network` neuron: apply them to
-the inner neuron that should hold inputs.
-
-### 3.5 Links
-
-A link is `{ "from": id, "to": id }` and nothing else in version 0. Both ids
-MUST name neurons in the file. A link into a `source` is an error (a source
-receives nothing). The same `from -> to` MUST NOT be listed twice. `from -> to`
-does not imply `to -> from`: the other direction is its own entry.
-
-Strength is not a link field. It is designed but not built; when it exists
-it lives in a separate state file keyed by instance path, and the caller
-adjusts it, so that the reviewed network file never changes by learning
-(section 11).
-
-### 3.6 Composed neurons and sealing
-
-`"network": "diagnosis.network.json"` makes the whole network in that file
-one neuron. The path is relative to the directory of the file that names it.
-The named file MUST have `entry` and `exit`, MUST NOT contain a `source`, and
-`exit` MUST NOT have outgoing links.
-
-Behaviour of a composed neuron, call by call:
-
-1. An input to the composed neuron is delivered to the inner `entry` neuron
-   as if it were a root signal (hops 0, a new inner chain), with the same
-   payload. The inner network then runs by the same rules as the outer.
-2. The first answer of the inner `exit` neuron is the composed neuron's
-   answer. Remaining inner work for that call is cancelled silently.
-3. If the inner network goes idle (nothing held, nothing running) without
-   `exit` answering, the composed neuron is quiet, unless an inner neuron
-   failed, in which case it is an error: `no answer: an inner neuron failed`.
-4. If the composed neuron's work is replaced or times out, all inner work for
-   the call is cancelled, recursively.
-5. The composed neuron's `maxHops` and `timeout` apply at the outer boundary.
-
-**Sealing** (MUST): inner neuron ids, inner signals, inner traces and inner
-error messages never appear in anything the engine reports about the outer
-network. From outside, a signal goes in and an answer comes out. Inner
-failures reach the outer trace only as the composed neuron's own error. An
-engine MAY offer a separate way to inspect the inside, which is looking in,
-not the outer network reaching in; it is not part of version 0.
-
-**Each use is its own neuron** (MUST): every `network` entry is a separate
-instance, even when two entries name the same file; instances share no
-processes and no state.
-
-### 3.7 What an engine's `check` reports (normative)
-
-An engine MUST provide a way to check a network file without running it
-(`check`). It MUST report, each with the file, line and column where it can:
-
-| Finding | Severity |
-|---|---|
-| a field the schema does not allow, or a value of the wrong type | error |
-| a duplicate neuron id | error |
-| a link naming an unknown neuron (SHOULD suggest the closest id: "did you mean") | error |
-| a link listed twice; a link into a source | error |
-| a `network` file that is missing, invalid, or lacks `entry`/`exit`, contains a source, or whose `exit` has outgoing links | error |
-| a cycle in which no neuron has `maxHops` | error |
-| an executable that cannot be found for a `run` or `serve` neuron | warning |
-
-`check` exits non-zero if there is any error.
-
-### 3.8 The field budget (informative)
-
-The file stays small on purpose. Today: top level 8 fields; a neuron has `id`,
-`description`, one kind field and at most 6 options; a link has 2 fields. A
-proposed new field is tested with one question: **does it say how neurons
-connect, or how one decides?** If it says how a neuron decides, it is a
-program, not a field. A new field also has to fit the budget: add one only
-with a decision record that says what it replaces or why the budget grows.
-`AGENTS.md` carries the same rule for contributors.
-
-## 4. Routing (normative)
-
-Routing needs no code outside the network. Everything an engine needs to
-send an answer on is in the network file (the links) and in two envelope
-fields (`replaces` and `to`).
-
-### 4.1 Injection
-
-A producer outside the network injects a payload into a source, optionally
-with a replaces key. The engine MUST offer this. It creates a root signal:
-new id, `trace` equal to its id, `hops` 0, `from` the source, `to` the
-source's outgoing links in declaration order (an empty list if there are
-none), and `replaces` as given.
-
-The key is supplied by the producer: only the producer knows what it means
-for one input to make an older one stale (a newer alert for the same
-service). No other place in the system reads a payload to compute a key.
-
-### 4.2 Delivery
-
-A signal is delivered to each neuron in `to`, in order. Each delivery is
-independent work (section 5) and its outcome is independent of the others.
-
-### 4.3 Answer
-
-When the work for input *s* at neuron *N* finishes with an answer, the
-engine emits an **answer** signal: `from` *N*, `to` `[s.from]`, `replyTo`
-`s.id`, `trace` `s.trace`, `hops` `s.hops + 1`. The answer goes to the
-sender: it is recorded, and for a source it is available to the producer.
-It is **not** an input to the sender's program (programs do not receive
-answers). A **quiet** answer is recorded as quiet and ends there.
-
-For a threshold call, *s* is the input that crossed the threshold.
-
-### 4.4 Forward
-
-Right after an answer that is not quiet and not stale, the engine emits one
-**forward** signal: `from` *N*, `payload` the answer's payload, `cause` the
-answer's id, `trace` the answer's trace, `hops` `answer.hops + 1`, `to` *N*'s
-outgoing links in declaration order, or the subset named by the reply's `to`.
-
-- `to` in a reply envelope (level 1 only) MUST name only neurons *N* has
-  outgoing links to; otherwise the reply is an error (8.1). `to: []`
-  forwards nothing but the answer is still recorded and still goes to the
-  sender.
-- `replaces` of the forward: the reply's `replaces` if it has one (a string
-  sets the key, `null` clears it); otherwise the key of *s*, inherited.
-- A neuron with no outgoing links forwards nothing. A quiet answer, an error,
-  a refused signal and stale work forward nothing.
-
-The answer is reported before its forward. Forwarding is automatic and always
-along links; there is no other way for a neuron to send to another neuron.
-
-### 4.5 The consequences (informative)
-
-- A cheap detector that exits without output is quiet, so nothing downstream
-  runs. "Forward only non-empty answers" is a property of the program.
-- A key set once at injection follows the chain without any neuron touching
-  it.
-- A run's result is not a return value. It is the answer events of the
-  neurons that have no outgoing links, read from the trace.
-
-## 5. Threshold, within, maxHops and stale work (normative)
-
-### 5.1 Order of checks at a delivery
-
-For input *s* at neuron *N*: (1) the hops check (5.4); (2) if *N* has a
-`threshold`, hold *s* (5.2); (3) when the program may start, run it.
-
-### 5.2 Threshold
-
-A neuron with `threshold` *k* groups inputs by **trace**. Inputs on different
-traces never combine. In one group, a sender counts once: a newer input from
-the same sender on the same trace replaces its older held input (the older is
-dropped as replaced, held). When *k* distinct senders have an input held, the
-neuron **acts**: all those inputs leave the group and one call starts, with
-those inputs in arrival order. The call answers the input that crossed the
-threshold (4.3); the other inputs get no answer and no drop, even if the call
-is cancelled or fails. A later input on a trace that has already acted starts
-a new group.
-
-With `threshold` 1 a neuron acts on every input, but still takes the threshold
-form of the program input (6.1).
-
-A neuron without `threshold` holds nothing and acts on every input at once.
-
-Held inputs are waiting, not working: an engine's notion of idle (nothing
-running) does not wait for them, and they leave on their own through `within`.
-
-### 5.3 Within
-
-Each held input has its own timer, started when it is held, of `within`
-milliseconds (default 10000). When it runs out the input is dropped as
-`expired`. A newer input from the same sender restarts the wait for that
-sender. Inputs consumed by an acting call never report `expired`.
-
-### 5.4 maxHops
-
-A neuron with `maxHops` *m* refuses an input whose `hops` exceed *m*: the
-signal is still reported, the program never runs, and the engine reports a
-drop with reason `hops`. Hops are counted along the chain (4.3, 4.4), so a
-loop is cut where it first exceeds the limit. A file with a cycle needs
-`maxHops` on a neuron in it (3.7).
-
-### 5.5 Stale work and `replaces`
-
-Work is keyed by the pair (sender, key) when the input has a replaces key.
-When a signal with key *K* is emitted by sender *S* (injected, or a
-forward), the engine MUST immediately make every older signal with the same
-(*S*, *K*) **stale**, and:
-
-- work for a stale signal that is **held** (threshold hold, or waiting for a
-  slot) is dropped: reason `replaced`, phase `held`;
-- work that is **running** is cancelled (6.3, 7.5): reason `replaced`, phase
-  `running`;
-- an answer that arrives for stale work MUST be discarded, and nothing is
-  forwarded for it. A cancelled call is never an error, whatever the program
-  did.
-
-Work that already finished is unaffected, and so is anything it forwarded:
-staleness does not travel down the chain. The new signal replaces on its own
-(sender, key), so the next hop's forward replaces on its own sender's key.
-
-**A running threshold call is stale when any of its inputs is stale**
-(decision of issue #17). The call is cut at the moment any one of the inputs
-it was built from is replaced, not only the input that crossed the threshold.
-One drop is reported, for the crossing input, reason `replaced`, phase
-`running`. The other inputs report nothing, as in 5.2.
-
-Replacement in a group by the same sender (5.2) is a held replacement and is
-reported as such; it does not cut a call that has already started.
-
-## 6. Level 0: the one-shot contract (normative)
-
-The default. One process per call. Anything that reads stdin and writes
-stdout can be a neuron, and can be tested by hand:
-`echo '{"id":5,"service":"checkout"}' | python3 neuron.py`.
-
-### 6.1 Input
-
-The engine starts the command (3.3), in its own process group, writes **one
-JSON value** to stdin, and closes stdin.
-
-- A neuron without `threshold`: the value is the payload.
-- A neuron with `threshold`: the value is
-  `{"payload": P, "inputs": [P1, P2, ...]}`: `payload` is the crossing input's
-  payload, `inputs` are all the inputs the call was built from, in arrival
-  order (the crossing one last).
-
-### 6.2 Output and exit
-
-- Exit 0, stdout empty (or only whitespace): **quiet**.
-- Exit 0, stdout one JSON value (surrounding whitespace allowed): an
-  **answer** with that payload. A level 0 program has no envelope: the answer
-  is forwarded along all outgoing links, with the inherited key.
-- Exit 0 and stdout anything else: an error (code `junk`).
-- Non-zero exit, or killed by a signal: an error; the message names the exit
-  status and ends with the first 500 characters of stderr, trimmed.
-- Output over 1 MiB: an error.
-
-Stderr is for logs; it never affects the outcome (8.5).
-
-### 6.3 Cancel
-
-Stale work (5.5) and timeouts (8.2) end a call by SIGTERM to the process
-group, then SIGKILL to it 2 seconds later if anything is left. Output after
-the cancel is discarded.
-
-### 6.4 `http` neurons
-
-The same contract over HTTP: `POST` the stdin value as `application/json`;
-a 2xx response with a JSON body is the answer, a 204 or an empty 2xx body is
-quiet, anything else is an error. Cancel aborts the request. Redirects are not
-followed. There is no way to send a secret in version 0 (section 11).
-
-### 6.5 `human` neurons (thin)
-
-The engine shows the input to a person and waits for a typed reply: an empty
-reply is quiet, any other reply is a text payload. Cancel and `timeout` stop
-the wait. How the person is reached is the engine's business; the rest of
-the contract is as for level 0.
-
-## 7. Level 1: the line protocol (normative)
-
-Opt-in, with `serve`. One long-lived process per neuron, started when the
-engine starts, speaking JSON lines. Use it when starting a process per signal
-is too slow or the program keeps state.
-
-### 7.1 Framing
-
-UTF-8. One JSON object per line, ended by `\n` (`\r\n` is tolerated on
-reading). A line is at most 1 MiB. Blank lines are ignored. Every object has
-a string `type`. The program's stdout carries protocol lines only; stderr is
-for logs (8.5). A program MUST flush after each line.
-
-### 7.2 Messages
-
-Engine to neuron:
-
-| Message | Fields | Meaning |
+| `threshold` | integer, at least 1 | none | run, serve, http, human | act when this many distinct senders have each sent an input on one trace (5.2) |
+| `within` | integer ms | 10000 | with `threshold` | longest a held input waits; applies to holds only, never to queued or running work |
+| `maxHops` | integer, at least 0 | none | all but source | refuse inputs with more hops (5.3) |
+| `timeout` | integer ms | 30000 | all but source | longest a call may run, counted from its start; for `network`, the whole composed call |
+| `env` | array of unique names | `[]` | run, serve | environment variables passed through: names only |
+| `cwd` | path | the directory of the file that declares the neuron | run, serve | working directory |
+
+A program's environment is empty except `PATH` and the `env` names (a name the
+engine lacks stays unset). `threshold` and `within` are not allowed on `network`.
+
+### 2.5 Links
+
+`{ "from": id, "to": id }` and nothing else. Both ids MUST exist; the same
+pair MUST NOT appear twice; a link into a `source` is an error. `a -> b` does
+not imply `b -> a`. Strength is not a link field (see appendix B).
+
+### 2.6 Composed neurons and sealing
+
+`"network": "diagnosis.network.json"` (relative to the declaring file) makes
+that whole network one neuron. The named file MUST have `entry` and `exit`,
+MUST NOT contain a `source`, and `exit` MUST NOT have outgoing links.
+
+**One shared inner network per instance.** The inner network is started when
+the engine starts and is shared by every call to that instance: its level 1
+processes, their `maxInflight` slots and their state are shared; level 0
+programs still run once per call. Two `network` entries are two instances even
+if they name one file; instances share nothing.
+
+Per call:
+
+1. The input is delivered to `entry` as a new root signal: new inner trace
+   (so threshold groups never mix calls), hops 0, the same payload, `from` the
+   composed neuron's id (a name that exists only inside; a reply to it is
+   recorded inside and is not an input to anything), and the outer input's
+   replaces key.
+2. The first reply of `exit`, an answer or quiet, is the composed neuron's reply.
+   Remaining inner work for the call is cancelled without reports.
+3. If the inner network has nothing running, queued or held for the call and
+   `exit` has not replied, the composed neuron is quiet; if an inner neuron
+   failed meanwhile, it is an error, code `inner`.
+4. Calls are isolated: staleness inside an instance is scoped to one call, so
+   one call can never cut another. A call is cut only when its outer work goes
+   stale or times out; then all its inner work is cancelled, recursively.
+5. `maxHops` and `timeout` apply at the outer boundary. Hops inside start at 0
+   and do not add to the outer chain.
+
+**Sealing** (MUST): inner ids, signals, traces and error text never appear in
+anything reported about the outer network; from outside, a signal goes in and
+a reply comes out, and an inner failure is only the composed neuron's own
+error. A separate inspection tool for the inside, keyed by instance path, is an
+operator's tool and is not in version 0.
+
+### 2.7 `check` (normative)
+
+An engine MUST offer a check that does not run the network. It MUST report,
+with file, line and column where it can, and exit non-zero on any error:
+schema violations; duplicate ids; a link naming an unknown id (SHOULD suggest
+the nearest id); a duplicated link; a link into a source; a `network` file that
+is missing, invalid, lacks `entry`/`exit`, has a source or an `exit` with
+outgoing links (errors); a cycle in which no neuron has `maxHops` (error); an
+executable that cannot be found (warning).
+
+### 2.8 Field budget (informative)
+
+8 top-level fields; per neuron `id`, `description`, one kind field, at most 6
+options; 2 per link. A new field must answer one question: does it say how
+neurons connect, or how one decides? Deciders are programs. `AGENTS.md` holds
+the rule.
+
+## 3. The neuron contract (normative)
+
+### 3.1 Level 0: `run`
+
+One process per call, in its own process group. The engine writes one JSON value
+to stdin and closes it, ignoring write errors (a program need not read stdin).
+
+- **Input:** the bare payload; but if `threshold` is greater than 1,
+  `{"payload": P, "inputs": [P1, ...]}` as in section 0.
+- **Output:** exit 0 and stdout empty or whitespace: quiet. Exit 0 and stdout
+  one JSON value (whitespace around allowed): an answer. A level 0 program has
+  no envelope: the answer goes to all outgoing links with the inherited key.
+- **Failures:** see 6.1 (non-zero exit, killed by signal, not JSON, over 1 MiB).
+- **Cancel:** SIGTERM to the process group; SIGKILL to it 2 seconds later if
+  anything remains. Later output is discarded.
+- **Stderr** is logs: never interpreted, never traced except as part of an
+  error message (the first 500 characters, trimmed).
+
+### 3.2 Level 1: `serve`
+
+One process per neuron (per instance), started when the engine starts. If it
+does not reach `ready` within `timeout`, the engine refuses to start.
+
+**Framing.** UTF-8, one JSON object per line ended by `\n` (`\r\n` tolerated
+on read), at most 1 MiB, blank lines ignored, every object has a string
+`type`. Stdout carries protocol lines only; stderr is logs. Flush every line.
+
+**Messages.** Engine to neuron:
+
+| `type` | Fields | Meaning |
 |---|---|---|
-| `hello` | `v` (1), `neuron` (the id) | The first line. |
-| `signal` | `re` (integer), `payload`, `inputs` only for a threshold neuron | An input. `inputs` as in 6.1; `payload` is the crossing input's. |
-| `cancel` | `re` | Advisory: stop work for `re`. No reply is expected. |
-| `ping` | `n` (integer) | Sent only when nothing is in flight. |
-| (stdin EOF) | | Shut down (8.4). |
+| `hello` | `v` (1), `neuron` (the neuron's id in its file) | first line |
+| `signal` | `re`, `payload`, `inputs` only if threshold > 1 | an input; value shapes as 3.1 |
+| `cancel` | `re` | advisory, no reply expected |
+| `ping` | `n` | only when nothing is running |
+| (stdin closed) | | shut down |
 
 Neuron to engine:
 
-| Message | Fields | Meaning |
+| `type` | Fields | Meaning |
 |---|---|---|
-| `ready` | `v` (1), `maxInflight` (integer at least 1, default 1) | MUST be the first line. |
-| `answer` | `re`, `payload`; optional `replaces` (string, or `null` to clear the inherited key), optional `to` (array of neuron ids) | The answer for `re`. |
-| `quiet` | `re` | Nothing to say for `re`. |
-| `error` | `re`, `message` | The call for `re` failed. Without `re`: the process itself has failed (8.3). |
-| `pong` | `n` | Reply to `ping` with the same `n`. |
+| `ready` | `v` (1), `maxInflight` optional integer at least 1, default 1 | MUST be the first line |
+| `answer` | `re`, `payload`; optional `replaces` (string, or `null` to clear), optional `to` (array of ids) | an answer |
+| `quiet` | `re` | quiet |
+| `error` | `re`, `message`; without `re`, the process itself failed | failure |
+| `pong` | `n` | reply to `ping` |
 
-An engine ignores fields it does not know. It ignores a message of a `type` it
-does not know, from a neuron. A neuron SHOULD ignore engine messages it does
-not know.
+Unknown fields are ignored; a neuron's message of an unknown `type` is ignored.
 
-### 7.3 Handshake and versioning
+**Versioning.** `v` is the protocol's major version; `ready.v` MUST equal
+`hello.v`. A change an old peer would misread bumps it; an optional field or a
+new message type does not.
 
-The engine sends `hello` with `v` 1. The neuron's first line MUST be `ready`
-with `v` equal to the engine's. Any other first line, a different `v`, or no
-`ready` within `timeout` is a failed start (8.3). `v` is the major version of
-this protocol: a change that an old peer would misread bumps it. Adding an
-optional field or a message type does not.
+**`re`** is a counter the engine keeps per process (1, 2, ...), not the signal
+id: ids never reach programs. At most `maxInflight` calls are running at once;
+the rest are queued in order. Replies may come in any order. A reply for an
+`re` that is cancelled, finished or unknown is discarded.
 
-### 7.4 Correlation and concurrency
+**Cancel** is sent for stale work and timeouts. A cancelled `re` keeps its slot
+until the neuron replies for it or `timeout` ms have passed, then the process
+is treated as hung (6.1).
 
-`re` is a counter the engine keeps per process (1, 2, 3, ...), not the
-signal id: signal and trace ids never reach neurons, so a neuron cannot name
-or address anything outside itself. Replies carry the `re` they answer. The
-engine MUST NOT have more than `maxInflight` signals outstanding at once; it
-holds the rest in order (held, 5.5). Replies may come in any order. A second
-reply for one `re`, and a reply for an `re` the engine has cancelled or does
-not know, are discarded.
+**`timeout`** is per call, from the moment the `signal` line is written. Ping
+is sent only when nothing is running; no `pong` within `timeout` is a hang.
 
-### 7.5 Cancel
+**Reply `to`.** A set of neuron ids, each an outgoing link of the neuron; the
+forward lists them in link declaration order whatever the order given.
+`to: []` forwards nothing but the answer is still reported. A reply's `replaces`
+longer than 256 bytes, or a `to` that names a non-linked neuron, or an
+`answer` without `payload`, is an error (6.1, code `protocol`).
 
-The engine sends `cancel` when work for `re` is stale (5.5) or has timed out
-(8.2), and discards any later reply for it. The slot of a cancelled `re`
-stays occupied until the neuron replies for it (the reply is discarded) or
-until `timeout` ms have passed since the cancel; then the engine treats the
-process as hung (8.3).
+**Shutdown.** The engine closes stdin; after 2 s it sends SIGTERM to the
+process group, after 2 s more SIGKILL. Running work is cancelled silently.
 
-### 7.6 Ping
+**Restart.** If the process exits, closes stdout, sends `error` without `re`, or
+hangs, every running call fails (code `crash`) and what remains of the process
+group is killed. Before each restart the engine waits `min(100 * 2^f, 5000)` ms,
+where `f` is the number of consecutive starts since the last `ready` that did
+not reach `ready`. When `f` reaches 5 the neuron is **failed**: every input to it
+is an error (code `start`) until the engine restarts.
 
-When the engine has nothing in flight for a neuron it MAY send `ping`; a
-neuron MUST answer `pong` within `timeout`. No answer is a hung process (8.3).
+**Junk.** A stdout line that is not a JSON object with a string `type` is junk:
+the engine reports a note (7.2) with the line number (from 1, per process) and
+the first 2000 characters. If exactly one call is running at that neuron it
+fails (code `junk`); otherwise only the note is made. Junk never fails the neuron.
 
-### 7.7 Reply checking
+**A complete transcript** (`>` engine to neuron, `<` neuron to engine; a
+neuron with `maxInflight` 2 and threshold 1):
 
-An `answer` without `payload`, with a `to` that names a neuron the sender is
-not linked to, or with `replaces` that is neither a string nor `null`, is an
-error for that `re` (8.1); the answer is not used.
+```
+> {"v":1,"type":"hello","neuron":"judge"}
+< {"v":1,"type":"ready","maxInflight":2}
+> {"type":"signal","re":1,"payload":{"n":1}}
+> {"type":"signal","re":2,"payload":"plain text"}
+< {"type":"answer","re":2,"payload":{"n":5},"replaces":null,"to":["next"]}
+> {"type":"cancel","re":1}                       (re 1 went stale)
+< {"type":"answer","re":1,"payload":{"n":9}}     (discarded: re 1 is cancelled)
+> {"type":"ping","n":1}
+< {"type":"pong","n":1}
+> {"type":"signal","re":3,"payload":{"n":2}}
+< {"type":"error","re":3,"message":"model unavailable"}
+(engine closes stdin)
+```
 
-## 8. Errors, timeouts, crashes, junk and stderr (normative)
+### 3.3 `http`
 
-### 8.1 Errors are local
+`POST` the stdin value (3.1) as `application/json`. A 2xx response with a JSON
+body is an answer; a 204 or empty 2xx body is quiet; any other status, a
+connection failure or a non-JSON body is an error (code `http`). Redirects are
+not followed. Cancel aborts the request. There is no authentication in
+version 0.
 
-An error fails the one call. It is reported as an `error` event for the
-signal the call answers; nothing is forwarded; no other work is affected. The
-network keeps running. A threshold call that fails reports one error, for the
-crossing input.
+### 3.4 `human` (thin)
 
-### 8.2 Timeout
+The engine shows the input to a person and takes a typed reply: empty is quiet,
+anything else is a text payload. Cancel and `timeout` stop the wait. The
+interface is the engine's business.
 
-A call that takes longer than the neuron's `timeout` (counted from when the
-program starts, not while held) is cancelled (6.3, 7.5) and reported as an
-error with message `timed out after N ms` and code `timeout`. A cancelled
-call that was replaced first is a drop, not a timeout.
+## 4. Routing (normative)
 
-### 8.3 Crash, hang and failed start (level 1)
+### 4.1 Injection
 
-If the process exits, closes stdout, sends `error` without `re`, fails a
-ping, or is found hung (7.5), the engine MUST report an error for every call
-in flight (code `crash`), kill what is left of the process group, and restart
-the process with backoff: wait 100 ms, then double the wait each consecutive
-failure up to 5 s. A start that reaches `ready` resets the backoff. After 5
-consecutive failed starts the neuron is **failed**: every input delivered to it
-is an error (`neuron failed to start`, code `crash`) until the engine restarts.
-At engine start, a `serve` neuron that cannot reach `ready` makes the engine
-refuse to start.
+The engine MUST let a producer inject a payload into a source, with an optional
+replaces key (at most 256 bytes; longer is refused to the producer). It creates
+a root signal: new id, `trace` its own id, `hops` 0, `from` the source, `to`
+the source's outgoing links in declaration order, `replaces` as given. Only the
+producer knows what makes one input stale, so the key is its job; nothing else
+reads a payload to compute one.
 
-### 8.4 Shutdown
+### 4.2 Delivery
 
-The engine closes the neuron's stdin. The neuron SHOULD finish nothing new and
-exit. If it is still running after 2 seconds the engine sends SIGTERM to the
-process group, and SIGKILL 2 seconds after that. Work in flight is cancelled
-silently.
+A signal is delivered to each neuron in `to`, in order; each delivery is
+independent work.
 
-### 8.5 Junk on stdout, and stderr
+### 4.3 Reply
 
-A line on a level 1 neuron's stdout that is not a JSON object with a string
-`type` is **junk**. The engine records a `note` of kind `junk` (9.3) with the
-neuron id, the line number counted from 1 for the process, and the first 2000
-characters of the line. If exactly one call is in flight at that neuron, that
-call fails with code `junk`; otherwise only the note is made. Junk never
-fails the neuron. A message with a known `re` but a bad shape is an error for
-that `re` (7.7), not junk.
+When work for input *s* at neuron *N* ends in a reply, the engine emits a reply
+signal: `from` *N*, `to` `[s.from]`, `replyTo` `s.id`, `trace` `s.trace`, `hops`
+`s.hops + 1`; reported as an `answer` or `quiet` event. It goes to the sender: it
+is reported (and available to the producer if the sender is a source) and is
+never an input to the sender's program. For a threshold call, *s* is the input
+that crossed.
 
-Stderr is logs. The engine MAY keep the last 20 lines or 4 KiB of it per
-process for error messages (6.2), MUST NOT interpret it, and MUST NOT write it
-to the trace except inside that error message.
+### 4.4 Forward
 
-## 9. The trace an engine writes (normative)
+Right after an answer that is not stale, the engine emits one forward: `from`
+*N*, `payload` the answer's, `cause` the answer's id, `trace` the answer's,
+`hops` answer hops + 1, `to` *N*'s outgoing links in declaration order (or the
+subset the reply names), `replaces` the reply's value (string sets, `null`
+clears) or else *s*'s key, inherited. Quiet, an error, a refused input, stale
+work and a neuron with no outgoing links forward nothing. Forwarding along
+links is the only way a neuron reaches another neuron.
 
-An engine writes traces in [trace format v1](TRACE.md) so the same
-validity checks, the replay module and the network view work for it. Section 9
-says how this specification's events become v1 events, and what it adds.
+Each neuron on a path adds **two hops** (reply, then forward). A neuron at depth
+`d` (the first neuron after the source is depth 1) receives hops `2(d-1)`; `maxHops` is a limit on that
+count, not on neurons deep: a limit of 4 lets a chain reach its third neuron.
 
-### 9.1 Header
+A run's result is not a return value: read the answers of neurons with no
+outgoing links from the trace.
 
-| v1 field | Written as |
+## 5. Threshold, hops and staleness (normative)
+
+### 5.1 Order at a delivery
+
+For input *s* at *N*: the hops check (5.3); then, if `threshold` is more than 1,
+hold *s* (5.2); then, when the program may start, run it (queued first at
+level 1 if all slots are running). Threshold 1 or none: no hold.
+
+### 5.2 Threshold
+
+Inputs are grouped by (neuron, trace); traces never combine. A sender counts
+once: its newer input on the trace replaces its older held one (a drop,
+reason `replaced`, phase `waiting`). When *k* distinct senders have an input
+held, the neuron acts: the inputs leave the group and one call starts with all
+of them in arrival order. The call answers the input that crossed (4.3); the
+others get no reply and no drop, even if the call is cut or fails. A later
+input on that trace starts a new group. Each held input has its own `within`
+timer, started when held; at the end it is dropped as `expired` (phase
+`waiting` MAY be written). Consumed inputs never expire. Held inputs do not
+count as running.
+
+### 5.3 maxHops
+
+An input with `hops` above the neuron's `maxHops` is reported as a signal, never
+run, and dropped with reason `hops` (no phase).
+
+### 5.4 Staleness
+
+Work is keyed by (sender, key) when its input has a key. Emitting a signal
+with key *K* from sender *S* makes every older signal of the same (*S*, *K*)
+**stale** at that moment, and its unfinished work:
+
+- waiting (held or queued): dropped, reason `replaced`, phase `waiting`;
+- running: cancelled, reason `replaced`, phase `running`, reported when it goes
+  stale (the kill follows, 3.1, 3.2);
+- an answer arriving for stale work is discarded and nothing is forwarded.
+  A cancelled call is never an error.
+
+Finished work is unaffected, and so is what it forwarded: staleness does not
+travel down a chain. Each hop replaces on its own sender's key.
+
+**Any replaced input cuts a running threshold call.** The call is stale when any
+input it was built from is stale, not only the one that crossed. One drop is
+reported, for the crossing input (which may itself not have been replaced),
+phase `running`. The other inputs report nothing.
+
+A 5.2 same-sender regroup replaces a *held* input only. It never cuts a running
+call by itself; only (sender, key) staleness does.
+
+## 6. Failures and event order (normative)
+
+### 6.1 Failures
+
+A failure fails one call: an `error` event for the signal the call answers (for
+a threshold call, the crossing input), nothing forwarded, nothing else
+affected. Failures of stale work are not errors.
+
+| Condition | `code` | `message` starts | Effect beyond the error |
+|---|---|---|---|
+| level 0 exit not 0, or killed by a signal | `exit` | `exit N:` or `signal S:`, then stderr | |
+| output over 1 MiB (level 0), line over 1 MiB (level 1) | `output` | `output too large` | process group killed |
+| level 0 stdout not empty and not one JSON value | `junk` | `not JSON` | |
+| level 1 junk line while exactly one call runs | `junk` | `junk on stdout` | note |
+| http: non-2xx, connection failure, non-JSON body | `http` | `http` | |
+| level 1 reply with bad shape, bad `to`, bad `replaces`, key over 256 bytes, no `payload`, or `ready.v` differing from `hello.v` | `protocol` | `protocol:` and the cause | reply unused |
+| call longer than `timeout` | `timeout` | `timed out after N ms` | cancelled; note |
+| level 1 process exit, hang, or `error` without `re` | `crash` | `process failed` | every running call fails; restart (3.2) |
+| input to a failed neuron | `start` | `neuron failed to start` | |
+| composed neuron with no reply after an inner failure | `inner` | `no answer: an inner neuron failed` | |
+| level 1 `error` with `re` | `neuron` | the neuron's message | |
+
+### 6.2 Event order
+
+An engine MUST report events in this order, so that two engines produce the same
+list.
+
+1. Work due at the same instant is processed in the order it was scheduled.
+2. A signal's event is reported first, then, at the same `t`, **immediately
+   after it**: (a) the drops of the work that signal made stale, in the order
+   that work was created; (b) for each target in `to` order, its delivery
+   effects (a `hops` drop, or a held replacement drop).
+3. A reply is reported before its forward.
+4. A running drop is reported when the work goes stale; a `note` for the
+   cancel follows it, and the later `term` and `kill` notes at their own times.
+5. A call that ends exactly when its input goes stale counts as stale.
+6. A **run is over** when nothing is running or queued and no timer is pending.
+   Held inputs keep their `within` timers, so an engine that waits for the end
+   reports their `expired` drops. A fixture runs the virtual clock until nothing
+   is due. A real engine's "wait until idle" MAY stop earlier, ignoring held
+   inputs (the TypeScript `idle` does); then their drops are not reported.
+
+## 7. The trace (normative)
+
+An engine writes [trace format v1](TRACE.md), so the validity checks, the replay
+module and the network view work unchanged.
+
+### 7.1 Header
+
+`format` and `version` as v1. `demo` is the network's `name`, or the file name
+(TRACE.md defines `demo` as a free name). `library` stays the engine's version
+string (`0.1.0`); an optional `engine` field names the engine. `description`
+from the file. `neurons`: `id`, `description`, `kind` (the kind field's name,
+`network` written `composed`) and `options` as set in the file
+(`threshold`, `within`, `maxHops`; defaults are not written). `links`: one
+`{from, to}` per link, directional. `summary` MAY be `{}`. A composed neuron's
+inside never appears.
+
+### 7.2 Events
+
+| Event | Written for |
 |---|---|
-| `format`, `version` | `"agent-neuron-trace"`, `1` |
-| `demo` | the network file's `name` (a free string: readers MUST NOT assume it is one of the three demo names), or the file name |
-| `description` | the file's `description`, or one line |
-| `library` | the engine's name and version, e.g. `"engine-name 0.1.0"` |
-| `neurons` | one entry per neuron of the outer file: `id`, `description`, `kind` (the kind field's name, with `network` written as `"composed"`), and `options` = `{threshold, within, maxHops}` as set |
-| `links` | one `{from, to}` per link; a link is one-way, and v1 readers do not assume otherwise (replay does not) |
-| `events`, `summary` | below; `summary` MAY be `{}` |
+| `signal` | an injection or a forward; `via` absent |
+| `answer`, `quiet` | a reply (4.3) |
+| `drop` | stale work, expiry, a hops refusal |
+| `error` | a failure (6.1) |
+| `note` | process facts |
 
-A composed neuron's inner neurons and links never appear.
+`t` is whole ms since the run started (virtual in fixtures). Payloads as v1:
+text `{"type":"text","text":...}` for a string, else `{"type":"json","data":...}`
+(a JSON string payload is therefore text: the one lossy spot). Every event but
+`note` carries the signal's fields (`id`, `from`, `to`, `trace`, `replyTo` and
+`cause` when set, `hops`). A `drop` or `error` describes the signal the work was
+for, plus `neuron` and `reason` (drop) or `message` (error). `note` is
+`{type, t, neuron, what}`.
 
-### 9.2 Events
+Additions beyond v1 as written, all optional fields or a new event type (so
+v1 readers, which ignore what they do not know, are unaffected):
 
-| Specification | v1 event |
+| Addition | Rule |
 |---|---|
-| a root signal (4.1), a forward (4.4) | `signal`; `via` absent (emit) |
-| an answer (4.3) | `answer`, with `payload` |
-| a quiet answer | `quiet` |
-| a drop (5.2 to 5.5) | `drop`, `neuron`, `reason` one of `replaced`, `expired`, `hops` |
-| an error (8) | `error`, `neuron`, `message` |
+| `phase` (`waiting` or `running`) on `drop` | MUST on reason `replaced`; MUST NOT on `hops`; MAY on `expired` |
+| `replaces` on `signal` | MUST when the signal has a key |
+| `code` on `error` | MUST, from the 6.1 table |
+| `note` event: `what` is `junk` (with `line`, `text`), `cancel`, `term`, `kill`, `restart` or `inject` (with `trigger`) | SHOULD for those facts |
+| `engine` header field | MAY |
 
-`t` is whole milliseconds since the run started (virtual in conformance
-runs). A payload is written as v1 says: a string as `{"type":"text","text":...}`,
-any other value as `{"type":"json","data":...}`. (A JSON payload that is a
-string is therefore written as text: the one place the mapping loses a
-distinction.)
+Example, a running call cut because an *earlier* input was replaced. Detectors
+`d1` and `d2` (20 ms) feed `h` (`threshold` 2, 100 ms); `s` feeds both. Ids are
+normalised (8.3); the second injection at 40 ms makes `d1`'s first forward stale
+when `d1`'s new forward is emitted at 60:
 
-An answer event follows from its input: `replyTo` the input's id, `to` its
-sender. A forward carries `cause` (the answer's id). Hops are as in section 2.
+```
+{"type":"signal","t":0,"id":"#1","from":"s","to":["d1","d2"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":{"n":1}}}
+{"type":"answer","t":20,"id":"#2","from":"d1","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"d":1}}}
+{"type":"signal","t":20,"id":"#3","from":"d1","to":["h"],"trace":"#1","cause":"#2","hops":2,"replaces":"k","payload":{"type":"json","data":{"d":1}}}
+{"type":"answer","t":20,"id":"#4","from":"d2","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"d":2}}}
+{"type":"signal","t":20,"id":"#5","from":"d2","to":["h"],"trace":"#1","cause":"#4","hops":2,"replaces":"k","payload":{"type":"json","data":{"d":2}}}
+{"type":"signal","t":40,"id":"#6","from":"s","to":["d1","d2"],"trace":"#6","hops":0,"replaces":"k","payload":{"type":"json","data":{"n":2}}}
+{"type":"answer","t":60,"id":"#7","from":"d1","to":["s"],"trace":"#6","replyTo":"#6","hops":1,"payload":{"type":"json","data":{"d":1}}}
+{"type":"signal","t":60,"id":"#8","from":"d1","to":["h"],"trace":"#6","cause":"#7","hops":2,"replaces":"k","payload":{"type":"json","data":{"d":1}}}
+{"type":"drop","t":60,"id":"#5","from":"d2","to":["h"],"trace":"#1","cause":"#4","hops":2,"replaces":"k","neuron":"h","reason":"replaced","phase":"running","payload":{"type":"json","data":{"d":2}}}
+```
 
-### 9.3 What this adds, and why v1 stays v1
+(The example stops at the drop; `d2` then replies at 60 too.) The drop names `#5`, the crossing input from `d2`, which was not replaced;
+`#3` was. `h` acted at 20; its call would have ended at 120. An `error` event has
+the same fields in place of `reason`/`phase`: `"neuron":"h","message":"timed out
+after 100 ms","code":"timeout"`.
 
-TRACE.md's rules: a reader ignores fields and event types it does not know;
-adding an optional field or an event type stays version 1; changing what a
-field means or the replay rules bumps `version`. Everything below is of the
-first kind.
+## 8. Conformance (normative)
 
-| Addition | Where | Rule for the engine |
-|---|---|---|
-| `phase`: `"held"` or `"running"` | optional field on `drop` events | MUST be written when `reason` is `replaced`; MUST NOT be written for `hops`; MAY be written for `expired` (always `"held"`) |
-| `replaces`: the key | optional field on `signal` events | MUST be written when the signal has a key |
-| `code`: `timeout`, `crash`, `junk` or `protocol` | optional field on `error` events | SHOULD be written for the errors in section 8 |
-| `note` | new event type: `{type, t, neuron, kind}`, `kind` one of `junk` (with `line` and `text`), `cancel`, `term`, `kill`, `restart` | SHOULD be written for the process facts in section 8 |
+An engine conforms when it passes every fixture in `spec/fixtures/` (to be
+written with the first engine; once, for all engines). Recorded traces in
+`traces/` stay as smoke tests through replay, not conformance tests.
 
-**Issue #16, held versus running.** Today a `drop` with reason `replaced`
-means two different things: an input that stopped waiting, and running work
-that was cut. Version 1's `drop` already carries both under one reason, and
-the replay summary relies on that: `heldReplaced` is the `replaced` drops of
-`hypothesis` minus the calls cut. The distinction is made with the optional
-`phase` field, which is additive: a v1 reader that knows nothing of it keeps
-counting `replaced` drops exactly as before. A new reason value (say
-`withdrawn` for held inputs) would not be additive: it would change what
-`replaced` means to every reader that knows only the old value, and TRACE.md
-bumps `version` for that. So the held and running cases keep one reason, and
-`phase` tells them apart. When both ends know `phase`, the cut count is the
-`replaced` drops with phase `running`, and no reader needs to remember which
-signals started a call.
+### 8.1 A fixture
 
-Recording the new fields and `note` events is also what lets a reader explain
-a stale drop or a junk line from the trace alone. Two edits to TRACE.md follow
-and are not made here: it should list `phase`, `replaces`, `code` and `note`
-(they are optional; a line each), and its remark that "links are two-way in the
-library" describes the TypeScript library, not the format.
-
-## 10. Conformance (normative)
-
-Behaviour is tested by **fixtures**, run by an engine on a **virtual clock**.
-An engine conforms to version 0 when it passes every fixture in
-`spec/fixtures/` (to be written alongside the first engine; a fixture is
-written once, for all engines). Recorded traces in `traces/` stay as
-smoke tests through the replay module; they are not conformance tests,
-because they carry real timing.
-
-### 10.1 What a fixture is
-
-A directory with a network file (and any composed files it names) and a
+A directory with a network file (and the composed files it names) and
 `fixture.json`:
 
 ```json
-{
-  "fixture": 0,
-  "description": "One line.",
-  "network": "network.json",
-  "inputs": [{ "at": 0, "source": "alerts", "payload": { "service": "gateway" }, "replaces": "gateway" }],
-  "script": { "logs": [{ "when": { "service": "gateway" }, "after": 20, "reply": { "quiet": true } }] },
-  "notes": false,
-  "expect": [ ]
-}
+{ "fixture": 0, "description": "One line.", "network": "network.json", "notes": false,
+  "inputs": [{ "at": 0, "source": "alerts", "payload": {"service": "gateway"}, "replaces": "gateway" }],
+  "script": { "logs": [{ "when": {"service": "gateway"}, "after": 20, "reply": {"quiet": true} }] },
+  "expect": [] }
 ```
 
-- **inputs**: injections (4.1), each at virtual time `at` ms; `replaces` optional.
-- **script**: replaces every program. The key is a neuron's instance path
-  (sealing is a rule about what an engine reports, not about the harness).
-  Each entry answers one call: the first unused entry whose `when` equals
-  (deep equality) the program's input value (6.1) is used; an entry without
-  `when` matches any; no match is a harness failure. `after` is the latency in
-  ms from when the call starts. `reply` is one of:
-  `{"answer": P, "replaces"?: K or null, "to"?: [ids]}`, `{"quiet": true}`,
-  `{"error": "message"}`, `{"junk": "text"}`, `{"crash": true}` or
-  `{"hang": true}` (never replies). The engine's process layer is replaced by
-  the script, so fixtures test what the engine does with an outcome, not how
-  it parses bytes (byte-level fixtures are out of version 0).
-- **notes**: when `false` (default), `note` events are not compared.
-- **expect**: the trace events (section 9) the engine must report, in order.
+- `inputs`: injections at virtual ms `at`.
+- `script` replaces every program, keyed by instance path (the harness may name
+  inside a sealed neuron). Each entry answers one call: the first unused entry
+  whose `when` deep-equals the program's input value (3.1) is used (no `when`
+  matches anything); no match is a harness failure. `after` is the latency in ms
+  from the call's start. `reply` is `{"answer": P, "replaces"?: K or null, "to"?: [ids]}`,
+  `{"quiet": true}`, `{"error": "message"}`, `{"junk": "text"}`, `{"crash": true}`
+  or `{"hang": true}`. The script stands in for the process layer, so fixtures
+  test what the engine does with an outcome, not byte parsing.
+- `expect`: the events (section 7) in order. `note` events are compared only if
+  `notes` is true.
 
-### 10.2 Virtual clock and order
+### 8.2 Clock
 
-Time starts at 0 and jumps to the next due moment: an input's `at`, a
-reply's `after`, a `within` expiry, a `timeout`. Processing takes no time. In
-conformance mode an engine MUST be deterministic: work due at the same
-instant is processed in the order it was scheduled, and the deliveries of one
-signal happen in the order of `to`. The same fixture MUST give the same
-events every time.
+Virtual time starts at 0 and jumps to the next due moment (an `at`, an `after`, a
+`within`, a `timeout`); processing takes none. The engine MUST be deterministic
+(6.2); the run is over as 6.2 rule 6 says.
 
-### 10.3 Normalisation and comparison
+### 8.3 Normalisation
 
-Ids are replaced, across the whole event list, by `#1`, `#2`, ... in order of
-first appearance, scanning each event's `id`, `trace`, `replyTo`, `cause` in
-that order. An id that appears twice (a `trace` equal to a first signal's id)
-therefore gets one name. Events are compared one by one, in order, for every
-field, `t` included, with `via` absent equal to `"emit"`. Events of types
-`signal`, `answer`, `quiet`, `drop` and `error` are compared; `note` events
-only when `notes` is `true`.
+Ids become `#1`, `#2`, ... by first appearance across the event list, scanning
+each event's `id`, `trace`, `replyTo`, `cause` in that order. Events are then
+compared one by one, every field, `t` included, `via` absent equal to `"emit"`.
 
-### 10.4 A worked fixture (informative)
+### 8.4 Worked fixture
 
-Network: `s` (source) -> `a` -> `b`, with `a` and `b` being `run` neurons.
-Input at 0: payload `{"n":1}`, key `k`. Script: `a` answers `{"n":2}` after
-10; `b` is quiet after 5.
+`s` (source) -> `a` -> `b`. Input at 0: `{"n":1}`, key `k`. `a` answers `{"n":2}`
+after 10; `b` is quiet after 5. Expected:
 
-```json
-"expect": [
-  { "type": "signal", "t": 0,  "id": "#1", "from": "s", "to": ["a"], "trace": "#1", "hops": 0, "replaces": "k", "payload": { "type": "json", "data": { "n": 1 } } },
-  { "type": "answer", "t": 10, "id": "#2", "from": "a", "to": ["s"], "trace": "#1", "replyTo": "#1", "hops": 1, "payload": { "type": "json", "data": { "n": 2 } } },
-  { "type": "signal", "t": 10, "id": "#3", "from": "a", "to": ["b"], "trace": "#1", "cause": "#2", "hops": 2, "replaces": "k", "payload": { "type": "json", "data": { "n": 2 } } },
-  { "type": "quiet",  "t": 15, "id": "#4", "from": "b", "to": ["a"], "trace": "#1", "replyTo": "#3", "hops": 3 }
-]
+```
+{"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":{"n":1}}}
+{"type":"answer","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"n":2}}}
+{"type":"signal","t":10,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"replaces":"k","payload":{"type":"json","data":{"n":2}}}
+{"type":"quiet","t":15,"id":"#4","from":"b","to":["a"],"trace":"#1","replyTo":"#3","hops":3}
 ```
 
-The fixtures to write first are the behaviours the TypeScript tests pin
-today, plus the new rules: emit without waiting; replace and cut; replace of
-a held input; threshold, same sender once, different traces apart, `within`,
-consumed inputs never expire; a replaced earlier input cuts a running call
-(#17); `maxHops` and a loop cut; the alert storm at thresholds 1, 2 and 3;
-`to` restricted to links; a quiet answer forwarding nothing; a composed
-neuron sealed and quiet; timeout, crash and junk.
+To write first: the behaviours `test/` pins today, plus replace/cut, held
+replacement, threshold (same sender once, traces apart, `within`, consumed
+inputs never expire), an earlier input cutting a running call, `maxHops` and a
+loop, the alert storm at thresholds 1, 2 and 3, `to` limited to links, quiet
+forwarding nothing, a sealed composed neuron, timeout, crash and junk.
 
-## 11. Out of version 0 (informative)
+### 8.5 The observer rule
 
-Deliberately left out, so that nobody reads their absence as an oversight:
+A fixture MAY attach a scripted observer (one that logs, or injects into a
+source at a given time). Removing it MUST NOT change the events, except those
+that follow its injections (section 9).
 
-- **Strength.** Designed, not built. Will live in a state file keyed by
-  instance path (so learning stays inside a composed neuron and each use
-  learns on its own), never in the reviewed network file; the caller adjusts
-  it. Until then every sender counts 1 toward a threshold.
-- **Passive and active channels.** Open. It would naturally be a link
-  attribute or a reply-envelope field; no field is reserved.
-- **Link attributes** of any kind (a link is `{from, to}`).
-- **`http` and `human` detail.** Specified only as far as 6.4 and 6.5. There
-  is no authentication or header support for `http`; `human` has no defined
-  interface.
-- **Wasm neurons**, sandboxing beyond the sealing of composed neurons, and
-  Windows (process groups and signals are POSIX).
-- **Concurrency limits at level 0** (it starts as many processes as there are
-  calls).
-- **A run-level result or budget**: a total budget per trace, or "the answer
-  of the network". Read answers from the trace (4.5).
-- **Inspecting the inside of a composed neuron**, and a trace format for it.
-- **Byte-level conformance** for level 0 and level 1 parsing, and fixtures that
-  use real processes.
-- **Hot reload**, and changing a network while it runs.
+## 9. Observers (normative)
 
-## 12. Walk-through: one alert (informative)
+An **observer** is a program outside the network that reads the engine's trace
+events as a live stream. It is not in the network file (no field, kind or link
+mode), is not addressable, is not on any path, and cannot send along links.
 
-The files: [alerts.network.json](../spec/examples/alerts.network.json) and
-[diagnosis.network.json](../spec/examples/diagnosis.network.json); the programs
-are in `spec/examples/neurons/` and `examples/alerts/`. The producer injects
-alert 5, `{"id":5,"service":"checkout","severity":"warn",...}`, into `alerts`
-with key `checkout`.
+- Events reach it **buffered and asynchronously**. A slow or crashed observer
+  never delays or alters the network: it **fails open**.
+- It MAY: (a) return results to whoever runs it (for example the answers of
+  neurons with no outgoing links); (b) write the strength state file (it is the
+  caller that adjusts strength, using `cause` and `replyTo` chains for credit);
+  (c) inject work, only into a `source` the network file declares, so the file
+  still shows every way work enters. An injection MUST be recorded as a `note`
+  (`what: "inject"`, `trigger`), SHOULD be rate-limited, and an observer SHOULD
+  ignore traces rooted in its own injections.
+- It MUST NOT stop, throttle, route or delay any trace, set `to` or `replaces`
+  on other work, or see inside a composed neuron (an outer observer sees outer
+  events only). It may alert, or ask the operator's normal stop as a person
+  would, and that request is recorded.
+- **Limits live in the engine**: budgets and loop ceilings are declared in the
+  network file, checked before a call starts, and fail closed. In version 0
+  the only such limits are `maxHops` and `timeout`.
+- **Test:** remove the observer and rerun; if answers change (not strengths,
+  logs or alerts) it was orchestrating, and the engine is wrong or the observer
+  is a neuron. Conformance (8.5) applies this.
+- Not observer jobs: merging (a convention between programs on the path), the
+  root replaces key (the producer), memory across level 0 calls (use `serve`),
+  not diagnosing a known cause again (an ordinary neuron on the path, quiet for
+  a known cause).
+- The TypeScript library's listeners (`onSignal`, `onDrop`, `onError`) are the
+  in-process observer. Routing done inside them, as the alert storm demo does,
+  belongs to the routing rule (section 4); an engine does it itself.
+- There is no `watch` link: it would settle the open passive/active question by
+  the back door.
 
-1. **`alerts` -> signal #1**, to `logs`, `deploys`, `metrics` (hops 0, key
-   `checkout`). Each is run as a level 0 program with the alert on stdin.
-2. **`metrics`** prints nothing: it only flags critical alerts. Quiet. Its
-   answer goes to `alerts`, nothing is forwarded.
-3. **`logs`** finds ERROR lines for `checkout` and prints a flag; **`deploys`**
-   finds a deploy 22 minutes ago and prints a flag. Each answer goes back to
-   `alerts` (hops 1) and each is forwarded along the single link out of the
-   detector, to `hypothesis` (hops 2), with `cause` the answer and the key
-   `checkout` inherited. These two forwards are on one trace from two distinct
-   senders.
-4. **`hypothesis`** has `threshold` 2: the first flag is held (`within` 500
-   ms); the second crosses it. One call: the program gets `{"payload": ...,
-   "inputs": [logs flag, deploys flag]}`, waits 500 ms standing in for a model
-   and answers `{"alert":5,"service":"checkout","detectors":["deploys","logs"]}`.
-   The answer goes to the sender of the crossing input (`deploys`), and is
-   forwarded to `diagnosis`.
-5. **`diagnosis`** is a composed neuron. Its input goes to `topology`, which
-   adds `root: "gateway"` and passes everything else through. Its link takes
-   that to `check`, which adds `deploy` and `minutes` and is the `exit`: its
-   answer is the composed neuron's answer. The outer trace shows one signal
-   in and one answer out.
-6. The verdict `{"alert":5,"service":"checkout","detectors":[...],"root":"gateway","deploy":"dep-8b21","minutes":14}`
-   is the answer event of `diagnosis`. `diagnosis` has no outgoing links, so
-   nothing is forwarded: the run ends here.
+## Appendix A. Walk-through: one alert (informative)
 
-If a newer alert for `checkout` is injected while step 4's call is running,
-the injection makes any still-running detector work for alert 5 stale. When
-`logs` then flags the newer alert, its forward (same sender, same key) makes
-its earlier forward stale. That forward is one of the running call's inputs,
-so the `hypothesis` call is cut (5.5, #17) and one `drop`, reason `replaced`,
-phase `running`, is reported. If the newer alert leaves `logs` quiet, nothing
-is forwarded and the call finishes.
+Files: [alerts.network.json](../spec/examples/alerts.network.json),
+[diagnosis.network.json](../spec/examples/diagnosis.network.json); programs in
+`spec/examples/neurons/` and `examples/alerts/`. The producer injects, at their
+`at` times, the 40 alerts of `examples/alerts/alerts.json` (a timed schedule that
+is the producer's, not the file's), each with its service as key. Alert 5:
+`{"id":5,"service":"checkout","severity":"warn",...}`.
 
-### Where each piece of `examples/alerts-demo.mjs` went
+1. Signal #1 goes from `alerts` to `logs`, `deploys`, `metrics` (hops 0).
+2. `metrics` prints nothing: quiet, forwarded nowhere.
+3. `logs` and `deploys` each flag; each answer goes back to `alerts` (hops 1) and
+   is forwarded to `hypothesis` (hops 2), `cause` the answer, key `checkout`.
+4. `hypothesis` (`threshold` 2): the first flag is held; the second flag's sender
+   crosses. The program gets `{"payload": ..., "inputs": [flag, flag]}`, waits
+   500 ms and answers `{"alert":5,"service":"checkout","detectors":["deploys","logs"]}`
+   to the crossing input's sender, forwarded to `diagnosis`.
+5. `diagnosis` is composed: `topology` adds `root`, the link takes it to
+   `check` (the `exit`), which adds `deploy` and `minutes`. Outside, one signal
+   in, one answer out.
+6. The verdict is `diagnosis`'s answer event. It has no outgoing links, so the run
+   ends. A newer `checkout` alert during step 4 cuts the call as in the section 7 example.
 
-| Today's caller code | Now |
-|---|---|
-| `alerts` neuron with a no-op adapter | `"source": true` |
-| `net.emit('alerts', json(a), { replaces: a.service })` | injection with a key (4.1). **Finding 1**, below. |
-| `net.connect('alerts', d)`, `net.connect(d, 'hypothesis')`, `connect('hypothesis', 'diagnosis')` | seven one-way `links` |
-| `onSignal`: "only non-empty answers matter" | a quiet answer forwards nothing (4.4); detectors print nothing to be quiet |
-| `net.emit(s.from, s.payload, { to: ['hypothesis'], cause: s, replaces: d.service })` for the three detectors, and again for `hypothesis` -> `diagnosis` | automatic forward along outgoing links, `cause` the answer, key inherited (4.4); `to` is the only outgoing link |
-| `new Neuron('hypothesis', ..., { threshold, within: 500 })` | `"threshold": 2, "within": 500` |
-| `hypothesis`: `flags[0]`, sorted detector names, the 500 ms wait | the program `hypothesis.mjs` (a decision, so a program); the 500 is its argument |
-| `callOf`, `runs`, `stats`, `cutSince`, `heldReplaced`, `expired`, `verdicts`, the log lines | not part of the network. They are observers; every count is derived from the trace (the replay module already does it). Held versus running is `phase` (9.3). |
-| `diagnosis`: an inner network, with `door`, `topology`, `check`, and the merge `{...v, call, alert, detectors}` | `diagnosis.network.json`; `door` is not needed (the engine delivers to `entry`); the merge is each inner program passing its input through (**Finding 3**) |
-| `composedDiagnosis`'s `live()` abort check | engine rule: replaced or timed-out work is cancelled, inner work included (3.6) |
-| `onError` log | `error` events |
+How a run ends: the producer has injected everything; the engine waits until
+nothing runs, and the demo then also waits `within` (500 ms) so lone flags
+expire; an engine's idle wait may do the same (6.2). The file hard-codes
+`threshold` 2; the demo's variants 1 and 3 are two more files, not a parameter.
+Where each piece of the demo's caller code went, and what could not be
+expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
 
-**Findings.** Nothing in the alert storm needs a key in the file to read a
-payload. Four things are not what the caller code was, said plainly:
+## Appendix B. Out of version 0 (informative)
 
-1. **The root key is supplied at injection, by the producer.** "Replaces keyed
-   by service" survives as an envelope field of the injected signal; the file
-   cannot compute it, because that would be reading the payload. Whatever
-   produces alerts must know which field makes an older alert stale. This is
-   the only caller-side piece left, and it is at the edge of the network, where
-   the signal is born.
-2. **`call`, the per-run counter, cannot exist at level 0.** A fresh process
-   per signal has no memory, so `hypothesis.mjs` does not number its calls.
-   The counter was demo instrumentation (a log line, and a field the verdict
-   copied); the number of calls is a count of `acting` in the trace. A neuron
-   that truly needs state across calls uses `serve` (level 1).
-3. **Merging is a convention between programs, not an engine feature.** The
-   verdict has the alert, the detectors, the root and the deploy because
-   `topology` and `check` copy their input and add to it. The engine does no
-   merging. A neuron that forgets to pass the context through loses it; there
-   is no field to ask the engine to keep it.
-4. **There is no network result.** The verdict is read from the `answer` event
-   of `diagnosis` in the trace (4.5), where the demo collected it into an
-   array. A caller that wants it as a return value reads the trace.
+- Strength: a state file keyed by instance path, adjusted by the caller. Until
+  then every sender counts 1.
+- Passive and active channels (open; no field reserved); link attributes.
+- `http` authentication and headers; `human` interface; Wasm neurons;
+  Windows; concurrency limits at level 0; a run-level result; inspecting inside
+  a composed neuron; byte-level fixtures and real-process fixtures; hot reload.
+- Distribution: the engine will ship as a binary inside the npm and pip
+  packages (the esbuild and ruff pattern).
+- **Plan for 0.1**, each with a conformance fixture: a per-trace `finished` event
+  (with the count still held); per-trace budget limits declared in the network
+  file; a normative live trace stream for observers.
 
-One behaviour changes on purpose: under #17 a call is also cut when an
-*earlier* counted input is replaced, so a recording of the storm made by an
-engine following this version may cut more calls than the TypeScript demo
-does today.
+## Appendix C. How the TypeScript library differs (informative)
 
-## 13. Appendix (informative)
+The library in `src/` is the first engine to be brought into line. Deliberate
+differences:
 
-### 13.1 A Python neuron on level 0 and on level 1
-
-Level 0: `echo '{"service":"checkout","severity":"crit"}' | python3 flag.py`
-
-```python
-import json, sys
-alert = json.load(sys.stdin)
-if alert["severity"] == "crit":
-    print(json.dumps({"detector": "severity", "service": alert["service"]}))
-# printing nothing is "quiet"
-```
-
-Level 1, in a network file as `{"id": "judge", "serve": ["python3", "judge.py"]}`:
-
-```python
-import json, sys
-
-def send(message):
-    sys.stdout.write(json.dumps(message) + "\n")
-    sys.stdout.flush()
-
-hello = json.loads(sys.stdin.readline())
-send({"v": 1, "type": "ready", "maxInflight": 1})
-for line in sys.stdin:                      # end of input means shut down
-    message = json.loads(line)
-    if message["type"] == "signal":
-        n = message["payload"].get("n", 0)
-        if n > 0:
-            send({"type": "answer", "re": message["re"], "payload": {"n": n + 1}})
-        else:
-            send({"type": "quiet", "re": message["re"]})
-    elif message["type"] == "ping":
-        send({"type": "pong", "n": message["n"]})
-    # "cancel" is advisory: a single-threaded program has nothing to stop
-```
-
-### 13.2 How the TypeScript library maps
-
-The library in `src/` predates this document and is the first engine to be
-brought into line. Differences to remove, none of them hidden:
-
-- `Neuron.connect` links both ways; the spec's links are one-way. The engine
-  needs a one-way link primitive, and `connect(a, b)` becomes two links. A
-  network file maps to one-way primitives only.
-- Nothing forwards answers today: callers do, with `emit(..., { cause })`. The
-  engine does it from the links, and the `send` and `Neuron.query` paths stay
-  as direct asks outside this specification.
-- Only the crossing input's replacement cuts a running threshold call; #17
-  makes any counted input do it.
-- `onDrop` reports held and running work under one reason; `phase` (9.3) is
-  the trace-level fix, and what the callback does is the library's own API.
-- `ShellAdapter` writes a text payload raw and parses non-JSON stdout as text;
-  level 0 here is JSON both ways.
-- Its trace `neurons[].kind` strings (`js`, `shell script`, `model stand-in`)
-  stay valid in v1 (the field is descriptive).
+- one-way links (`connect` links both ways today);
+- automatic forwarding along links (callers forward today); `emit` `to` limited
+  to outgoing links;
+- a running threshold call is cut by any replaced input (#17), not only the
+  crossing one;
+- a composed neuron is one shared inner network per instance (the demo builds a
+  fresh one per call);
+- a default `timeout` of 30 s (none today);
+- a minimal environment (the shell adapter inherits the engine's);
+- process-group kill with SIGKILL after 2 s (the adapter kills the child only);
+- level 0 is JSON both ways (the shell adapter writes text raw and reads
+  non-JSON as text);
+- `phase` on drops (`onDrop` reports one reason today);
+- the threshold stdin shape applies above 1 only.
