@@ -1,0 +1,13 @@
+{
+  "$schema": "../network.schema.json",
+  "version": 0,
+  "name": "diagnosis",
+  "description": "Used as a composed neuron: a topology lookup, then a read-only deploy check. Each passes its input through, so the answer carries the whole context.",
+  "entry": "topology",
+  "exit": "check",
+  "neurons": [
+    { "id": "topology", "description": "Follows 'depends on' to the root of the failure chain.", "run": ["node", "neurons/topology.mjs", "../../examples/alerts/topology.json"] },
+    { "id": "check", "description": "Reads the deploy list for the root.", "run": ["node", "neurons/check.mjs", "../../examples/alerts/deploys.txt"] }
+  ],
+  "links": [{ "from": "topology", "to": "check" }]
+}

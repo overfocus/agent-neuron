@@ -40,6 +40,9 @@ interested in new ideas about how agents can be connected.
 
 Where it could be useful, ranked honestly by fit: [docs/USE-CASES.md](docs/USE-CASES.md).
 
+The network file format, the neuron contract and the routing rule are
+specified in [docs/SPEC.md](docs/SPEC.md) (version 0, draft).
+
 ## Why "neuron"
 
 The name is a loose analogy, not a model of biology. A neuron here stands for
