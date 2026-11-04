@@ -33,7 +33,8 @@ const sleep = (ms, abort) =>
 // Invented metrics: error rate (%) per service. Only critical alerts are checked against them.
 const errorRate = { gateway: 9.4, payments: 7.8, checkout: 1.1, search: 0.6, inventory: 0.9 };
 
-export async function runAlerts(lib, { log = () => {}, listeners = {} } = {}) {
+// `threshold`: how many distinct detectors must flag one alert before `hypothesis` runs (the recorded variants try 1, 2 and 3).
+export async function runAlerts(lib, { log = () => {}, listeners = {}, threshold = 2 } = {}) {
   const { Network, Neuron, ShellAdapter, json, text } = lib;
   const quiet = () => text('');
   const stats = { alerts: 0, flags: 0, calls: 0, cut: 0, heldReplaced: 0, expired: 0, diagnoses: 0 };
@@ -99,7 +100,7 @@ export async function runAlerts(lib, { log = () => {}, listeners = {} } = {}) {
     new Neuron('logs', new ShellAdapter('sh', [here('detect-logs.sh'), here('logs.txt')])),
     new Neuron('deploys', new ShellAdapter('sh', [here('detect-deploys.sh'), here('deploys.txt')])),
     new Neuron('metrics', metrics),
-    new Neuron('hypothesis', hypothesis, { threshold: 2, within: WITHIN_MS }),
+    new Neuron('hypothesis', hypothesis, { threshold, within: WITHIN_MS }),
     new Neuron('diagnosis', {
       handle: async (payload, signal, context) => {
         const v = (await diagnosis.handle(payload, signal, context)).data;

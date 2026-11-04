@@ -1,27 +1,21 @@
 // The network view: a local page that draws a demo's network as it runs.
 //   npm run view     (builds first, then listens on 127.0.0.1 on a free port and prints the URL)
-// Serves three static files and one Server-Sent Events endpoint, /events?demo=<name>, which
+// Serves four static files and one Server-Sent Events endpoint, /events?demo=<name>, which
 // runs that demo in this process and streams what its Network reports (onSignal, onDrop,
-// onError). Nothing is fetched from outside and the page makes no outside requests.
+// onError) as trace events. Nothing is fetched from outside and the page makes no outside requests.
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { runAlerts } from '../alerts-demo.mjs';
+import { scenarios } from '../trace/scenarios.mjs';
+import { tap } from '../trace/tap.mjs';
 
-const FILES = { '/': ['index.html', 'text/html'], '/view.css': ['view.css', 'text/css'], '/view.js': ['view.js', 'text/javascript'] };
-const quiet = () => {};
+export { scenarios };
 
-// `holds`: the neurons that wait for a threshold, and what it is, so the page can show their waiting inputs.
-// The page counts them the way `emit` holds them: not `send`, and not an input a neuron's `maxHops` refuses.
-// shortcut: listed by hand; read them from the neurons if a scenario needs more than this.
-const typing = (suggest) => async (listeners) => {
-  const { jsTracks, runTyping } = await import('../typing-demo.mjs'); // imports dist/, so only when asked
-  await runTyping({ tracksAdapter: jsTracks(), suggest, log: quiet, listeners });
-};
-export const scenarios = {
-  alerts: { label: 'Alert storm', holds: { hypothesis: 2 }, run: (listeners, lib) => runAlerts(lib, { listeners }) },
-  typing: { label: 'Typing', holds: {}, run: typing(false) },
-  suggest: { label: 'Suggest (threshold)', holds: { suggest: 2 }, run: typing(true) },
+const FILES = {
+  '/': ['index.html', 'text/html'],
+  '/view.css': ['view.css', 'text/css'],
+  '/view.js': ['view.js', 'text/javascript'],
+  '/replay.js': ['../trace/replay.mjs', 'text/javascript'], // the page folds events with the same module any trace reader can use
 };
 
 // A payload as one short line: text as is, a list joined with " | ", an object as "key: value" pairs.
@@ -35,10 +29,8 @@ const brief = (p) => {
   else s = plain(d);
   return s.length > 80 ? `${s.slice(0, 77)}...` : s;
 };
-const wire = (s) => ({
-  id: s.id, from: s.from, to: s.to ?? [], trace: s.trace, replyTo: s.replyTo, hops: s.hops,
-  quiet: s.payload.type === 'text' && s.payload.text === '', text: brief(s.payload),
-});
+// The events are the trace's (docs/TRACE.md), plus `text`: the payload as one line for the log.
+const wire = (e) => ({ ...e, ...(e.payload && { text: brief(e.payload) }) });
 
 /** Start the server on `port` (0: any free one). `lib` is the library the alerts scenario runs on. */
 export function startViewServer(lib, port = 0) {
@@ -74,21 +66,16 @@ function stream(name, req, res, headers, lib) {
   const scenario = Object.hasOwn(scenarios, name) ? scenarios[name] : undefined;
   if (!scenario) return void res.writeHead(404, headers).end('unknown demo');
   res.writeHead(200, { ...headers, 'Content-Type': 'text/event-stream', Connection: 'keep-alive' });
-  const t0 = Date.now();
   const send = (event) => {
     if (res.writableEnded || res.destroyed) return;
-    res.write(`data: ${JSON.stringify({ ...event, ms: Date.now() - t0 })}\n\n`);
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
   };
-  send({ type: 'start', demo: name, holds: scenario.holds });
+  send({ type: 'start', demo: name, neurons: scenario.neurons, links: scenario.links });
   // A listener that throws would skip the demo's own handler for that event, so these only serialise and write.
-  const listeners = {
-    onSignal: (s) => send({ type: 'signal', ...wire(s) }),
-    onDrop: (s, neuron, reason) => send({ type: 'drop', neuron, reason, signal: wire(s) }),
-    onError: (e, s, neuron) => send({ type: 'error', neuron, message: String(e?.message ?? e), signal: wire(s) }),
-  };
+  const { listeners, fail } = tap((e) => send(wire(e)));
   scenario
     .run(listeners, lib)
-    .catch((e) => send({ type: 'fail', message: String(e?.message ?? e) })) // the run itself failed: no neuron to blame
+    .catch(fail)
     .finally(() => {
       send({ type: 'done' });
       res.end();

@@ -26,6 +26,7 @@
     "demo:composed": "npm run -s build && npm run -s rust:build && node examples/composed.mjs",
     "check": "npm run -s typecheck && npm run -s rust:test && npm run -s rust:build && npm run -s test && npm run -s build",
     "view": "npm run -s build && node examples/view/server.mjs",
+    "record": "npm run -s build && node examples/trace/record.mjs",
     "check:browser": "node scripts/kit.mjs check-browser",
     "check:layout": "node scripts/kit.mjs check-layout",
     "verify": "node scripts/kit.mjs verify",

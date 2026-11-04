@@ -30,6 +30,7 @@ npm run example     # builds, then runs examples/first.mjs (pipe a reply into st
 npm run demo:typing # builds, then runs examples/typing.mjs (send without waiting, dropping stale work)
 npm run demo:alerts # builds, then runs the alert storm triage demo (about 6 s)
 npm run view        # builds, then serves the network view on a free 127.0.0.1 port; prints the URL and pid (stop it with kill <pid>)
+npm run record -- <alerts|typing|suggest> [--threshold n] [--out file]  # builds, runs the demo, writes traces/<demo>.json (docs/TRACE.md)
 npm run check:browser -- --base <url> --routes / --checks examples/view/checks.json  # needs the view running
 npm run check:layout -- --base <url> --file examples/view/layout.json  # phone and desktop layout, same server
 npm run verify      # the gate: typecheck, rust test, rust build, test, build; writes .verify/receipt.json
@@ -96,6 +97,7 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 | Core (neuron, network, signals, adapters in `src/adapters/`) | `src/` | `test/` |
 | The demos (`npm run example`, `demo:typing`, `demo:loop`, `demo:suggest`, `demo:alerts`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand, except `demo:alerts`: `test/alerts.test.ts` |
 | The network view (`npm run view`): a Node server, one page, no framework | `examples/view/` | `test/view.test.ts` (server); `examples/view/checks.json` and `layout.json` and `layout-suggest.json` (browser, by hand) |
+| Trace recorder and replay (`npm run record`): `examples/trace/` (tap, scenarios, record, replay) and the recorded files in `traces/` | `examples/trace/`, `traces/` | `test/recording.test.ts` (validity, replay, privacy of every committed trace) |
 | Rust neurons (std-only): `catalogue` (library + binary; `npm run demo:rust`) and `music`, a composed neuron with its own inner network (`npm run demo:composed`) | `rust/` | `cargo test` in each crate; `test/rust.test.ts` and `test/composed.test.ts` drive the built binaries |
 
 ## Everywhere
@@ -128,14 +130,15 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
   with `killall node`. Closing the page does not stop its run. The page makes
   no outside requests (a CSP of `default-src 'self'; img-src data:` enforces it). The server
   imports `dist/` only when typing or suggest runs (so `test/view.test.ts`
-  needs no build); `holds` in `examples/view/server.mjs` lists by hand which
-  neurons have a threshold. A demo hooks the view through `listeners` and `log`
+  needs no build); the neurons and their thresholds (so which ones show "waiting") are declared in
+  `examples/trace/scenarios.mjs`, and the page counts with `examples/trace/replay.mjs`, served as `/replay.js`. A demo hooks the view through `listeners` and `log`
   options on `runTyping` and `runAlerts`, called before the demo's own
   handlers (a listener that throws skips the demo's own handler for that event, so the view's only serialise and write); terminal output is unchanged and `src/` knows nothing of the view.
 - `examples/` imports from `../dist/`, not `src/`, so it needs a build first
   (`npm run example`, `demo:typing` and `demo:rust` build). The demos have no
   tests (run them by hand), except `demo:alerts`: `test/alerts.test.ts` imports
   `examples/alerts-demo.mjs` with `src/`.
+- Traces (`traces/*.json`, `docs/TRACE.md`) are committed recordings of real runs: re-record them with `npm run record` after changing a demo, its timing, or a neuron's options. Record on an idle machine; `test/recording.test.ts` checks invariants and that each summary matches its replay. Other projects may copy `traces/` and `examples/trace/replay.mjs`, so a breaking format change bumps `version` (rules in `docs/TRACE.md`). Traces are public: `scenarios.mjs` descriptions name scripts by file name only, and the privacy test fails on paths, emails, hostnames and the machine's user name; private words are checked too but are never committed: list them one per line in `~/.config/agent-neuron/trace-denylist` (outside the repo, so every worktree sees it), or in the gitignored `.trace-denylist`, or in `$TRACE_DENYLIST` (comma separated).
 - `network.idle()` waits only for `emit` work, not `send`. `onError` and
   `onDrop` fire only for `emit`; `send` still throws.
 - Listeners on `emit` work (`onSignal`, `onError`, `onDrop`) that throw are

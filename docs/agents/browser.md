@@ -12,7 +12,7 @@ npm run view   # in one terminal: builds, prints http://127.0.0.1:<port>/ (and t
 npm run check:browser -- --base http://127.0.0.1:<port> --routes / --checks examples/view/checks.json
 ```
 
-The only route is `/` (the network view, `examples/view/`). `agent-kit.config.json` has no `browser` key, so the kit's default widths (320, 390, 768, 1280) apply; `--widths` and `--ignore "text"` are the other options.
+The only route is `/` (the network view, `examples/view/`; the server also serves `examples/trace/replay.mjs` as `/replay.js`, which the page imports). `agent-kit.config.json` has no `browser` key, so the kit's default widths (320, 390, 768, 1280) apply; `--widths` and `--ignore "text"` are the other options.
 
 The agent-kit loop plugin's `check-browser.mjs`, run through `scripts/kit.mjs`,
 drives the installed Google Chrome headless (`playwright-core`, a dev
