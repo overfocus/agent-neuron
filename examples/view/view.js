@@ -1,7 +1,9 @@
 // The network view's page. It draws only what the traffic shows: a node appears when a neuron
 // first sends or receives a signal, an edge when a signal first crosses it. No libraries.
 // Each node counts what it did (answers, quiet, dropped, sent) and each edge how many signals crossed it,
-// so the end state shows which neurons did the work and how much was dropped.
+// so the end state shows which neurons did the work and how much was dropped. The counting and the inputs a
+// threshold neuron holds are not done here: every event goes through step() from replay.js, the module a trace file is replayed with.
+import { start, step } from '/replay.js';
 const $ = (id) => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 const svg = $('graph');
@@ -19,7 +21,7 @@ const el = (name, attrs = {}, parent) => {
 };
 const layer = (name) => svg.querySelector(`#${name}`);
 
-let source, nodes, edges, held, holds, lines, quietLine;
+let source, nodes, edges, state, lines, quietLine;
 
 function reset() {
   source?.close();
@@ -27,7 +29,7 @@ function reset() {
   logEl.replaceChildren();
   // Drawn in this order: markers pass under the node they reach, never over its words.
   for (const name of ['edges', 'markers', 'nodes']) el('g', { id: name }, svg);
-  nodes = new Map(); edges = new Map(); held = new Map(); holds = {}; lines = 0; quietLine = null;
+  nodes = new Map(); edges = new Map(); state = start({ neurons: [] }); lines = 0; quietLine = null;
 }
 
 function node(id, col) {
@@ -39,10 +41,10 @@ function node(id, col) {
   const text = (cls, y) => el('text', { class: cls, y }, g);
   const [name, status, work, lost] = [text('name', -18), text('status', -4), text('count', 11), text('count', 24)];
   name.textContent = id;
-  const badge = el('g', { class: 'badge', display: holds[id] ? 'inline' : 'none' }, g);
+  const badge = el('g', { class: 'badge', display: state.thresholds[id] ? 'inline' : 'none' }, g);
   el('rect', { rx: 8, width: 56, height: 16 }, badge);
   const badgeText = el('text', { x: 28, y: 12 }, badge);
-  n = { id, col, g, title, rect, status, work, lost, badge, badgeText, x: 0, y: 0, sent: 0, answers: 0, quiet: 0, dropped: 0 };
+  n = { id, col, g, title, rect, status, work, lost, badge, badgeText, x: 0, y: 0 };
   nodes.set(id, n);
   showCounts(n);
   showWaiting(n);
@@ -54,12 +56,12 @@ function edge(a, b) {
   const key = [a, b].sort().join('\0');
   let e = edges.get(key);
   if (!e) {
-    e = { a, b, count: 0, line: el('line', { class: 'edge' }, layer('edges')) };
+    e = { a, b, line: el('line', { class: 'edge' }, layer('edges')) };
     edges.set(key, e);
     layout();
   }
-  e.count++;
-  e.line.setAttribute('stroke-width', Math.min(8, 1 + Math.log2(e.count)).toFixed(2));
+  const count = (state.edges[a]?.[b] ?? 0) + (state.edges[b]?.[a] ?? 0);
+  e.line.setAttribute('stroke-width', Math.min(8, 1 + Math.log2(count)).toFixed(2));
   return e;
 }
 
@@ -106,14 +108,16 @@ function setStatus(n, kind, text) {
 
 // Two short word lines under the status: what it did, and what was dropped.
 function showCounts(n) {
-  n.work.textContent = n.answers ? `${n.answers} answer${n.answers === 1 ? '' : 's'}` : n.sent ? `sent ${n.sent}` : '';
-  n.lost.textContent = n.dropped ? `${n.dropped} dropped` : '';
-  n.title.textContent = `${n.id}: ${n.sent} sent, ${n.answers} answers, ${n.quiet} quiet, ${n.dropped} dropped`;
+  const { sent, answers, quiet, dropped } = state.neurons[n.id];
+  const lost = Object.values(dropped).reduce((a, b) => a + b, 0);
+  n.work.textContent = answers ? `${answers} answer${answers === 1 ? '' : 's'}` : sent ? `sent ${sent}` : '';
+  n.lost.textContent = lost ? `${lost} dropped` : '';
+  n.title.textContent = `${n.id}: ${sent} sent, ${answers} answers, ${quiet} quiet, ${lost} dropped`;
 }
 
 function showWaiting(n) {
-  if (!holds[n.id]) return;
-  const count = held.get(n.id)?.size ?? 0;
+  if (!state.thresholds[n.id]) return;
+  const count = state.held[n.id]?.length ?? 0;
   n.badge.classList.toggle('idle', count === 0);
   n.badgeText.textContent = `waiting ${count}`;
 }
@@ -159,23 +163,8 @@ function logQuiet(id, ms) {
   quietLine = { li: addLine('quiet', '◇ quiet', id, ms), names: new Set([id]), count: 1 };
 }
 
-// A threshold neuron holds inputs until enough distinct senders have sent one on a trace.
-function hold(s) {
-  for (const id of s.to) {
-    if (!holds[id]) continue;
-    const mine = held.get(id) ?? new Map();
-    held.set(id, mine);
-    mine.set(s.id, { trace: s.trace, from: s.from });
-    const senders = new Set([...mine.values()].filter((h) => h.trace === s.trace).map((h) => h.from));
-    if (senders.size >= holds[id]) {
-      for (const [k, h] of mine) if (h.trace === s.trace) mine.delete(k);
-      setStatus(nodes.get(id), 'acting', '▸ acting');
-    }
-    showWaiting(nodes.get(id));
-  }
-}
-
 function onSignal(s) {
+  const acting = step(state, s);
   const known = s.to.map((id) => nodes.get(id)).find(Boolean);
   const from = node(s.from, known ? Math.max(0, known.col - 1) : 0);
   for (const id of s.to) {
@@ -183,40 +172,39 @@ function onSignal(s) {
     edge(s.from, id);
   }
   const where = s.to.join(', ');
-  if (s.replyTo) {
-    setStatus(from, s.quiet ? 'quiet' : 'answer', s.quiet ? '◇ quiet' : '◆ answer');
-    if (s.quiet) {
-      from.quiet++;
-      logQuiet(s.from, s.ms);
-    } else {
-      from.answers++;
-      for (const id of s.to) travel(s.from, id, true);
-      addLine('answer', '◆ answer', `${s.from} → ${where}: ${s.text}`, s.ms);
-    }
+  if (s.type === 'quiet') {
+    setStatus(from, 'quiet', '◇ quiet');
+    logQuiet(s.from, s.t);
+  } else if (s.type === 'answer') {
+    setStatus(from, 'answer', '◆ answer');
+    for (const id of s.to) travel(s.from, id, true);
+    addLine('answer', '◆ answer', `${s.from} → ${where}: ${s.text}`, s.t);
   } else {
-    from.sent++;
     for (const id of s.to) travel(s.from, id, false);
-    addLine('signal', '● signal', `${s.from} → ${where}: ${s.text}`, s.ms);
-    hold(s);
+    addLine('signal', '● signal', `${s.from} → ${where}: ${s.text}`, s.t);
+  }
+  for (const id of s.to) {
+    if (acting.includes(id)) setStatus(nodes.get(id), 'acting', '▸ acting');
+    showWaiting(nodes.get(id));
   }
   showCounts(from);
 }
 
 function onDrop(e) {
+  step(state, e);
   const [short, long] = WHY[e.reason] ?? [e.reason, e.reason];
   const n = node(e.neuron, 0);
-  n.dropped++;
   setStatus(n, 'drop', `✕ ${short}`);
   showCounts(n);
-  held.get(e.neuron)?.delete(e.signal.id);
   showWaiting(n);
-  addLine('drop', '✕ dropped', `${e.neuron}: ${long} (${e.signal.from}: ${e.signal.text})`, e.ms);
+  addLine('drop', '✕ dropped', `${e.neuron}: ${long} (${e.from}: ${e.text})`, e.t);
 }
 
 function onError(e) {
+  step(state, e);
   // A run-level failure names no neuron: it is logged and draws nothing.
   if (e.neuron) setStatus(node(e.neuron, 0), 'error', '▲ error');
-  addLine('error', '▲ error', `${e.neuron ?? 'the run'}: ${e.message}`, e.ms);
+  addLine('error', '▲ error', `${e.neuron ?? 'the run'}: ${e.message}`, e.t);
 }
 
 function finish(done) {
@@ -231,10 +219,11 @@ function run() {
   source = new EventSource(`/events?demo=${encodeURIComponent($('demo').value)}`);
   source.onmessage = (m) => {
     const e = JSON.parse(m.data);
-    if (e.type === 'start') holds = e.holds;
-    else if (e.type === 'signal') onSignal(e);
+    if (e.type === 'start') {
+      state = start(e);
+    } else if (['signal', 'answer', 'quiet'].includes(e.type)) onSignal(e);
     else if (e.type === 'drop') onDrop(e);
-    else if (e.type === 'error' || e.type === 'fail') onError({ ...e, neuron: e.type === 'fail' ? null : e.neuron });
+    else if (e.type === 'error' || e.type === 'fail') onError(e);
     else if (e.type === 'done') finish(true);
   };
   // EventSource would reconnect, and a reconnect would run the demo again.

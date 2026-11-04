@@ -6,3 +6,4 @@ dist/
 .claude/worktrees/
 .claude/settings.local.json
 rust/target/
+.trace-denylist

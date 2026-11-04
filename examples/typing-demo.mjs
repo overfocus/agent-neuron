@@ -54,6 +54,8 @@ export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7, s
   const typed = new Map();
 
   let suggestRuns = 0;
+  const neurons = []; // every neuron added, in order (the trace recorder declares them)
+  const add = (neuron) => (neurons.push(neuron), network.add(neuron));
   const network = new Network({
     onSignal: (s) => {
       listeners.onSignal?.(s);
@@ -81,12 +83,12 @@ export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7, s
     onError: (e, s, id) => (listeners.onError?.(e, s, id), log(`  error    ${id}: ${e.message}`)),
   });
 
-  network.add(new Neuron('box', lookup(0, () => null)));
-  network.add(new Neuron(tracksId, tracksAdapter));
+  add(new Neuron('box', lookup(0, () => null)));
+  add(new Neuron(tracksId, tracksAdapter));
   // artist: quickest, acts only on an exact name
-  network.add(new Neuron('artist', lookup(20, (p) => (artists.some((a) => a.toLowerCase() === p) ? [p] : null))));
+  add(new Neuron('artist', lookup(20, (p) => (artists.some((a) => a.toLowerCase() === p) ? [p] : null))));
   // lyrics: slow, acts from 5 characters
-  network.add(
+  add(
     new Neuron(
       'lyrics',
       lookup(250, (p) => (p.length < 5 ? null : lyrics.filter((l) => l.includes(p)))),
@@ -100,7 +102,7 @@ export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7, s
         return json(context.inputs.map((i) => i.from));
       },
     };
-    network.add(new Neuron('suggest', agree, { threshold: 2, within: 400 }));
+    add(new Neuron('suggest', agree, { threshold: 2, within: 400 }));
     for (const id of [tracksId, 'artist', 'lyrics']) network.connect(id, 'suggest');
   }
 
@@ -118,4 +120,5 @@ export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7, s
     log('only the last keystroke can agree: artist answers only the full name, and lyrics is always replaced before it answers.');
     log('lyrics arrived after suggest had acted, so it started a new hold and gave up waiting.');
   }
+  return { neurons, keystrokes: query.length, suggestRuns };
 }

@@ -283,6 +283,17 @@ from its traffic as it happens, with answers, dropped work and held inputs
 labelled, and a log of the same events beside or below it. Stop the server with Ctrl+C. No
 framework, no outside requests.
 
+## Record a trace
+
+```sh
+npm run record -- alerts      # also: typing, suggest; writes traces/<demo>.json
+```
+
+Runs a demo and writes every signal, answer, drop and error, with its time, as
+one JSON file that can be replayed later without running anything. The alert
+storm is also recorded with `--threshold 1` and `3`. Format and replay:
+[docs/TRACE.md](docs/TRACE.md).
+
 ## Run the Rust demo
 
 ```sh
