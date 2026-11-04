@@ -29,7 +29,7 @@ export async function record(demo, lib, { threshold } = {}) {
   const scenario = threshold === undefined ? scenarios[demo] : alertsScenario(threshold);
   const events = [];
   let failure;
-  const { listeners, fail } = tap((e) => events.push(e.payload ? { ...e, payload: capPayload(e.payload) } : e));
+  const { listeners, fail } = tap((e) => events.push(e.payload ? { ...e, payload: capPayload(e.payload) } : e), scenario.neurons);
   const result = await scenario.run(listeners, lib).catch((e) => ((failure = e), fail(e)));
   if (failure) throw failure;
   // The declaration must match the neurons the run built, or the trace would describe something else.

@@ -4,7 +4,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { INNER_IDS } from '../examples/alerts-demo.mjs';
-import { replay, start, step, type Trace } from '../examples/trace/replay.mjs';
+import { replay, start, step, type Trace, type TraceEvent } from '../examples/trace/replay.mjs';
+import { tap } from '../examples/trace/tap.mjs';
+import { Network, Neuron, text, type Adapter, type AdapterContext } from '../src/index.js';
 
 // Every committed trace (docs/TRACE.md). Re-record with `npm run record` after changing a demo.
 const dir = new URL('../traces/', import.meta.url);
@@ -99,6 +101,7 @@ describe('replaying committed traces', () => {
         if (e.type === 'drop' && walk.thresholds[e.neuron!] !== undefined && e.reason !== 'hops' && !ran.has(e.id!)) {
           expect(heldBefore, `${file}: drop of ${e.id} at ${e.neuron}`).toContain(e.id);
         }
+        if (e.type === 'drop' && e.phase !== undefined) expect(e.phase, `${file}: phase of the drop of ${e.id}`).toBe(e.reason !== 'replaced' ? undefined : heldBefore.includes(e.id!) ? 'waiting' : 'running');
         if (step(walk, e).length) ran.add(e.id!);
       }
       for (const held of Object.values(state.held)) expect(held).toHaveLength(0);
@@ -183,5 +186,34 @@ describe('trace privacy', () => {
       expect(broken).not.toBe(good);
       expect(hits(broken).length, leak).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('tap', () => {
+  it('writes phase on a replaced drop: waiting for a held input, running for a cut call', async () => {
+    const events: TraceEvent[] = [];
+    const { listeners } = tap((e) => events.push(e), [{ id: 'h', options: { threshold: 2 } }]);
+    const slow: Adapter = {
+      handle: (_p, _s, c?: AdapterContext) =>
+        new Promise((resolve) => {
+          const timer = setTimeout(() => resolve(text('done')), 200);
+          c?.abort?.addEventListener('abort', () => (clearTimeout(timer), resolve(text('cut'))), { once: true });
+        }),
+    };
+    const network = new Network(listeners);
+    network.add(new Neuron('h', slow, { threshold: 2 }));
+    for (const id of ['a', 'b']) (network.add(new Neuron(id, slow)), network.connect(id, 'h'));
+    const a1 = network.emit('a', text('a1'), { to: ['h'], replaces: 'k' });
+    network.emit('a', text('a1b'), { to: ['h'], cause: a1, replaces: 'k' }); // a1 was held: waiting
+    network.emit('b', text('b1'), { to: ['h'], cause: a1 }); // crosses
+    await new Promise((r) => setTimeout(r, 30));
+    network.emit('a', text('a2'), { to: ['h'], cause: a1, replaces: 'k' }); // cuts the running call
+    await network.idle();
+    const drops = events.filter((e) => e.type === 'drop').map((e) => [e.reason, e.phase]);
+    expect(drops).toEqual([['replaced', 'waiting'], ['replaced', 'running']]);
+    const bare: TraceEvent[] = [];
+    tap((e) => bare.push(e)).listeners.onDrop(events.find((e) => e.type === 'drop') as never, 'h', 'replaced');
+    expect(bare[0]).not.toHaveProperty('phase'); // no neurons given: no guess
+
   });
 });

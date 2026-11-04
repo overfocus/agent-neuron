@@ -125,6 +125,36 @@ describe('threshold', () => {
     expect(drops).toEqual([['s2:b', 'replaced']]);
   });
 
+  it('cuts a running call when an earlier input it acted on is replaced (#17), with one drop for the crossing input', async () => {
+    const drops: [string, string][] = [];
+    const answers: Signal[] = [];
+    let aborted = false;
+    const slow: Adapter = {
+      handle: (_p, _s, c?: AdapterContext) =>
+        new Promise((resolve) => {
+          const timer = setTimeout(() => resolve(text('done')), 300);
+          c?.abort?.addEventListener('abort', () => (clearTimeout(timer), (aborted = true), resolve(text('cut'))), { once: true });
+        }),
+    };
+    const network = new Network({
+      onSignal: (s) => s.from === 'h' && answers.push(s),
+      onDrop: (s, id, reason) => drops.push([`${id}:${s.from}:${(s.payload as { text: string }).text}`, reason]),
+    });
+    network.add(new Neuron('h', slow, { threshold: 2 }));
+    for (const id of ['a', 'b']) {
+      network.add(new Neuron(id, slow));
+      network.connect(id, 'h');
+    }
+    const a1 = network.emit('a', text('a1'), { to: ['h'], replaces: 'k' });
+    network.emit('b', text('b1'), { to: ['h'], cause: a1 }); // crosses: h starts
+    await new Promise((r) => setTimeout(r, 50));
+    network.emit('a', text('a2'), { to: ['h'], cause: a1, replaces: 'k' }); // replaces a1, which h acted on
+    await network.idle();
+    expect(aborted).toBe(true);
+    expect(answers).toEqual([]);
+    expect(drops).toEqual([['h:b:b1', 'replaced']]); // the crossing input, once
+  });
+
   it('an emit from inside onDrop still reaches the threshold', async () => {
     const runs: Signal[][] = [];
     let first: Signal | undefined;

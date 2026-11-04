@@ -192,7 +192,7 @@ function onSignal(s) {
 
 function onDrop(e) {
   step(state, e);
-  const [short, long] = WHY[e.reason] ?? [e.reason, e.reason];
+  const [short, long] = e.phase === 'running' ? ['cut', 'running call cut, replaced by a newer one (stale)'] : (WHY[e.reason] ?? [e.reason, e.reason]);
   const n = node(e.neuron, 0);
   setStatus(n, 'drop', `✕ ${short}`);
   showCounts(n);

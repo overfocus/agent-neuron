@@ -72,7 +72,7 @@ function stream(name, req, res, headers, lib) {
   };
   send({ type: 'start', demo: name, neurons: scenario.neurons, links: scenario.links });
   // A listener that throws would skip the demo's own handler for that event, so these only serialise and write.
-  const { listeners, fail } = tap((e) => send(wire(e)));
+  const { listeners, fail } = tap((e) => send(wire(e)), scenario.neurons);
   scenario
     .run(listeners, lib)
     .catch(fail)

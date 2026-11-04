@@ -136,7 +136,9 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
   not in `pending`, so `idle()` does not wait for them and their `unref`'d timers
   never keep Node alive: a script that ends right after `idle()` never sees the
   `'expired'` drop (the suggest demo sleeps past `within` to show it). `send` and `query` skip the threshold.
+- A threshold neuron's running call listens to the abort of every input it acted on (`AbortSignal.any` in `run`), but reports one `onDrop` 'replaced', for the crossing input, which may not be the replaced one. `onDrop` carries no phase: `tap` (`examples/trace/tap.mjs`) adds `phase` to replaced drops by replaying the declared neurons (its second argument; without it no phase is written), so a listener that needs `phase` must go through `tap(…, neurons)`. The committed traces predate `phase` and were not re-recorded (their numbers did not change).
 - `examples/alerts-demo.mjs` takes the library as an argument (`runAlerts(lib)`), so the demo passes `dist/` and `test/alerts.test.ts` passes `src/`, with no build needed first. Its test asserts invariants only: the exact numbers (alerts for one service 150 ms apart or 900+ ms apart; a shell detector must finish in about 150 ms) hold only on an idle machine. `examples/alerts-demo.d.mts` types it for the test.
+- Replay and `tap` do not model `send` into a threshold neuron (the library does not report `via`), so `phase` can mislabel a held input there.
 - The page's "waiting" count follows `emit`'s threshold semantics only: it does not model `send` (which skips the threshold) or an input a neuron's `maxHops` refuses.
 - The view's server listens on 127.0.0.1 only, on a free port (never a fixed
   one), and answers only that host name and refuses cross-site requests to `/events` (`Sec-Fetch-Site`, `Origin`). Stop it by the pid it prints, never

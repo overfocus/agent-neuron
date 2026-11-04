@@ -31,7 +31,7 @@ const refuses = (target: Neuron, signal: Signal): boolean =>
   target.options.maxHops !== undefined && signal.hops > target.options.maxHops;
 
 /** An input waiting for its neuron's threshold. `settle` stops its timer and listener; `drop` also reports it. */
-type Held = { signal: Signal; settle: () => void; drop: (reason: 'replaced' | 'expired') => void };
+type Held = { signal: Signal; abort: AbortSignal; settle: () => void; drop: (reason: 'replaced' | 'expired') => void };
 
 /** How much one sender counts toward a threshold. shortcut: always 1; strength will return the receiver's rating of `sender`. */
 const weight = (_target: Neuron, _sender: string): number => 1;
@@ -95,6 +95,8 @@ export class Network {
    * emit is replaced is dropped as 'replaced'. Held inputs are waiting, not
    * working: `idle` does not wait for them, and their timers never keep the
    * process alive, so a program that ends first never sees the 'expired'.
+   * A running call is cut when any input it acted on is replaced, not only the
+   * crossing one: one `onDrop` 'replaced' is reported, for the crossing input.
    * A later input on a trace that already ran starts a new hold.
    */
   emit(fromId: string, payload: Payload, { to, replaces, cause }: EmitOptions = {}): Signal {
@@ -121,8 +123,11 @@ export class Network {
 
   private async run(target: Neuron, signal: Signal, abort: AbortSignal): Promise<void> {
     if (refuses(target, signal)) return this.notify(() => this.options.onDrop?.(signal, target.id, 'hops'));
-    const inputs = target.options.threshold === undefined ? undefined : this.hold(target, signal, abort);
-    if (target.options.threshold !== undefined && !inputs) return; // held, waiting for the others
+    const crossed = target.options.threshold === undefined ? undefined : this.hold(target, signal, abort);
+    if (target.options.threshold !== undefined && !crossed) return; // held, waiting for the others
+    const inputs = crossed?.map((held) => held.signal);
+    // The call is stale as soon as any input it acted on is: its emit replaced, not only the crossing one's.
+    if (crossed) abort = AbortSignal.any(crossed.map((held) => held.abort));
     let payload: Payload | undefined;
     let failure: { error: unknown } | undefined;
     try {
@@ -137,8 +142,8 @@ export class Network {
     else this.notify(() => this.options.onSignal?.(newSignal(target.id, payload as Payload, { to: [signal.from], replyTo: signal })));
   }
 
-  /** Hold `signal` for `target`'s threshold. Returns the inputs to act on if it is met, otherwise undefined. */
-  private hold(target: Neuron, signal: Signal, abort: AbortSignal): Signal[] | undefined {
+  /** Hold `signal` for `target`'s threshold. Returns the held inputs to act on if it is met, otherwise undefined. */
+  private hold(target: Neuron, signal: Signal, abort: AbortSignal): Held[] | undefined {
     const key = `${target.id}\0${signal.trace}`;
     // Drop the older input first: its onDrop listener may emit into this neuron and trace, so
     // no listener may run between reading `held` and writing it below.
@@ -151,6 +156,7 @@ export class Network {
     };
     const entry: Held = {
       signal,
+      abort,
       settle,
       drop: (reason) => {
         settle();
@@ -171,7 +177,7 @@ export class Network {
     const inputs = [...group.values()];
     for (const held of inputs) held.settle();
     this.held.delete(key);
-    return inputs.map((held) => held.signal);
+    return inputs;
   }
 
   /**
