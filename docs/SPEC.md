@@ -512,7 +512,7 @@ list.
    that means for injections and for calls started by one event). A call's timeout and a held input's
    `within` expiry are scheduled like any other wake-up and have no place of their own at an instant: a timeout
    scheduled before another call's reply or before an expiry goes before it, one scheduled after goes after.
-   A timeout is scheduled when its call starts; rule 7 is the one exception.
+   A timeout is scheduled when its call starts; rule 7 is the one exception to this ordering.
 2. A signal's event is reported first, then, at the same `t`, **immediately
    after it**: (a) the drops of the work that signal made stale, in the order
    that work was created; (b) for each target in `to` order, its delivery
@@ -521,10 +521,12 @@ list.
 4. A running drop is reported when the work goes stale; a `note` for the
    cancel follows it, and the later `term` and `kill` notes at their own times.
 5. A call that ends exactly when its input goes stale counts as stale.
-6. A **run is over** when nothing is running or queued, no input is held, no injection is still to come, and no
+6. A **run is over** when nothing is running or queued, no input is held, no injection is still to come, no observer injection is pending, and no
    cancelled work is left behind: a cancelled level 0 program's process group must be gone
    (after the kill, if it ignored SIGTERM) and a cancelled level 1 call's slot must be free
-   (the neuron replied for it, or was treated as hung). The trace records those kills.
+   (the neuron replied for it, or was treated as hung). The same holds for a process group the engine terminated
+   after a crash, hang or over-long line: a kill grace already under way keeps the run open until the group is gone,
+   and its `kill` note is recorded. The trace records those kills.
    Held inputs keep their `within` timers, so an engine that waits for the end
    reports their `expired` drops. A pending restart delay or idle ping is not work: it does not keep the run
    open, and the engine stops the process silently when the run ends (no `restart` note). A fixture runs the virtual clock until nothing

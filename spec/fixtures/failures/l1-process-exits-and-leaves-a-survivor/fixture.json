@@ -1,6 +1,6 @@
 {
   "fixture": 0,
-  "description": "SPEC 6.3: a level 1 process exits by itself but leaves a group member: SIGTERM and the note term at once, SIGKILL and the note kill 2000 ms later, and the restart comes after that.",
+  "description": "SPEC 6.3: a level 1 process exits by itself but leaves a group member: SIGTERM and the note term at once, SIGKILL and the note kill 2000 ms later. The kill grace keeps the run open, so it ends at 2050 after the kill, with no restart (SPEC 6.2 rule 6).",
   "notes": true,
   "inputs": [
     {"at":0,"source":"s","payload":1}

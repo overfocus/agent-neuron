@@ -84,13 +84,12 @@ were set (SPEC 6.2 rule 1), with these fixed points so that engines agree:
   that order, so their scripted replies at one instant are processed in that order.
 - Held inputs set their `within` wake-up when they are held.
 - **A call's timeout is an ordinary wake-up**, set when the call starts: at level 0 after the program's own
-  wake-ups (hence the next point), at level 1 when the `signal` line is written. At an instant it has no place of
+  wake-ups (hence the last point of this list), at level 1 when the `signal` line is written. At an instant it has no place of
   its own: set before another call's reply or a held input's `within` expiry, it goes before it; set after, after
   (SPEC 6.2 rule 1). So with `s` linked to `a` (timeout 100, never replies) and then `b` (replies after 100), the
   error of `a` comes before the answer of `b`; with the links the other way round, after.
 - A call that ends at the very instant its input goes stale counts as stale (6.2 rule 5); with
   an injection that replaces it, this follows from the first point.
-
 - **A call's outcome due at the instant of its `timeout` is processed first** (SPEC 6.2 rule 7):
   a program's reply wake-up is set before the call's timeout wake-up, so the reply wins.
 - A scripted process that ends (by its own script or by a signal) is known to the engine at
@@ -101,9 +100,12 @@ Fixtures avoid the one tie the specification does not decide: a ping due at the 
 injection.
 
 The run is **over** (SPEC 6.2 rule 6) when no work is running, queued or held, no injection is
-still to come, and no observer injection is pending. The engine then stops its programs
-silently (no events). A held input keeps the run open until its `expired` drop. A pending restart delay or idle ping does not: the engine stops the
-programs silently when the run is over, so no `restart` note follows (SPEC 6.2 rule 6).
+still to come, no observer injection is pending, and no cancelled work is left behind. A kill grace
+already under way for any process group the engine has terminated, cancelled or crashed, keeps the run
+open until the group is gone, and its `kill` note is recorded. The engine then stops its programs
+silently (no events). A held input keeps the run open until its `expired` drop. A pending restart delay
+or idle ping does not: the engine stops the programs silently when the run is over, so no `restart`
+note follows.
 
 ### 4.2 Time zero
 

@@ -59,6 +59,13 @@ describe('the conformance fixtures (docs/CONFORMANCE.md)', () => {
     expect(r.map((x) => x.status)).toEqual(['fail']);
   });
 
+  it('treats a crash that is not a signal name as a harness error', async () => {
+    const dir = join(fixtures, 'failures/l0-killed-by-a-named-signal');
+    const f = load(dir);
+    f.script = { a: { calls: [{ after: 10, reply: { crash: 'USR1' } }] } };
+    await expect(events(runNetwork, dir, f, true)).rejects.toThrow('signal name');
+  });
+
   it('print pass, fail and pending lines and a summary', () => {
     expect(report([{ name: 'a/b', status: 'pass', detail: [] }, { name: 'c', status: 'fail', detail: ['x\ny'] }, { name: 'd', status: 'pending', detail: ['why'] }]))
       .toEqual(['pass a/b', 'fail c', '  x', '  y', 'pending d: why', '1 passed, 1 failed, 1 pending']);
@@ -108,6 +115,7 @@ const mutations: { name: string; edits: [from: string, to: string, count?: numbe
   { name: 'a signal number instead of its name', edits: [['`signal ${status.signal}: ${why}`', '`signal ${({ SIGUSR1: 30 } as Record<string, number>)[status.signal] ?? status.signal}: ${why}`']] },
   { name: 'no kill for a survivor of a cut level 0 program', edits: [['        if (alive(pid)) {\n          killed = true;', '        if (alive(pid) && !exited) {\n          killed = true;']] },
   { name: 'no kill for a survivor of a level 1 process', edits: [['too\n      if (alive(pid)) {', 'too\n      if (false as boolean) {']] },
+  { name: 'a crashed process grace not keeping the run open', edits: [['    this.reaping.push(groupGone(pid, KILL_AFTER).then(', '    void (groupGone(pid, KILL_AFTER).then(']] },
   { name: 'a pending restart delay keeping the run open', edits: [[
     "    this.restartTimer = host.setTimeout(() => {\n      this.run.processNote(this.node, 'restart');\n      this.spawn();\n    },",
     "    this.run.live++;\n    this.restartTimer = host.setTimeout(() => {\n      this.run.processNote(this.node, 'restart');\n      this.spawn();\n      if (--this.run.live === 0) this.run.over?.();\n    },"]] },

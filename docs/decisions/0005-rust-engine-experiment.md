@@ -23,7 +23,7 @@ bent" were wrong; see below.
 | 3 | `hypothesis_serve.py` (30 lines) works unchanged | met | Runs as is: 17 calls, 10 cut, 7 finished, as with the TS engine. |
 | 4 | Level 1 round trip p99 under 5 ms | met, with limits | 1 ms p99 on every reviewer run at load 5 to 6; the TS engine reached 15 ms once under the same load. The builder's own record had 2 of 21 runs above 5 ms (157 ms and 9 ms) on a busy machine. The bench sends 3 ms apart, so there is no queueing, and the trace has whole-ms resolution. |
 | 5 | Process hygiene | met except one rule | When a group leader dies on SIGTERM and a child that ignores SIGTERM survives, Rust kills the group at once and writes no `kill` note. SPEC 3.1 says SIGKILL comes "2 seconds later if anything remains" and 6.3 asks for the note. The TS engine follows the spec. |
-| 6 | Core plus engine at most about 1,500 lines, excluding tests | met only on a technicality | 1,292 by `wc -l`, but the code is golfed: 125 lines over 140 characters (the longest 287), one- and two-letter names, statements stacked on a line. See "Size". |
+| 6 | Core plus engine at most about 1,500 lines, excluding tests | missed (in spirit); met only on a technicality by `wc -l` | 1,292 by `wc -l`, but the code is golfed: 125 lines over 140 characters (the longest 287), one- and two-letter names, statements stacked on a line. See "Size". |
 
 ## Size
 
@@ -43,7 +43,7 @@ Found with differential probes: the same network and inputs through both engines
 1. **A timeout against another call's wake-up at the same instant.** `s` feeds `a` (timeout 100, never
    replies) and `b` (replies after 100). TS gives the timeout error of `a`, then the answer of `b`; Rust
    gives the answer first. SPEC 6.2 rule 1 and CONFORMANCE 4.1 (the order set) decide it: **TS follows the
-   text.** Rust made every timeout lose every tie except its own call's reply.
+   text.** Rust made every timeout lose every tie, as if every other wake-up were its own call's reply.
 2. **A timeout set before a `within` expiry at the same instant.** TS: error, then the expired drop. Rust:
    the reverse. **TS follows the text.**
 3. **`signal S:` for a signal other than SIGKILL.** Rust wrote `signal SIG30:` for SIGUSR1 and `SIG3` for
@@ -94,6 +94,9 @@ It exposed holes in the specification and fixtures, closed in the commit that ca
   `runend/a-pending-restart-delay-does-not-keep-the-run-open`. This is what the TS engine did; the text
   said "no timer is pending", which could be read the other way.
 - **A composed neuron's reply carries `exit`'s `replaces`** (SPEC 2.6): two fixtures (set and `null`).
+- **Lead decision, for Kevin to confirm:** a kill grace already under way for any process group the engine has
+  terminated, cancelled or crashed, keeps the run open and its `kill` note is recorded (SPEC 6.2 rule 6, CONFORMANCE 4.1).
+  This is what TS does; the text covered only cancelled work.
 - CONFORMANCE 6 (which list each observer run is compared with) is now spelled out; `docs/agents/feature-loop.md`
   lists the `conform` gate step; six mutants were added.
 

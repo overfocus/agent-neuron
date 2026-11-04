@@ -118,7 +118,10 @@ class VProc extends EventEmitter {
     else if (r.quiet) this.die(0);
     else if ('error' in r) { this.stderr.emit('data', Buffer.from(String(r.error))); this.die(1); }
     else if ('junk' in r) { this.stdout.emit('data', Buffer.from(String(r.junk))); this.die(0); }
-    else if (r.crash) this.die(null, r.crash === true ? 'SIGKILL' : (r.crash as NodeJS.Signals));
+    else if (r.crash) {
+      if (r.crash !== true && !/^SIG[A-Z0-9]+$/.test(String(r.crash))) throw Object.assign(new Error(`level 0 "crash" must be true or a signal name such as SIGUSR1, not ${JSON.stringify(r.crash)}`), { harness: true });
+      this.die(null, r.crash === true ? 'SIGKILL' : (r.crash as NodeJS.Signals));
+    }
     else if (r.overlong) this.stdout.emit('data', Buffer.alloc(BIG + 1, 97));
     // hang: nothing, ever
   }
