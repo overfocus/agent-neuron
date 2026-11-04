@@ -34,8 +34,8 @@ main { display: grid; gap: 12px; padding: 12px 16px; }
 }
 
 /* the graph */
-.edge { stroke: var(--line); stroke-width: 1.5; }
-.node rect { fill: var(--bg); stroke: var(--muted); stroke-width: 1.5; }
+.edge { stroke: var(--line); } /* width is set per edge from its traffic */
+.node > rect { fill: var(--bg); stroke: var(--muted); stroke-width: 1.5; }
 .node text { fill: var(--text); text-anchor: middle; font: 12px system-ui, sans-serif; }
 .node .name { font-weight: 600; }
 .node .status { font-size: 10.5px; }
@@ -44,7 +44,9 @@ main { display: grid; gap: 12px; padding: 12px 16px; }
 .status[data-kind="drop"], li[data-kind="drop"] .tag { fill: var(--drop); color: var(--drop); }
 .status[data-kind="error"], li[data-kind="error"] .tag { fill: var(--error); color: var(--error); }
 .status[data-kind="acting"], li[data-kind="acting"] .tag, li[data-kind="signal"] .tag { fill: var(--signal); color: var(--signal); }
+.node .count { font-size: 10px; fill: var(--muted); }
 .badge rect { fill: var(--drop); stroke: none; }
+.badge.idle rect { fill: var(--muted); }
 .badge text { fill: var(--bg); font-size: 10px; font-weight: 700; }
 .marker { fill: var(--signal); }
 .marker.answer { fill: var(--answer); }

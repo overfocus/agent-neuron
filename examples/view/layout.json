@@ -1,6 +1,6 @@
 {
   "route": "/",
-  "viewports": ["390x664", "1280x720"],
+  "viewports": ["320x568", "390x664", "1280x720"],
   "settle": 250,
   "states": [
     {
@@ -22,9 +22,13 @@
       "assert": [{ "kind": "inView", "selector": ".logbox", "min": 200 }]
     },
     {
-      "name": "after a run starts",
-      "steps": [{ "click": "#run" }, { "wait": 1800 }],
-      "assert": [{ "kind": "count", "selector": ".node", "min": 3 }, { "kind": "noHScroll" }]
+      "name": "alerts run: nodes fit and do not overlap",
+      "steps": [{ "click": "#run" }, { "wait": 2500 }],
+      "assert": [
+        { "kind": "count", "selector": ".node", "min": 3 },
+        { "kind": "count", "selector": "svg[data-clipped]", "equals": 0 },
+        { "kind": "noHScroll" }
+      ]
     }
   ]
 }

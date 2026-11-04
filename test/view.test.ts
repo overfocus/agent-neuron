@@ -22,12 +22,17 @@ describe('network view server', () => {
       req.end();
     });
     expect(status).toBe(403);
+    for (const headers of [{ 'Sec-Fetch-Site': 'cross-site' }, { 'Sec-Fetch-Site': 'same-site' }, { Origin: 'http://example.test' }]) {
+      expect((await fetch(`${base}/events?demo=typing`, { headers })).status).toBe(403);
+    }
   });
 
   it('streams the alerts run: diagnosis is one node and its inner neurons never appear', async () => {
     const body = await (await fetch(`${base}/events?demo=alerts`)).text();
     const events = body.split('\n\n').filter(Boolean).map((chunk) => JSON.parse(chunk.replace(/^data: /, '')));
     expect(events[0]).toMatchObject({ type: 'start', holds: { hypothesis: 2 } });
+    const first = events.find((e) => e.type === 'signal');
+    expect(first.text).toMatch(/^id: 1, at: \d+, service: /); // an object reads as key: value pairs
     expect(events.at(-1)).toMatchObject({ type: 'done' });
     const seen = new Set<string>();
     for (const e of events) {

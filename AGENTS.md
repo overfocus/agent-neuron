@@ -95,7 +95,7 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 |---|---|---|
 | Core (neuron, network, signals, adapters in `src/adapters/`) | `src/` | `test/` |
 | The demos (`npm run example`, `demo:typing`, `demo:loop`, `demo:suggest`, `demo:alerts`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand, except `demo:alerts`: `test/alerts.test.ts` |
-| The network view (`npm run view`): a Node server, one page, no framework | `examples/view/` | `test/view.test.ts` (server); `examples/view/checks.json` and `layout.json` (browser, by hand) |
+| The network view (`npm run view`): a Node server, one page, no framework | `examples/view/` | `test/view.test.ts` (server); `examples/view/checks.json` and `layout.json` and `layout-suggest.json` (browser, by hand) |
 | Rust neurons (std-only): `catalogue` (library + binary; `npm run demo:rust`) and `music`, a composed neuron with its own inner network (`npm run demo:composed`) | `rust/` | `cargo test` in each crate; `test/rust.test.ts` and `test/composed.test.ts` drive the built binaries |
 
 ## Everywhere
@@ -122,15 +122,16 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
   never keep Node alive: a script that ends right after `idle()` never sees the
   `'expired'` drop (the suggest demo sleeps past `within` to show it). `send` and `query` skip the threshold.
 - `examples/alerts-demo.mjs` takes the library as an argument (`runAlerts(lib)`), so the demo passes `dist/` and `test/alerts.test.ts` passes `src/`, with no build needed first. Its test asserts invariants only: the exact numbers (alerts for one service 150 ms apart or 900+ ms apart; a shell detector must finish in about 150 ms) hold only on an idle machine. `examples/alerts-demo.d.mts` types it for the test.
+- The page's "waiting" count follows `emit`'s threshold semantics only: it does not model `send` (which skips the threshold) or an input a neuron's `maxHops` refuses.
 - The view's server listens on 127.0.0.1 only, on a free port (never a fixed
-  one), and answers only that host name. Stop it by the pid it prints, never
+  one), and answers only that host name and refuses cross-site requests to `/events` (`Sec-Fetch-Site`, `Origin`). Stop it by the pid it prints, never
   with `killall node`. Closing the page does not stop its run. The page makes
-  no outside requests (a CSP of `default-src 'self'` enforces it). The server
+  no outside requests (a CSP of `default-src 'self'; img-src data:` enforces it). The server
   imports `dist/` only when typing or suggest runs (so `test/view.test.ts`
   needs no build); `holds` in `examples/view/server.mjs` lists by hand which
   neurons have a threshold. A demo hooks the view through `listeners` and `log`
   options on `runTyping` and `runAlerts`, called before the demo's own
-  handlers; terminal output is unchanged and `src/` knows nothing of the view.
+  handlers (a listener that throws skips the demo's own handler for that event, so the view's only serialise and write); terminal output is unchanged and `src/` knows nothing of the view.
 - `examples/` imports from `../dist/`, not `src/`, so it needs a build first
   (`npm run example`, `demo:typing` and `demo:rust` build). The demos have no
   tests (run them by hand), except `demo:alerts`: `test/alerts.test.ts` imports
