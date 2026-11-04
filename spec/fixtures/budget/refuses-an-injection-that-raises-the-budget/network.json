@@ -1,0 +1,29 @@
+{
+  "version": 0,
+  "name": "refuses-an-injection-that-raises-the-budget",
+  "description": "An injection may lower the budget of its trace, never raise it: 11 above the file's 10 is refused to the producer before the run.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 3
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

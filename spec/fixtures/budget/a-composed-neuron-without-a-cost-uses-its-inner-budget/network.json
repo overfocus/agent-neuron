@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "a-composed-neuron-without-a-cost-uses-its-inner-budget",
+  "description": "The outer network has no budget and the composed neuron no cost, so its inner budget (6) is its pool: e (5) runs and x (4) is refused inside; outside there are no accounting events, only the inner error.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "version": 0,
+  "name": "a-timed-out-call-commits-its-reservation",
+  "description": "A call that times out consumed its reservation: the error at the timeout, the cancel and term notes, then the commit (estimated, 50 ms measured) and the trace finished.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 4
+      },
+      "timeout": 50
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

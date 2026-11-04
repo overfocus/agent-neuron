@@ -1,5 +1,5 @@
 // The reference engine: runs a network file (docs/SPEC.md) and returns a trace (docs/TRACE.md, format v1).
-// `source`, level 0 `run`, level 1 `serve` and composed `network` neurons. Not here: http, human (SPEC 3.3, 3.4).
+// `source`, level 0 `run`, level 1 `serve` and composed `network` neurons, with budgets (SPEC 10). Not here: http, human (SPEC 3.3, 3.4).
 //
 // Vocabulary as in the spec: an input is delivered to a neuron as a Work; a threshold group turns held works into one
 // Call; a Call ends in an Outcome (answer, quiet, error). Everything is one synchronous event loop, so the order of the
@@ -11,18 +11,19 @@ import { basename, dirname, resolve } from 'node:path';
 import { VERSION } from '../index.js';
 import { check, formatFinding, readNetwork, type NeuronSpec } from './check.js';
 
-export type Injection = { at: number; source: string; payload: unknown; replaces?: string };
+export type Units = Record<string, number>;
+export type Injection = { at: number; source: string; payload: unknown; replaces?: string; budget?: Units };
 export type Event = { type: string; t: number; [field: string]: unknown };
 export type Trace = {
   format: 'agent-neuron-trace'; version: 1; demo: string; description: string; library: string; engine: string;
-  neurons: { id: string; kind: string; description: string; options?: Record<string, number> }[];
+  budget?: Units; neurons: { id: string; kind: string; description: string; options?: Record<string, number>; cost?: Units }[];
   links: { from: string; to: string }[]; events: Event[]; summary: Record<string, unknown>;
 };
 
 type Sig = { id: string; trace: string; from: string; to: string[]; hops: number; payload?: unknown; replyTo?: string; cause?: string; replaces?: string };
 type Outcome = { answer: unknown; replaces?: string | null; to?: string[] } | { quiet: true } | { error: string; code: string };
 
-const DEFAULT_WITHIN = 10_000, DEFAULT_TIMEOUT = 30_000, MAX_OUTPUT = 1 << 20, KILL_AFTER = 2_000, GRACE = 100, MAX_KEY = 256, PAYLOAD_CAP = 2000, PING_EVERY = 10_000, MAX_STARTS = 5, STABLE_AFTER = 1_000;
+const MAX_AMOUNT = Number.MAX_SAFE_INTEGER, DEFAULT_WITHIN = 10_000, DEFAULT_TIMEOUT = 30_000, MAX_OUTPUT = 1 << 20, KILL_AFTER = 2_000, GRACE = 100, MAX_KEY = 256, PAYLOAD_CAP = 2000, PING_EVERY = 10_000, MAX_STARTS = 5, STABLE_AFTER = 1_000;
 const groups = new Set<number>(); // process groups of running programs
 /** Time and processes: the seam the conformance fixtures use (SPEC 8). `realHost` is what runs; `src/engine/virtual.ts` is the other. */
 export interface Host {
@@ -100,8 +101,17 @@ class Scope {
   works = new Set<Work>(); // unfinished work
   failed = false; // an inner neuron failed
   onExit?: (o: Outcome) => void; onIdle?: () => void;
-  constructor(readonly id: string, readonly inst: Instance, readonly report?: (e: Event) => void) {}
+  pools = new Map<string, Pool>(); // trace -> what is left of its budget
+  constructor(readonly id: string, readonly inst: Instance, readonly report?: (e: Event) => void, readonly budget?: Units) {}
 }
+/** What is left of one trace's budget (SPEC 10): the pool its calls reserve from. */
+class Pool {
+  exhausted = false; // a call of the trace was refused
+  constructor(readonly left: Units) {}
+}
+/** The pool of a composed neuron's inside (SPEC 10.5): its cost, each unit lowered by the inner file's own budget; with no cost, that budget. */
+const innerPool = (cost?: Units, own?: Units): Units | undefined =>
+  cost ? Object.fromEntries(Object.entries(cost).map(([unit, n]) => [unit, Math.min(n, own?.[unit] ?? n)])) : own;
 /** One input at one neuron, from delivery until its reply, drop or cancellation. */
 class Work {
   timer?: NodeJS.Timeout; held = false; call?: Call;
@@ -111,6 +121,7 @@ class Work {
 class Call {
   cancelled = false;
   queued = false; // serve: waiting for a slot, not yet written
+  reserved?: Units; t0 = 0; // the cost reserved at the start of the call, and when it started
   finished = false; // the program is over and its reply is being made: no longer cuttable
   stop: () => void = () => {};
   constructor(readonly inputs: Work[]) {}
@@ -259,8 +270,11 @@ class Server {
 
   private pump() {
     while (this.ready && this.jobs.size < this.maxInflight && this.queue.length) {
-      const job = this.queue.shift()!, re = ++this.re;
+      const job = this.queue.shift()!;
       job.call.queued = false;
+      const refused = this.run.reserve(job.call); // checked when the slot frees (SPEC 10)
+      if (refused) { job.done(refused); continue; }
+      const re = ++this.re;
       job.re = re;
       this.jobs.set(re, job);
       job.call.stop = () => { // cancel: advisory; the slot is kept until the neuron replies for it or `timeout` ms pass, then it is hung
@@ -366,8 +380,9 @@ class Run {
   stale = new Map<string, Work[]>(); // (scope, sender, key) -> unfinished works, in creation order
   events: Event[] = [];
   rootScope: Scope;
+  open = new Map<string, number>(); // outer trace -> unfinished works; at none the trace is finished
   constructor(readonly root: Instance, readonly inner?: (path: string, e: Event) => void, readonly result?: (neuron: string, t: number, payload: unknown) => void, readonly observer?: Observer) {
-    this.rootScope = new Scope('', root, (e) => (this.events.push(e), this.observe(e)));
+    this.rootScope = new Scope('', root, (e) => (this.events.push(e), this.observe(e)), root.net.budget);
   }
 
   /** An observer (SPEC 9) sees outer events only and can inject into a source later; it is not part of the network. */
@@ -461,6 +476,7 @@ class Run {
     const w = new Work(sig, node, scope);
     if (node.spec.maxHops !== undefined && sig.hops > node.spec.maxHops) return this.drop(w, 'hops');
     this.live++;
+    if (scope === this.rootScope) this.open.set(sig.trace, (this.open.get(sig.trace) ?? 0) + 1);
     scope.works.add(w);
     if (sig.replaces !== undefined) {
       const key = `${scope.id}\0${sig.from}\0${sig.replaces}`;
@@ -513,6 +529,7 @@ class Run {
   private retire(w: Work) {
     if (!w.scope.works.delete(w)) return;
     host.clearTimeout(w.timer);
+    if (w.scope === this.rootScope) this.settle(w.sig.trace, -1);
     if (--this.live === 0) this.over?.();
     if (w.scope.works.size === 0) w.scope.onIdle?.();
   }
@@ -533,6 +550,7 @@ class Run {
     const done = (o: Outcome) => { // the program is over (process ended or inner network answered)
       host.clearTimeout(timer);
       call.finished = true; // before replying: a keyed forward to itself must not cut the work it just answered
+      this.commit(call); // every outcome consumes what it reserved: answer, cut, timeout, crash
       if (!call.cancelled) this.reply(call.crossing, o);
       for (const w of inputs) this.retire(w);
     };
@@ -541,10 +559,48 @@ class Run {
       node.server.submit({ call, message: (node.spec.threshold ?? 1) > 1 ? (value as object) : { payload: value }, arm, done });
       return;
     }
+    const refused = this.reserve(call);
+    if (refused) return done(refused);
     // The program's wake-ups are set before the timeout's: a reply due at the very instant of the timeout wins (SPEC 6.2 rule 7).
     if (node.inner) this.compose(call, node, value, done);
     else this.program(call, node, value, done);
     if (!call.finished) arm();
+  }
+
+  // ---- budget (SPEC 10) ----
+  private pool = (scope: Scope, trace: string) => {
+    if (!scope.budget) return undefined;
+    if (!scope.pools.has(trace)) scope.pools.set(trace, new Pool({ ...scope.budget }));
+    return scope.pools.get(trace)!;
+  };
+  /** Reserves the cost of a call as it starts; if some unit cannot be covered, nothing is taken and the error is returned. */
+  reserve(call: Call): { error: string; code: string } | undefined {
+    const { node, scope, sig } = call.crossing, cost = node.spec.cost, pool = this.pool(scope, sig.trace);
+    if (!cost || !pool) return;
+    const short = Object.entries(cost).find(([unit, n]) => n > (pool.left[unit] ?? 0));
+    if (short) {
+      pool.exhausted = true;
+      return { error: `budget: needs ${short[1]} ${short[0]}, ${pool.left[short[0]] ?? 0} left`, code: 'budget' };
+    }
+    for (const [unit, n] of Object.entries(cost)) pool.left[unit] = (pool.left[unit] ?? 0) - n;
+    call.reserved = cost;
+    call.t0 = host.now();
+    this.report(scope, { type: 'note', neuron: node.id, what: 'reserve', units: cost });
+  }
+  /** The call is over: commit min(claim, reservation). No claims exist yet, so the reservation is committed, marked estimated. */
+  private commit(call: Call) {
+    if (!call.reserved) return;
+    const w = call.crossing;
+    this.report(w.scope, { type: 'note', neuron: w.node.id, what: 'commit', units: call.reserved, ms: Math.round(host.now() - call.t0), basis: 'estimated' });
+  }
+  /** Counts the unfinished works of an outer trace; at none it is finished (SPEC 7.2). */
+  private settle(trace: string, by: number) {
+    const n = (this.open.get(trace) ?? 0) + by;
+    if (n > 0) return void this.open.set(trace, n);
+    this.open.delete(trace);
+    const pool = this.rootScope.pools.get(trace);
+    this.report(this.rootScope, { type: 'finished', trace, status: pool?.exhausted ? 'exhausted' : 'done', ...(pool && { remaining: { ...pool.left } }) });
+    this.rootScope.pools.delete(trace); // a finished trace needs its pool no more: a long run does not keep them
   }
 
   private cancel(call: Call) {
@@ -612,13 +668,13 @@ class Run {
     call.stop = () => { // cancel: SIGTERM to the group, SIGKILL 2 s later if anything remains (output is discarded)
       if (finished || stopped) return;
       stopped = true;
+      note('term'); // before the kill: where the process ends at once, the call's end follows the note
       killGroup(pid, 'SIGTERM');
-      note('term');
       killTimer = host.setTimeout(() => {
         if (alive(pid)) {
           killed = true;
+          note('kill'); // before the kill, as for term: where the process ends at once, the call's end follows the note
           killGroup(pid, 'SIGKILL');
-          note('kill');
         }
         if (exited) settle();
       }, KILL_AFTER);
@@ -628,7 +684,7 @@ class Run {
   /** A composed neuron: the input enters the shared inner network as a new root signal; `exit`'s first reply is the reply. */
   private compose(call: Call, node: Node, value: unknown, done: (o: Outcome) => void) {
     const inner = node.inner!;
-    const scope = new Scope(String(++this.scopes), inner, this.inner && ((e) => this.inner!(node.path, e)));
+    const scope = new Scope(String(++this.scopes), inner, this.inner && ((e) => this.inner!(node.path, e)), innerPool(node.spec.cost, inner.net.budget)); // the cost caps the inside (SPEC 10.5)
     let over = false;
     const finish = (o: Outcome) => {
       if (over) return;
@@ -683,7 +739,11 @@ class Run {
   private inject(inj: Injection) {
     const source = this.root.nodes.get(inj.source)!;
     const id = this.rootScope.next();
+    const pool = this.pool(this.rootScope, id);
+    for (const [unit, n] of Object.entries(inj.budget ?? {})) if (pool) pool.left[unit] = n; // lowered at injection; runNetwork refused any raise
+    this.open.set(id, 1); // the injection itself: the trace is not finished while its signal is still being delivered
     this.send({ id, trace: id, from: source.id, to: source.out.map((n) => n.id), hops: 0, payload: inj.payload, ...withKey(inj.replaces) }, this.rootScope);
+    this.settle(id, -1);
   }
   async injectAll(injections: Injection[]) {
     if (host.step) { // virtual: every injection is scheduled before the run, in the order given, so at an instant it goes before anything the run schedules
@@ -700,11 +760,18 @@ class Run {
   }
 }
 
-/** What is wrong with an injection (SPEC 4.1), if anything. */
-function problem(v: { at?: unknown; source?: unknown; replaces?: unknown }): string | undefined {
+/** What is wrong with an injection (SPEC 4.1), if anything; `ceiling` is the network's budget: a producer may lower it, never raise it. */
+function problem(v: { at?: unknown; source?: unknown; replaces?: unknown; budget?: unknown }, ceiling?: Units): string | undefined {
   if (typeof v.at !== 'number' || !Number.isFinite(v.at) || v.at < 0) return '"at" must be a number of ms, 0 or more';
   if (typeof v.source !== 'string') return '"source" must be a neuron id';
   if (v.replaces !== undefined && (typeof v.replaces !== 'string' || Buffer.byteLength(v.replaces) > MAX_KEY)) return `"replaces" must be a string of at most ${MAX_KEY} bytes`;
+  if (v.budget === undefined) return;
+  if (typeof v.budget !== 'object' || v.budget === null || Array.isArray(v.budget)) return '"budget" must be an object of units';
+  for (const [unit, n] of Object.entries(v.budget)) {
+    if (!Number.isSafeInteger(n) || (n as number) < 0) return `"budget" ${unit} must be an integer from 0 to ${MAX_AMOUNT}`;
+    if (!ceiling || !(unit in ceiling)) return `"budget" names unit "${unit}", which the network's budget does not have`;
+    if ((n as number) > ceiling[unit]!) return `"budget" ${unit} ${n} is above the network's ${ceiling[unit]}: a producer may lower a budget, never raise it`;
+  }
 }
 
 /** Reads injections, one JSON object per line: `at` (ms), `source`, `payload`, optional `replaces`. Throws on a bad line. */
@@ -715,10 +782,10 @@ export function readInjections(file: string): Injection[] {
     let v: Record<string, unknown>;
     try { v = JSON.parse(line) as Record<string, unknown>; } catch { return bad('not JSON'); }
     if (typeof v !== 'object' || v === null || Array.isArray(v)) bad('expected an object');
-    const wrong = problem(v);
+    const wrong = problem({ ...v, budget: undefined }); // a budget is checked against the network's, by runNetwork
     if (wrong) bad(wrong);
     if (!('payload' in v)) bad('missing "payload"');
-    return [{ at: v.at as number, source: v.source as string, payload: v.payload, ...withKey(v.replaces as string | undefined) }];
+    return [{ at: v.at as number, source: v.source as string, payload: v.payload, ...withKey(v.replaces as string | undefined), ...(v.budget !== undefined && { budget: v.budget as Units }) }];
   });
 }
 
@@ -749,15 +816,15 @@ async function drive<T>(p: Promise<T>): Promise<T> {
 export type Observer = (e: Event) => Injection[] | void;
 export async function runNetwork(file: string, injections: Injection[], options: { pingEvery?: number; inner?: (path: string, e: Event) => void; result?: (neuron: string, t: number, payload: unknown) => void; host?: Host; observer?: Observer } = {}): Promise<Trace> {
   const errors = check(file).filter((f) => f.severity === 'error');
-  if (errors.length) throw new Error(errors.map(formatFinding).join('\n'));
+  if (errors.length) throw Object.assign(new Error(errors.map(formatFinding).join('\n')), { refusal: true }); // a file that does not check is refused like a serve neuron that is not ready (CONFORMANCE 4.3)
   const net = readNetwork(file);
   const root = new Instance(resolve(file), net, '');
   const unsupported = (i: Instance): string[] =>
     [...i.nodes.values()].flatMap((n) => (n.inner ? unsupported(n.inner) : n.spec.http || n.spec.human ? [`${n.path} (${n.spec.http ? 'http' : 'human'})`] : []));
   if (unsupported(root).length) throw new Error(`unsupported neuron kinds in v0 of the engine: ${unsupported(root).join(', ')}`);
   for (const inj of injections) {
-    const wrong = problem(inj);
-    if (wrong) throw new Error(`injection into "${inj.source}": ${wrong}`);
+    const wrong = problem(inj, net.budget);
+    if (wrong) throw Object.assign(new Error(`injection into "${inj.source}": ${wrong}`), { refusal: true });
   }
   for (const inj of injections) if (!root.nodes.get(inj.source)?.spec.source) throw new Error(`injection names "${inj.source}", which is not a source of ${file}`);
 
@@ -783,9 +850,10 @@ export async function runNetwork(file: string, injections: Injection[], options:
   const kind = (s: NeuronSpec) => (s.source ? 'source' : s.run ? 'run' : s.serve ? 'serve' : s.http ? 'http' : s.human ? 'human' : 'composed');
   return {
     format: 'agent-neuron-trace', version: 1, demo: net.name ?? basename(file), description: net.description ?? '', library: VERSION, engine: `agent-neuron engine ${VERSION}`,
+    ...(net.budget && { budget: net.budget }),
     neurons: net.neurons.map((s) => {
       const options = Object.fromEntries((['threshold', 'within', 'maxHops'] as const).flatMap((k) => (s[k] === undefined ? [] : [[k, s[k]!]])));
-      return { id: s.id, description: s.description || `${kind(s)} neuron`, kind: kind(s), ...(Object.keys(options).length && { options }) };
+      return { id: s.id, description: s.description || `${kind(s)} neuron`, kind: kind(s), ...(Object.keys(options).length && { options }), ...(s.cost && { cost: s.cost }) };
     }),
     links: (net.links ?? []).map((l) => ({ from: l.from, to: l.to })),
     events: run.events,

@@ -1,6 +1,8 @@
-# agent-neuron specification, version 0
+# agent-neuron specification, version 0.1
 
-Status: draft. Version 0 may change in any way until it is called 1; a change
+Status: draft. Version 0.1 is version 0 plus budgets and the `finished` event
+(section 10); a network file's `version` stays `0`, because the new fields are
+additions. The spec may change in any way until it is called 1; a change
 is one commit to this file, `spec/network.schema.json` and the fixtures
 together. MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Each section
 is marked **normative** (rules) or **informative** (no rules). If they
@@ -19,8 +21,9 @@ Contents
 7. The trace (normative)
 8. Conformance (normative; the format is in [CONFORMANCE.md](CONFORMANCE.md))
 9. Observers (normative)
+10. Budgets (normative)
 
-Appendices (informative): A. Walk-through: one alert. B. Out of version 0.
+Appendices (informative): A. Walk-through: one alert. B. Out of version 0.1.
 C. How the TypeScript library differs.
 
 ## 0. Quick start for neuron authors (informative)
@@ -89,13 +92,16 @@ Rules you will hit:
 - **Answer a `cancel`.** The engine keeps a cancelled call's slot until you reply for
   its `re`; send `quiet` (the reply is discarded). A neuron that never does is
   killed and restarted after `timeout`.
+- **Cost is not your program's business.** A neuron may carry a `cost` and a network a
+  `budget`; the engine reserves, refuses and counts, and your program neither sees nor reports it
+  (section 10). A call it refuses never starts.
 - **Quiet is a choice.** An error (non-zero exit) forwards nothing too, but is
   recorded as a failure.
 - **Running a network.** `npm run engine -- check <file>` validates a network file
   (schema and the findings of section 2.7, with line and column). `npm run engine --
   run <file> --inputs <jsonl> [--trace <out.json>]` runs it: the inputs file holds one
-  JSON object per line, `{"at": ms, "source": id, "payload": ..., "replaces": key}`
-  (`replaces` optional), and the run prints the answers of the neurons with no
+  JSON object per line, `{"at": ms, "source": id, "payload": ..., "replaces": key, "budget": units}`
+  (`replaces` and `budget` optional), and the run prints the answers of the neurons with no
   outgoing links. Try `npm run demo:network` (the alert storm below). The TypeScript
   library does not read network files; the reference engine is `src/engine/`
   (Appendix C). `http` and `human` neurons are not run yet.
@@ -162,6 +168,7 @@ becomes a URL when the repository is public.
 | `neurons` | array, at least 1 | required | 2.2. |
 | `links` | array | `[]` | 2.5. |
 | `entry`, `exit` | neuron id | none | Both or neither (schema). Needed when the file is used by `network` (2.6). |
+| `budget` | units (10.1) | none | The most one trace may spend (10). |
 
 ### 2.2 A neuron
 
@@ -195,6 +202,7 @@ program's working directory.
 | `timeout` | integer ms | 30000 | all but source | longest a call may run, counted from its start; for `network`, the whole composed call |
 | `env` | array of unique names | `[]` | run, serve | environment variables passed through: names only |
 | `cwd` | path | the directory of the file that declares the neuron | run, serve | working directory |
+| `cost` | units (10.1) | none | all but source | what one call reserves, and the most it may consume (10) |
 
 A program's environment is empty except `PATH` and the `env` names (a name the
 engine lacks stays unset). `threshold` and `within` are not allowed on `network`.
@@ -236,6 +244,7 @@ Per call:
    stale or times out; then all its inner work is cancelled, recursively.
 5. `maxHops` and `timeout` apply at the outer boundary. Hops inside start at 0
    and do not add to the outer chain.
+6. The composed neuron's `cost` and the inner file's `budget` bound what the inside may spend (10.5).
 
 **Sealing** (MUST): inner ids, signals, traces and error text never appear in
 anything reported about the outer network; from outside, a signal goes in and
@@ -250,15 +259,22 @@ with file, line and column where it can, and exit non-zero on any error:
 schema violations; duplicate ids; a link naming an unknown id (SHOULD suggest
 the nearest id); a duplicated link; a link into a source; a `network` file that
 is missing, invalid, lacks `entry`/`exit`, has a source or an `exit` with
-outgoing links (errors); a cycle in which no neuron has `maxHops` (error); an
-executable that cannot be found (warning).
+outgoing links (errors); a cycle in which no neuron has `maxHops` (error); a `budget`
+or `cost` amount that is not a whole number from 0 to 2^53 - 1, a `cost` naming a unit the
+file's `budget` lacks, an empty `budget` or `cost`, or a non-source neuron with no `cost` in a file that
+has a `budget` (10.1) (errors); a `cost` above the file's ceiling in some unit (the neuron can never run),
+or a `network` neuron whose file has neurons costing a unit its `cost` does not name (those calls are always
+refused, 10.5) (warnings); an executable that cannot be found (warning).
 
 ### 2.8 Field budget (informative)
 
-8 top-level fields; per neuron `id`, `description`, one kind field, at most 6
+9 top-level fields; per neuron `id`, `description`, one kind field, at most 7
 options; 2 per link. A new field must answer one question: does it say how
 neurons connect, or how one decides? Deciders are programs. `AGENTS.md` holds
-the rule.
+the rule. Version 0.1 added `budget` (the ninth top-level field) and `cost` (the seventh
+option, the eighth is planned for `effect`): a limit on spend is the engine's to enforce, not a
+program's to declare for itself, the same class as `timeout` and `maxHops`
+([decision 0006](decisions/0006-budgets.md)).
 
 ## 3. The neuron contract (normative)
 
@@ -396,7 +412,8 @@ interface is the engine's business.
 The engine MUST let a producer inject a payload into a source, with an optional
 replaces key (at most 256 bytes; longer is refused to the producer). It creates
 a root signal: new id, `trace` its own id, `hops` 0, `from` the source, `to`
-the source's outgoing links in declaration order, `replaces` as given. Only the
+the source's outgoing links in declaration order, `replaces` as given. It may also lower the
+trace's budget (10.2). Only the
 producer knows what makes one input stale, so the key is its job; nothing else
 reads a payload to compute one.
 
@@ -498,6 +515,7 @@ affected. Failures of stale work are not errors.
 | call longer than `timeout` | `timeout` | `timed out after N ms` | cancelled; note |
 | level 1 process exit, hang, or `error` without `re` | `crash` | `process failed` | every running call fails; restart (3.2) |
 | input to a failed neuron | `start` | `neuron failed to start` | |
+| a call whose `cost` the pool cannot cover in every unit (10.3) | `budget` | `budget:`, then what was short | nothing reserved; the call never starts |
 | composed neuron with no reply after an inner failure | `inner` | `no answer: an inner neuron failed` | |
 | level 1 `error` with `re` | `neuron` | the neuron's message | |
 
@@ -536,6 +554,10 @@ list.
    times out only if it is strictly longer than `timeout`. (A level 0 program's reply, a
    level 1 reply, the exit of a composed neuron: whatever ends the call at that instant.) A timeout has no
    other privilege: against anything else due at that instant, rule 1 decides.
+8. A trace's `finished` event (7.2) is reported right after the last event its last unfinished
+   work caused: the reply and its forward and their delivery effects, or the `error`, or the `drop`.
+   A process note that belongs to that instant and follows its cause (the `kill` after the `error` of
+   an over-long output) comes after `finished`.
 
 ### 6.3 Process notes
 
@@ -543,6 +565,14 @@ A `note` (7.2) records a fact about a process. An engine MUST write these, and c
 fixtures with `notes` compare them. Order at one instant: the event that reports what
 happened to the call (the `drop` of a cut, the `error` of a timeout or a crash, ...) first,
 then the notes of what the engine does to the process, in the order `cancel`, `term`, `kill`.
+The notes of a budget (10) are written only when the network has a `budget`:
+
+- `reserve`: when a call with a `cost` starts (10.3), with `units`: the cost. Before anything else
+  the call causes. A call that is refused writes none.
+- `commit`: when the call's program is over (10.4), with `units`, `ms` and `basis`. Just before the
+  event that reports the outcome (`answer`, `quiet`, `error`); a cut call has no such event, so its
+  `commit` comes after its `cancel`, `term` and `kill` notes, when the program is gone. A timeout's
+  `error` comes at the timeout and the `commit` when the program is over.
 
 - `cancel`: when the engine cancels a call that has started (stale, timeout), after the drop or
   error. A call that is only queued for a slot, or a held input, has not started: it is dropped
@@ -572,8 +602,9 @@ module and the network view work unchanged.
 string (`0.0.0` today); an optional `engine` field names the engine. `description`
 from the file (the engine writes an empty string if the file has none); a neuron
 with no `description` is written as `<kind> neuron`, so every neuron has one. `neurons`: `id`, `description`, `kind` (the kind field's name,
-`network` written `composed`) and `options` as set in the file
-(`threshold`, `within`, `maxHops`; defaults are not written). `links`: one
+`network` written `composed`), `options` as set in the file
+(`threshold`, `within`, `maxHops`; defaults are not written) and `cost` as set in the file (an
+object of units, apart from `options`). A header `budget` holds the file's `budget`, when it has one. `links`: one
 `{from, to}` per link, directional. `summary` MAY be `{}`. A composed neuron's
 inside never appears.
 
@@ -585,6 +616,7 @@ inside never appears.
 | `answer`, `quiet` | a reply (4.3) |
 | `drop` | stale work, expiry, a hops refusal |
 | `error` | a failure (6.1) |
+| `finished` | a trace has no unfinished work left (below) |
 | `note` | process facts |
 
 `t` is whole ms since the run started (virtual in fixtures). Payloads as v1:
@@ -602,9 +634,34 @@ v1 readers, which ignore what they do not know, are unaffected):
 |---|---|
 | `phase` (`waiting` or `running`) on `drop` | MUST on reason `replaced`; MUST NOT on `hops` or `expired` |
 | `replaces` on `signal` | MUST when the signal has a key; on `signal` events only, never on `drop`, `error`, `answer` or `quiet` |
-| `code` on `error` | MUST, from the 6.1 table |
+| `code` on `error` | MUST, from the 6.1 table (`budget` included) |
 | `note` event: `what` is `junk` (with `line`, `text`), `cancel`, `term`, `kill`, `restart` or `inject` (with `trigger`) | MUST, as 6.3 says (fixtures with `notes` compare them) |
+| `note` event: `what` is `reserve` (with `units`) or `commit` (with `units`, `ms`, `basis`) | MUST for every call when the network has a `budget`; otherwise MUST NOT (10) |
+| `finished` event: `trace`, `status`, and `remaining` | MUST, once per trace of the outer network, as below |
+| `budget` and `neurons[].cost` header fields | MUST when the file has them |
 | `engine` header field | MAY |
+
+**Fields of the new events.** All amounts are JSON integers (10.1).
+
+- `reserve`: `units`, an object of unit to amount: the neuron's `cost`, as declared.
+- `commit`: `units`, the amounts consumed (10.4); `ms`, the whole milliseconds the call took,
+  measured by the engine from its `reserve` to the end of its program (virtual in fixtures; it is
+  always a measurement, so `ms` carries no label); `basis`, which says how the `units` were
+  found: `estimated` when the engine took the reservation because the real figure is unknown,
+  which is every commit in version 0.1 (a neuron cannot report usage yet). A later version adds
+  `measured` for amounts a neuron or the engine measured.
+- `finished`: `{"type":"finished","t":T,"trace":ID,"status":S}` and, when the network has a
+  `budget`, `"remaining"`: what is left of the trace's pool in every unit of the budget. It is
+  written once for every trace of the outer network, with a budget or without, when the trace
+  has no unfinished work: nothing running, queued or held (a held input that expires is
+  reported first), and no signal still being delivered (the inside of a composed neuron counts as
+  over when the composed call ends, 2.6). A trace nothing took (a source with no
+  links) is finished at the instant it is injected. `status` is `exhausted` if some call of the
+  trace was refused with code `budget` (10.3) at this level, else `done`; a refusal sealed inside a
+  composed neuron shows as `done` outside (10.5). Without a budget it is always `done`.
+  It carries no signal fields and no `id`, so the scripted observer of the fixtures, which sees events
+  with an `id`, does not see it; observers get it with the normative live stream (version 0.1, later).
+  The inside of a composed neuron never has one (2.6).
 
 Example, a running call cut because an *earlier* input was replaced. Detectors
 `d1` and `d2` (20 ms) feed `h` (`threshold` 2, 100 ms); `s` feeds both. Ids are
@@ -658,7 +715,8 @@ A directory with a network file (and the composed files it names) and `fixture.j
   neuron also has `starts` (ready latency, `maxInflight`, pong, when the process ends) and
   `onCancel`. The script stands in for the process layer, so fixtures test what the engine does
   with an outcome, not byte parsing.
-- `expect`: the events (section 7) in order. `note` events are compared only if `notes` is true.
+- `expect`: the events (section 7) in order. `note` events are compared only if `notes` is true, and
+  `finished` events only if `finished` is true.
 - `pingEvery`: the idle ping interval of the run (the interval is the engine's, 3.2).
 
 ### 8.2 Clock
@@ -689,8 +747,8 @@ after 10; `b` is quiet after 5. Expected (this is `spec/fixtures/routing/chain-f
 
 The fixtures cover routing, threshold, staleness (issue 17 included), `maxHops`, composed
 neurons and sealing, every row of the 6.1 table that an engine can reach, the 6.2 order, the
-end of a run, level 1 (handshake, queueing, cancel, ping, restart), observers and, marked
-pending, the version 0.1 budget.
+end of a run, level 1 (handshake, queueing, cancel, ping, restart), observers and
+the version 0.1 budget (`budget/`: reserve, commit, refusal, the pool of a trace, a composed cap, `finished`).
 
 ### 8.5 The observer rule
 
@@ -719,8 +777,8 @@ mode), is not addressable, is not on any path, and cannot send along links.
   events only). It may alert, or ask the operator's normal stop as a person
   would, and that request is recorded.
 - **Limits live in the engine**: budgets and loop ceilings are declared in the
-  network file, checked before a call starts, and fail closed. In version 0
-  the only such limits are `maxHops` and `timeout`.
+  network file, checked before a call starts, and fail closed. The limits are
+  `maxHops`, `timeout` and the budget (10).
 - **Test:** remove the observer and rerun; if answers change (not strengths,
   logs or alerts) it was orchestrating, and the engine is wrong or the observer
   is a neuron. Conformance (8.5) applies this.
@@ -733,6 +791,113 @@ mode), is not addressable, is not on any path, and cannot send along links.
   belongs to the routing rule (section 4); an engine does it itself.
 - There is no `watch` link: it would settle the open passive/active question by
   the back door.
+
+## 10. Budgets (normative)
+
+A budget limits what one trace may spend. The engine, not a program, keeps the books: a
+program cannot raise, hide or skip its own cost. The reasons are in
+[decision 0006](decisions/0006-budgets.md).
+
+### 10.1 Declaring
+
+`budget` (top level) is an object of **units** to ceilings: `{"credits": 10, "calls": 4}`. A
+unit is a name matching the id pattern of 2.2; the engine gives units no meaning, so
+they may stand for money, model calls, seconds or anything a person counts. `cost` (a neuron option,
+every kind but `source`) is an object of units to amounts: what one call of the neuron reserves
+(10.3) and the most it may consume (10.4). Both are literals, and both need at least one unit.
+
+Every amount is a **whole number from 0 to 2^53 - 1** (9007199254740991), a JSON integer: the
+largest value every JSON reader holds exactly. A larger or fractional amount is an error in
+`check`. There are no string amounts; a unit that needs finer steps is counted in smaller
+ones (cents, not dollars). A `cost` may name only units the same file's `budget` has.
+
+**Under a budget every neuron but a source MUST declare a `cost`**, a composed neuron included;
+`check` refuses a file that has a `budget` and a non-source neuron without one (2.7). A cost of 0
+in every unit is allowed: the neuron is then metered and timed (it reserves and commits nothing, and its
+`commit` carries `ms`). The rule fails closed: a neuron that could spend without declaring it would
+escape the pool. A network with no `budget` has no accounting at all (10.7).
+
+### 10.2 One pool per trace
+
+Each trace of the network has its own pool, which starts at the ceilings of `budget`. Traces
+share nothing: a second trace never finds the first one's spend. A producer may **lower** a
+trace's pool when it injects (4.1): an injection may carry `budget`, an object of units to
+amounts, each a whole number from 0 to the file's ceiling for that unit. It may never raise a
+ceiling or name a unit the file lacks; the engine refuses such an injection to the producer,
+as it refuses a `replaces` key over 256 bytes. A unit the injection leaves out keeps the
+file's ceiling. A forward is part of its trace and draws from the same pool.
+
+### 10.3 Reserving
+
+When a call with a `cost` starts, the engine **reserves** the cost from its trace's pool: it
+takes every unit of the cost out of the pool, and writes a `reserve` note (6.3). A call starts
+when its program is started (level 0), when its `signal` line is written (level 1: a call
+queued for a slot reserves when the slot frees, not before) or when the composed neuron's
+input enters its inside. A held input has not started a call and reserves nothing; the
+threshold call reserves once, when it acts. A call dropped before it starts (stale while held
+or queued) never reserved.
+
+If the pool cannot cover **every** unit of the cost, nothing is reserved, the call does not
+start, and the engine reports an `error` for the signal the call answers (for a threshold call,
+the crossing input) with code `budget` (6.1); nothing is forwarded. Other work is unaffected.
+A refusal is the call failing, not a new kind of drop. A `cost` of 0 in every unit takes
+nothing from the pool but is still recorded, which is how a free neuron is metered.
+
+Several targets of one signal draw from the pool in the order of `to`, the order of delivery
+(4.2, 6.2): with 10 left and `a` and `b` costing 6 each, the first listed runs and the second is
+refused. A pool is never refilled in version 0.1.
+
+
+### 10.4 Committing
+
+A call that reserved **consumes** what it reserved on every outcome: an answer, quiet, a
+failure, a timeout, a cut (stale), a crash. The engine writes a `commit` note when the
+program is over (6.3). The amount is the lesser of what the program claims and the reservation;
+in version 0.1 a program cannot claim, so the commit is the reservation, with `basis`
+`estimated`. A cost is therefore both what is held at the start and the most a call can ever
+consume. Nothing is returned to the pool by a failure or a cut: the work was started and
+cannot be taken back. `ms` is the engine's measurement of the call's wall time.
+
+### 10.5 Composed neurons
+
+A composed neuron's `cost` is reserved and committed like any other. It is also a ceiling on
+its inside: each call to the composed neuron starts a new inner trace, and the pool of that trace is
+built from two limits, the neuron's `cost` and the `budget` of the inner file, neither of which can
+raise the other:
+
+- With a `cost` and an inner `budget`: the pool has **the units of the `cost`**, each at the
+  **lower** of the cost's amount and the inner budget's ceiling for that unit.
+- A unit the cost names that the inner budget lacks is limited by the cost alone (the inner file sets
+  no ceiling for it; none of its neurons can cost it, `check` refuses that).
+- A unit the inner budget has that the cost lacks is **not in the pool**: the cost grants nothing in
+  it, so an inner neuron costing it is always refused (`check` warns, 2.7).
+- With a `cost` and no inner budget: the pool is the cost.
+- With no `cost` (possible only when the outer network has no budget, 10.1): the pool is the inner
+  `budget`, as it stands. With neither, the inside is not metered, as in version 0.
+
+The inner neurons reserve from that pool as in 10.3. The inside's reservations, refusals and notes stay
+inside (2.6): an inner refusal is only an inner failure (code `inner`, 6.1), and one total, the composed
+neuron's `cost` (or nothing, without one), crosses the boundary. A trace's `finished` status therefore
+speaks for its own level: a refusal sealed inside a composed neuron shows as `done` outside.
+
+### 10.6 Loops
+
+A budget does not replace `maxHops`: a cycle with no `maxHops` is still an error in `check`.
+A loop whose neurons cost something ends when the pool cannot cover the next call; a free
+loop ends at `maxHops`, with the pool untouched.
+
+### 10.7 Without a budget
+
+A network with no `budget` writes no `reserve` or `commit` note, no `remaining` and no
+`budget` or `cost` in the trace header (`check` rejects a `cost` there: it names no unit). Its trace
+still ends with `finished`. A composed neuron in it may still be bounded by its inner file's own `budget`
+(10.5); that stays inside.
+
+### 10.8 Not in version 0.1
+
+Usage claims from a neuron (so that a commit can be below the reservation), amounts owed to
+another party, spend per source or per time window, settlement, and anything that moves value
+outside the trace. A trace explains what was spent; it does not prove it to anyone else.
 
 ## Appendix A. Walk-through: one alert (informative)
 
@@ -764,7 +929,7 @@ expire; an engine's idle wait may do the same (6.2). The file hard-codes
 Where each piece of the demo's caller code went, and what could not be
 expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
 
-## Appendix B. Out of version 0 (informative)
+## Appendix B. Out of version 0.1 (informative)
 
 - Strength: a state file keyed by instance path, adjusted by the caller. Until
   then every sender counts 1.
@@ -774,9 +939,12 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
   a composed neuron; byte-level fixtures and real-process fixtures; hot reload.
 - Distribution: the engine will ship as a binary inside the npm and pip
   packages (the esbuild and ruff pattern).
-- **Plan for 0.1**, each with a conformance fixture: a per-trace `finished` event
-  (with the count still held); per-trace budget limits declared in the network
-  file; a normative live trace stream for observers.
+- **Plan for the rest of 0.1**, each with a conformance fixture: a neuron option `effect`
+  (a call that staleness and the timeout never cut, an `unknown` outcome held until
+  reconciled); a normative live trace stream for observers. The eighth neuron option, with
+  `cost` the seventh.
+- Budgets, later: usage claims in level 1 replies, an owed ledger, spend per source or per time
+  window, settlement (10.8).
 
 ## Appendix C. How the TypeScript library differs (informative)
 
@@ -821,7 +989,9 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
 - **Same-instant order** (6.2 rules 1 and 5) holds because the engine is one
   synchronous event loop, not because a clock orders it; a call whose process
   ends in the same millisecond its input goes stale can go either way.
-- **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` only for a scripted observer.
+- **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` only for a scripted observer;
+  `reserve` and `commit` with a budget.
+- **Budgets** (section 10): all of it. A call's `ms` is read from `performance.now()` in real runs, rounded to whole ms.
 - **Process start failure** (no such executable) is an `exit` error, `exit 127:`
   then the reason; the table in 6.1 has no row for it.
 - **The inside of a composed neuron** is available only through the `inner`

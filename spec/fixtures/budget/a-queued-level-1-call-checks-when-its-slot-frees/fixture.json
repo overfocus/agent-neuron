@@ -1,0 +1,30 @@
+{
+  "fixture": 0,
+  "description": "p and q (cost 0) both forward to a (level 1, one slot, costs 3, budget 4): the first call reserves at once; the second waits in the queue, reserving nothing, and is refused only when the slot frees at 10.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "p": {"calls":[{"reply":{"answer":"p"}}]},
+    "q": {"calls":[{"reply":{"answer":"q"}}]},
+    "a": {"calls":[{"after":10,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["p","q"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"p","what":"reserve","units":{"credits":0}},
+    {"type":"note","t":0,"neuron":"q","what":"reserve","units":{"credits":0}},
+    {"type":"note","t":0,"neuron":"p","what":"commit","units":{"credits":0},"ms":0,"basis":"estimated"},
+    {"type":"answer","t":0,"id":"#2","from":"p","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"p"}},
+    {"type":"signal","t":0,"id":"#3","from":"p","to":["a"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"p"}},
+    {"type":"note","t":0,"neuron":"a","what":"reserve","units":{"credits":3}},
+    {"type":"note","t":0,"neuron":"q","what":"commit","units":{"credits":0},"ms":0,"basis":"estimated"},
+    {"type":"answer","t":0,"id":"#4","from":"q","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"q"}},
+    {"type":"signal","t":0,"id":"#5","from":"q","to":["a"],"trace":"#1","cause":"#4","hops":2,"payload":{"type":"text","text":"q"}},
+    {"type":"note","t":10,"neuron":"a","what":"commit","units":{"credits":3},"ms":10,"basis":"estimated"},
+    {"type":"quiet","t":10,"id":"#6","from":"a","to":["p"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"error","t":10,"id":"#5","from":"q","to":["a"],"trace":"#1","cause":"#4","hops":2,"neuron":"a","message":"budget: needs 3 credits, 1 left","code":"budget","payload":{"type":"text","text":"q"}},
+    {"type":"finished","t":10,"trace":"#1","status":"exhausted","remaining":{"credits":1}}
+  ]
+}

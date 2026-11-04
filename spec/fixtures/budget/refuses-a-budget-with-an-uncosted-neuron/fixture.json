@@ -1,0 +1,9 @@
+{
+  "fixture": 0,
+  "description": "A file with a budget and a neuron without a cost does not check (0 would do): the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": []
+}

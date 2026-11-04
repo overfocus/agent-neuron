@@ -105,6 +105,45 @@ describe('network schema v0', () => {
     expect(broken((n) => (loop(n), (n.neurons[4].maxHops = 6)))).toEqual([]);
   });
 
+  it('checks budgets and costs: whole numbers from 0, units the budget has, no cost on a source', () => {
+    const cost = (c: unknown) => broken((n) => ((n.budget = { credits: 5 }), n.neurons.forEach((x: any) => !x.source && (x.cost = { credits: 0 })), (n.neurons[4].cost = c)));
+    expect(cost({ credits: 3 })).toEqual([]);
+    expect(cost({ credits: 3.5 }).join()).toContain('expected an integer');
+    expect(cost({ credits: -1 }).join()).toContain('below 0');
+    expect(cost({ credits: 2 ** 53 }).join()).toContain('above');
+    expect(cost({ credit: 3 }).join()).toContain('unit "credit", which is not in the budget (credits): did you mean "credits"?');
+    expect(cost({}).join()).toContain('at least 1');
+    expect(cost('3').join()).toContain('expected an object');
+    expect(broken((n) => (n.neurons[4].cost = { credits: 1 })).join()).toContain('which is not in the budget (the file has none)');
+    expect(broken((n) => (n.budget = { 'bad unit': 1 })).join()).toContain('does not match');
+    expect(broken((n) => (n.budget = { credits: 'many' })).join()).toContain('expected an integer');
+    expect(broken((n) => ((n.budget = { credits: 5 }), (n.neurons[0].cost = { credits: 1 }))).join()).toContain('unknown field "cost"');
+  });
+
+  it('needs a cost on every neuron but a source when the file has a budget (0 allowed)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'spec-'));
+    const file = join(dir, 'a.network.json');
+    const net = (neurons: object[], budget: object | null = { u: 5 }) => (writeFileSync(file, JSON.stringify({ version: 0, ...(budget && { budget }), neurons: [{ id: 's', source: true }, ...neurons], links: [] })), checkFile(file));
+    expect(net([{ id: 'a', run: ['true'] }])).toEqual([expect.stringContaining('neuron "a" has no cost')]);
+    expect(net([{ id: 'a', run: ['true'], cost: { u: 0 } }])).toEqual([]);
+    expect(net([{ id: 'a', run: ['true'] }], null)).toEqual([]);
+    writeFileSync(join(dir, 'in.network.json'), JSON.stringify({ version: 0, entry: 'a', exit: 'a', neurons: [{ id: 'a', run: ['true'] }] }));
+    expect(net([{ id: 'c', network: 'in.network.json' }])).toEqual([expect.stringContaining('neuron "c" has no cost')]); // a composed neuron is a neuron
+    expect(net([{ id: 'c', network: 'in.network.json' }], null)).toEqual([]);
+  });
+
+  it('warns about a cost above the ceiling, and about inner costs in units the composed cost lacks', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'spec-'));
+    writeFileSync(join(dir, 'in.network.json'), JSON.stringify({ version: 0, budget: { u: 9, v: 9 }, entry: 'a', exit: 'a', neurons: [{ id: 'a', run: ['true'], cost: { u: 1, v: 1 } }] }));
+    const out = (cost: object) => {
+      writeFileSync(join(dir, 'out.network.json'), JSON.stringify({ version: 0, budget: { u: 5, v: 5 }, neurons: [{ id: 's', source: true }, { id: 'c', network: 'in.network.json', cost }] }));
+      return check(join(dir, 'out.network.json')).map((f) => `${f.severity}: ${f.message}`);
+    };
+    expect(out({ u: 5, v: 0 }).filter((m) => m.startsWith('warning'))).toEqual([]);
+    expect(out({ u: 5 })).toEqual([expect.stringContaining('warning: in.network.json has neurons costing v')]);
+    expect(out({ u: 6, v: 1 })).toEqual([expect.stringContaining('costs 6 u, more than the budget\'s 5: it can never run')]);
+  });
+
   it('finds a composed network file that is missing, or lacks entry or exit', () => {
     expect(broken((n) => (n.neurons[5].network = 'gone.network.json')).join()).toContain('file not found');
     expect(broken(() => {}, (s) => delete s.entry).join()).toContain('needs "entry"');

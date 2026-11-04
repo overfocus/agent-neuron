@@ -1,0 +1,59 @@
+{
+  "version": 0,
+  "name": "a-queued-level-1-call-checks-when-its-slot-frees",
+  "description": "p and q (cost 0) both forward to a (level 1, one slot, costs 3, budget 4): the first call reserves at once; the second waits in the queue, reserving nothing, and is refused only when the slot frees at 10.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "p",
+      "run": [
+        "neuron-p"
+      ],
+      "cost": {
+        "credits": 0
+      }
+    },
+    {
+      "id": "q",
+      "run": [
+        "neuron-q"
+      ],
+      "cost": {
+        "credits": 0
+      }
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 3
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "p"
+    },
+    {
+      "from": "s",
+      "to": "q"
+    },
+    {
+      "from": "p",
+      "to": "a"
+    },
+    {
+      "from": "q",
+      "to": "a"
+    }
+  ],
+  "budget": {
+    "credits": 4
+  }
+}

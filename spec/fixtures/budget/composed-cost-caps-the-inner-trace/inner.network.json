@@ -27,5 +27,8 @@
       "from": "e",
       "to": "x"
     }
-  ]
+  ],
+  "budget": {
+    "credits": 9
+  }
 }

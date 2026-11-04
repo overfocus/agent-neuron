@@ -28,10 +28,11 @@ One JSON object. An engine MUST fail a fixture with an unknown top-level field.
 | `description` | string | required | One line: what the fixture pins. |
 | `network` | path | `network.json` | The network file, relative to the fixture directory. |
 | `notes` | boolean | `false` | Compare `note` events (3). |
+| `finished` | boolean | `false` | Compare `finished` events (3). |
 | `pending` | string | none | If present, the fixture is not run; the string is the reason (7). |
 | `pingEvery` | integer ms | `10000` | The idle ping interval the engine uses for level 1 neurons in this run (4.4). |
 | `refuses` | boolean | `false` | The engine must refuse to start (4.3); `expect` is then `[]`. |
-| `inputs` | array | required | Injections: `{"at": ms, "source": id, "payload": any JSON, "replaces"?: string}`. |
+| `inputs` | array | required | Injections: `{"at": ms, "source": id, "payload": any JSON, "replaces"?: string, "budget"?: units}`. |
 | `script` | object | `{}` | The scripted programs, by instance path (4). |
 | `observer` | array | none | A scripted observer (6). |
 | `expect` | array | required | The events (SPEC 7), in order, ids normalised (3). |
@@ -39,7 +40,7 @@ One JSON object. An engine MUST fail a fixture with an unknown top-level field.
 | `independent` | boolean | `false` | The observer's injections only add traces of their own (6). |
 
 `inputs` are the producer: each is injected into its `source` at virtual millisecond `at`
-(SPEC 4.1). The network files are ordinary network files and pass `check` (SPEC 2.7), except those of pending fixtures, which use fields a later version adds. Their program
+(SPEC 4.1). The network files are ordinary network files and pass `check` (SPEC 2.7), except those of a fixture with `refuses`. Their program
 commands (`["neuron-a"]`) are names only: nothing runs them.
 
 ## 3. Comparison
@@ -50,7 +51,11 @@ The engine runs the network with the `inputs` and the script and produces its ev
 1. **Notes.** If `notes` is `false`, `note` events are removed from both lists before anything
    else. If `true`, they are compared like any event. The notes of SPEC 6.3 are MUST for an
    engine that claims conformance: a fixture with `notes: true` requires them, with the
-   order and times 6.3 gives.
+   order and times 6.3 gives. The `reserve` and `commit` notes of a budget are among them.
+   **Finished events.** The same for `finished`: if the fixture's `finished` is `false`, those events
+   are removed from both lists; if `true`, they are compared like any event. Every engine writes them
+   (SPEC 7.2), but only the fixtures that pin them compare them, so a fixture about something else does
+   not change when the trace gains an event.
 2. **Ids.** Ids become `#1`, `#2`, ... by first appearance over the whole list. Scan the events
    in order; within an event, scan the fields `id`, `trace`, `replyTo`, `cause` and (a note's)
    `trigger` in that order; a value not seen before gets the next number. The same string
@@ -119,7 +124,9 @@ process's latencies count from its start.
 If a `serve` program fails its first start (no valid `ready` within `timeout`, a first line that
 is not a `ready` object, a `ready` whose `v` differs from `hello.v` or whose `maxInflight` is
 not an integer of at least 1), the engine refuses to start (SPEC 3.2): it reports no run at
-all. A fixture with `"refuses": true` passes when the engine refuses and fails when it starts.
+all. The same holds for a network file that does not pass `check` (SPEC 2.7: a budget with a neuron
+that has no cost, say) and for an injection the engine refuses to the producer (SPEC 4.1, 10.2: one
+that raises a budget). A fixture with `"refuses": true` passes when the engine refuses and fails when it starts.
 
 ### 4.4 Pings
 
@@ -246,8 +253,8 @@ trace, so those caused by an injected trace's work cannot be told apart).
 
 A fixture with `pending` is written but not yet implementable: it is part of a later
 specification version. A runner reports it as pending, with the reason, does not run it and
-does not count it as failed. The `budget/` fixtures are the plan for version 0.1 (the shapes
-of its new notes and events are the draft's intent, not yet fixed).
+does not count it as failed. None is pending today: the `budget/` fixtures that were the plan for
+version 0.1 pin its budget (SPEC 10) and the `finished` event.
 
 ## 8. The command-line contract
 

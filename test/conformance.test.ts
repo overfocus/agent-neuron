@@ -12,10 +12,10 @@ const mutants = fileURLToPath(new URL('./.mutants/', import.meta.url));
 const load = (dir: string) => JSON.parse(readFileSync(join(dir, 'fixture.json'), 'utf8')) as Fixture;
 
 describe('the conformance fixtures (docs/CONFORMANCE.md)', () => {
-  it('pass on the reference engine, and the pending ones are only the v0.1 budget', async () => {
+  it('pass on the reference engine, with none pending', async () => {
     const results = await conform(fixtures);
     expect(results.filter((r) => r.status === 'fail').map((r) => `${r.name}\n${r.detail.join('\n')}`)).toEqual([]);
-    expect(results.filter((r) => r.status === 'pending').every((r) => r.name.startsWith('budget/'))).toBe(true);
+    expect(results.filter((r) => r.status === 'pending')).toEqual([]);
     expect(results.filter((r) => r.status === 'pass').length).toBeGreaterThan(100);
   }, 60_000);
 
@@ -38,6 +38,9 @@ describe('the conformance fixtures (docs/CONFORMANCE.md)', () => {
     expect(compare(err('exit 2:'), err('exit 1: boom'), false)).toContain('event 1');
     expect(compare([], [{ type: 'note', t: 0, neuron: 'a', what: 'x' }], false)).toBeUndefined();
     expect(compare([], [{ type: 'note', t: 0, neuron: 'a', what: 'x' }], true)).toContain('event 1');
+    const finished = [{ type: 'finished', t: 0, trace: '1', status: 'done' }];
+    expect(compare([], finished, false)).toBeUndefined();
+    expect(compare([], finished, false, true)).toContain('event 1');
   });
 
   it('lets real runs overlap, and refuses a virtual run while one is active', async () => {
@@ -120,6 +123,28 @@ const mutations: { name: string; edits: [from: string, to: string, count?: numbe
     "    this.restartTimer = host.setTimeout(() => {\n      this.run.processNote(this.node, 'restart');\n      this.spawn();\n    },",
     "    this.run.live++;\n    this.restartTimer = host.setTimeout(() => {\n      this.run.processNote(this.node, 'restart');\n      this.spawn();\n      if (--this.run.live === 0) this.run.over?.();\n    },"]] },
   { name: 'a composed reply without the key of exit', edits: [['      this.cancelScope(scope);\n      done(o);', "      this.cancelScope(scope);\n      done('answer' in o ? { answer: o.answer } : o);"]] },
+  { name: 'a cut call releasing its reservation instead of committing', edits: [['if (!call.reserved) return;', 'if (!call.reserved || call.cancelled) return;']] },
+  { name: 'a held input reserving', edits: [['  private hold(w: Work, k: number) {\n', '  private hold(w: Work, k: number) {\n    this.reserve(new Call([w]));\n']] },
+  { name: 'branches drawing from the pool out of order', edits: [['for (const to of sig.to) this.deliver(', 'for (const to of [...sig.to].reverse()) this.deliver(']] },
+  { name: 'the cost of a composed neuron not capping its inside', edits: [['innerPool(node.spec.cost, inner.net.budget)); // the cost caps the inside (SPEC 10.5)', 'undefined);']] },
+  { name: 'a queued level 1 call reserving when it queues', edits: [
+    ['      const refused = this.run.reserve(job.call); // checked when the slot frees (SPEC 10)\n      if (refused) { job.done(refused); continue; }\n', ''],
+    ['      node.server.submit({ call, message:', '      const early = this.reserve(call);\n      if (early) return done(early);\n      node.server.submit({ call, message:']] },
+  { name: 'one pool shared by every trace', edits: [['scope.pools.has(trace)', "scope.pools.has('')"], ['scope.pools.set(trace,', "scope.pools.set('',"], ['return scope.pools.get(trace)!;', "return scope.pools.get('')!;"]] },
+  { name: 'a trace that never reports exhausted', edits: [["pool?.exhausted ? 'exhausted' : 'done'", "'done'"]] },
+  { name: 'a refused call keeping part of the cost', edits: [['      pool.exhausted = true;\n', '      pool.exhausted = true;\n      for (const [unit, n] of Object.entries(cost)) if (unit !== short[0]) pool.left[unit] = (pool.left[unit] ?? 0) - n;\n']] },
+  { name: 'ms counted from the start of the run', edits: [['call.t0 = host.now();', 'call.t0 = 0;']] },
+  { name: 'a commit labelled measured', edits: [["basis: 'estimated'", "basis: 'measured'"]] },
+  { name: 'an inner commit note in the outer trace', edits: [["this.report(w.scope, { type: 'note', neuron: w.node.id, what: 'commit'", "this.report(this.rootScope, { type: 'note', neuron: w.node.id, what: 'commit'"]] },
+  { name: 'an injection that cannot lower the budget', edits: [['if (pool) pool.left[unit] = n;', 'if (pool) pool.left[unit] = pool.left[unit]!;']] },
+  { name: 'a trace finished while its signal is still being delivered', edits: [['this.open.set(id, 1); // the injection itself', 'this.open.set(id, 0); // the injection itself']] },
+  { name: 'the term note after the end of the process', edits: [["      note('term'); // before the kill: where the process ends at once, the call's end follows the note\n      killGroup(pid, 'SIGTERM');\n", "      killGroup(pid, 'SIGTERM');\n      note('term');\n"]] },
+  { name: 'an engine that does not check its file', edits: [["const errors = check(file).filter((f) => f.severity === 'error');", 'const errors: { message: string }[] = [];']] },
+  { name: 'an injection that raises the budget accepted', edits: [['(n as number) > ceiling[unit]!', 'false as boolean']] },
+  { name: 'the inner budget not bounding a composed neuron with no cost', edits: [['?? n)])) : own;', '?? n)])) : undefined;']] },
+  { name: 'the inner budget not lowering the cost of a composed neuron', edits: [['Math.min(n, own?.[unit] ?? n)', 'n']] },
+  { name: 'a unit only the inner budget has granted to a composed neuron', edits: [['cost ? Object.fromEntries(', 'cost ? { ...own, ...Object.fromEntries('], ['?? n)])) : own;', '?? n)])) } : own;']] },
+  { name: 'the kill note after the end of the process', edits: [["note('kill'); // before the kill, as for term: where the process ends at once, the call's end follows the note\n          killGroup(pid, 'SIGKILL');", "killGroup(pid, 'SIGKILL');\n          note('kill');"]] },
   { name: 'an error code renamed', edits: [["code: 'neuron' }", "code: 'error' }"]] },
 ];
 

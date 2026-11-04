@@ -1,0 +1,29 @@
+{
+  "version": 0,
+  "name": "each-trace-has-its-own-pool",
+  "description": "Budget 10, a costs 6: two traces at the same time each run their call, because each trace has its own pool (a shared pool would refuse the second).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 6
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

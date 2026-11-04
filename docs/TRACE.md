@@ -55,6 +55,7 @@ description  one line about the run
 library      the library or engine VERSION that ran it (no dates, hosts or paths anywhere)
 engine       optional: the name of the engine that wrote it, when it is not the TypeScript library
 parameters   (alerts only) { threshold }: the setting this run was recorded with
+budget       optional, from engines following docs/SPEC.md: the network file's `budget`, units to whole-number ceilings
 neurons      [ ... ]   declared up front, including neurons that never send
 links        [ ... ]   the connections, declared up front, so the network can be drawn before any traffic
 events       [ ... ]   in the order the network reported them
@@ -69,6 +70,7 @@ kind         what it wraps: "source", "js", "shell script", "model stand-in", "c
              following docs/SPEC.md writes "source", "run", "serve", "http", "human" or "composed"
 description  a short sentence. A shell-wrapped neuron names its script by file name only
 options      when set: { threshold, within, maxHops }
+cost         optional, from engines following docs/SPEC.md: the neuron's `cost`, units to whole-number amounts
 ```
 
 A composed neuron is one neuron: its inner network never appears.
@@ -94,7 +96,8 @@ Nothing in the library uses strength yet, so no trace sets it. Replay already ho
 | `drop` | work for a signal was dropped at `neuron`, `reason` `replaced`, `expired` or `hops` |
 | `error` | `neuron` failed handling a signal; `message` |
 | `fail` | the run itself failed; `message` only |
-| `note` | optional, from engines following docs/SPEC.md: a process fact (`neuron`, `what`: `junk`, `cancel`, `term`, `kill`, `restart`, `inject`; plus `line`, `text` or `trigger`). No signal fields |
+| `finished` | optional, from engines following docs/SPEC.md: a trace has no unfinished work left. `trace`, `status` (`done` or `exhausted`) and, when the network has a budget, `remaining` (units to amounts). No signal fields, no `id` |
+| `note` | optional, from engines following docs/SPEC.md: a process fact (`neuron`, `what`: `junk`, `cancel`, `term`, `kill`, `restart`, `inject`, `reserve`, `commit`; plus `line`, `text`, `trigger`, `units`, `ms` or `basis`). No signal fields |
 
 Every event except `fail` carries the signal's fields: `id`, `from`, `to` (list), `trace`, `replyTo` and `cause` when set, and `hops`.
 `trace` is the chain id: the id of the first signal of a chain, shared by every signal
@@ -106,7 +109,16 @@ A `signal` event may also carry `via`: `"emit"` or `"send"`, how it was sent. Ab
 Optional fields from docs/SPEC.md, which readers may ignore: `replaces` on `signal` (the stale-work key);
 `phase` on `drop` (`waiting` or `running`: whether the work had started; a running drop of a threshold call
 may name the crossing input even when a different, earlier input was the one replaced); `code` on `error`
-(`exit`, `output`, `junk`, `http`, `protocol`, `timeout`, `crash`, `start`, `inner`, `neuron`).
+(`exit`, `output`, `junk`, `http`, `protocol`, `timeout`, `crash`, `start`, `inner`, `neuron`, `budget`).
+
+Budget accounting (docs/SPEC.md section 10) is written only for a network with a `budget`. All its
+amounts are JSON integers (0 to 2^53 - 1): `reserve` notes carry `units`, the cost reserved when a call
+starts; `commit` notes carry `units` (the amount consumed), `ms` (the call's wall time as the engine
+measured it, whole milliseconds) and `basis` (`estimated`: the engine took the reservation because the
+real figure is unknown; a later version adds `measured`). An `error` with `code` `budget` is a call refused
+because its cost could not be covered. Every trace of an engine run ends with one `finished` event,
+with a budget or without: `status` `exhausted` when a call was refused, else `done`, and `remaining`, what
+is left of the trace's pool. A reader that does not know these ignores them, as it ignores all of the above.
 
 For `drop` and `error` they describe the signal that was dropped or that failed
 (`id` names an earlier event), plus `neuron`, `reason` or `message`, and the

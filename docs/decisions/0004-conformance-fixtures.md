@@ -65,7 +65,7 @@ key now includes the scope. Fixture `composed/threshold-groups-never-mix-calls` 
 
 ## Budget fixtures (v0.1)
 
-`spec/fixtures/budget/` holds the plan of the v0.1 brief as pending fixtures. The names and fields of
-`reserve`, `commit`, the `budget` error and the `finished` event (`status`, `remaining`, `held`) are
-provisional, written so the fixtures read; the v0.1 spec fixes them. Open: whether a run without a
-`budget` gets `finished` events at all (the first fixture says it gets no accounting events).
+`spec/fixtures/budget/` held the plan of the v0.1 brief as pending fixtures with provisional shapes.
+They are active now, their shapes fixed by SPEC 7.2 and 10 ([decision 0006](0006-budgets.md)): `status`
+is `done` or `exhausted`, and `held` was dropped (a trace is finished when nothing is held). A run without a
+`budget` does get `finished` events (Kevin's decision), only no accounting.

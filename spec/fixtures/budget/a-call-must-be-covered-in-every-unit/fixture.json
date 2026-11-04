@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "Budget 10 credits and 1 call: a (3 credits, 1 call) runs; b (1 credit, 1 call) is refused for lack of calls, and takes none of the credits left.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":10,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"a","what":"reserve","units":{"credits":3,"calls":1}},
+    {"type":"error","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"neuron":"b","message":"budget: needs 1 calls, 0 left","code":"budget","payload":{"type":"json","data":1}},
+    {"type":"note","t":10,"neuron":"a","what":"commit","units":{"credits":3,"calls":1},"ms":10,"basis":"estimated"},
+    {"type":"quiet","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"finished","t":10,"trace":"#1","status":"exhausted","remaining":{"credits":7,"calls":0}}
+  ]
+}

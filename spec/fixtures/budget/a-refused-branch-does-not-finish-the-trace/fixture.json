@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "Budget 5, s -> a (costs 6) and s -> b (costs 3): a is refused first, b still runs; the trace is finished once, when b ends.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "b": {"calls":[{"after":10,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"neuron":"a","message":"budget: needs 6 credits, 5 left","code":"budget","payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"b","what":"reserve","units":{"credits":3}},
+    {"type":"note","t":10,"neuron":"b","what":"commit","units":{"credits":3},"ms":10,"basis":"estimated"},
+    {"type":"quiet","t":10,"id":"#2","from":"b","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"finished","t":10,"trace":"#1","status":"exhausted","remaining":{"credits":2}}
+  ]
+}

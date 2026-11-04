@@ -1,0 +1,27 @@
+{
+  "version": 0,
+  "name": "a-unit-only-the-inner-budget-has-is-not-granted",
+  "description": "The composed cost names credits only; its file budgets credits and gold. The pool has no gold, so e (2 credits, 1 gold) is refused inside at once: a file cannot raise the limit the cost sets.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json",
+      "cost": {
+        "credits": 8
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

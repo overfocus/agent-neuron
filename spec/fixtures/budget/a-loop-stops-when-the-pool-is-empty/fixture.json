@@ -1,8 +1,8 @@
 {
   "fixture": 0,
   "description": "a and b link to each other, cost 1 each, budget 5, maxHops 100: the sixth call is refused with an error budget long before maxHops.",
-  "pending": "v0.1: the budget (a top-level budget, a cost option, reserve and commit notes, a budget error, the finished event) is not implemented; the event shapes here are the brief's intent, to be fixed by the v0.1 spec",
   "notes": true,
+  "finished": true,
   "inputs": [
     {"at":0,"source":"s","payload":1}
   ],
@@ -32,7 +32,7 @@
     {"type":"note","t":5,"neuron":"a","what":"commit","units":{"credits":1},"ms":1,"basis":"estimated"},
     {"type":"answer","t":5,"id":"#10","from":"a","to":["b"],"trace":"#1","replyTo":"#9","hops":9,"payload":{"type":"json","data":1}},
     {"type":"signal","t":5,"id":"#11","from":"a","to":["b"],"trace":"#1","hops":10,"cause":"#10","payload":{"type":"json","data":1}},
-    {"type":"error","t":5,"id":"#11","from":"a","to":["b"],"trace":"#1","cause":"#10","hops":10,"neuron":"b","message":"budget","code":"budget","payload":{"type":"json","data":1}},
-    {"type":"finished","t":5,"trace":"#1","status":"exhausted","remaining":{"credits":0},"held":0}
+    {"type":"error","t":5,"id":"#11","from":"a","to":["b"],"trace":"#1","cause":"#10","hops":10,"neuron":"b","message":"budget:","code":"budget","payload":{"type":"json","data":1}},
+    {"type":"finished","t":5,"trace":"#1","status":"exhausted","remaining":{"credits":0}}
   ]
 }

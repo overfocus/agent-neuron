@@ -1,0 +1,25 @@
+{
+  "fixture": 0,
+  "description": "Budget 10, a costs 6: two traces at the same time each run their call, because each trace has its own pool (a shared pool would refuse the second).",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":0,"source":"s","payload":2}
+  ],
+  "script": {
+    "a": {"calls":[{"after":10,"reply":{"quiet":true}},{"after":10,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"a","what":"reserve","units":{"credits":6}},
+    {"type":"signal","t":0,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"note","t":0,"neuron":"a","what":"reserve","units":{"credits":6}},
+    {"type":"note","t":10,"neuron":"a","what":"commit","units":{"credits":6},"ms":10,"basis":"estimated"},
+    {"type":"quiet","t":10,"id":"#3","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1},
+    {"type":"finished","t":10,"trace":"#1","status":"done","remaining":{"credits":4}},
+    {"type":"note","t":10,"neuron":"a","what":"commit","units":{"credits":6},"ms":10,"basis":"estimated"},
+    {"type":"quiet","t":10,"id":"#4","from":"a","to":["s"],"trace":"#2","replyTo":"#2","hops":1},
+    {"type":"finished","t":10,"trace":"#2","status":"done","remaining":{"credits":4}}
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "version": 0,
+  "name": "a-refused-branch-does-not-finish-the-trace",
+  "description": "Budget 5, s -> a (costs 6) and s -> b (costs 3): a is refused first, b still runs; the trace is finished once, when b ends.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 6
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "cost": {
+        "credits": 3
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    }
+  ],
+  "budget": {
+    "credits": 5
+  }
+}

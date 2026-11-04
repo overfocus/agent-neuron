@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:agent-neuron:schema:network:0",
-  "title": "agent-neuron network file, version 0",
+  "title": "agent-neuron network file, version 0 (specification 0.1)",
   "description": "Closed schema: an unknown field is an error. Values are literals; nothing in the file reads a payload. See docs/SPEC.md section 3.",
   "type": "object",
   "additionalProperties": false,
@@ -50,6 +50,10 @@
       "items": {
         "$ref": "#/$defs/link"
       }
+    },
+    "budget": {
+      "description": "The most one trace may spend, in named units. With a budget, every neuron but a source declares a cost (0 allowed); `check` enforces it, as a schema cannot. See docs/SPEC.md section 10.",
+      "$ref": "#/$defs/units"
     }
   },
   "$defs": {
@@ -159,6 +163,9 @@
             },
             "cwd": {
               "$ref": "#/$defs/literal"
+            },
+            "cost": {
+              "$ref": "#/$defs/units"
             }
           }
         },
@@ -208,6 +215,9 @@
             },
             "cwd": {
               "$ref": "#/$defs/literal"
+            },
+            "cost": {
+              "$ref": "#/$defs/units"
             }
           }
         },
@@ -253,6 +263,9 @@
             },
             "timeout": {
               "$ref": "#/$defs/ms"
+            },
+            "cost": {
+              "$ref": "#/$defs/units"
             }
           }
         },
@@ -291,6 +304,9 @@
             },
             "timeout": {
               "$ref": "#/$defs/ms"
+            },
+            "cost": {
+              "$ref": "#/$defs/units"
             }
           }
         },
@@ -317,10 +333,26 @@
             },
             "timeout": {
               "$ref": "#/$defs/ms"
+            },
+            "cost": {
+              "$ref": "#/$defs/units"
             }
           }
         }
       ]
+    },
+    "units": {
+      "description": "Named units with whole-number amounts. Amounts stay within 2^53 - 1, so every JSON reader holds them exactly.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/id"
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      }
     }
   }
 }

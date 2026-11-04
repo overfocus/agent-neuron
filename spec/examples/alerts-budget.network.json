@@ -1,0 +1,24 @@
+{
+  "$schema": "../network.schema.json",
+  "version": 0,
+  "name": "alerts-budget",
+  "description": "The alert storm with a budget of 12 credits per alert: detectors cost 1, hypothesis 5, diagnosis 4. A producer that injects a non-critical alert lowers its budget to half, so its expensive call is refused once the cheap detectors have spent their share.",
+  "budget": { "credits": 12 },
+  "neurons": [
+    { "id": "alerts", "description": "Where alerts enter. The producer tags each with a replaces key (its service).", "source": true },
+    { "id": "logs", "description": "Flags an alert when the log has error lines for its service.", "run": ["sh", "../../examples/alerts/detect-logs.sh", "../../examples/alerts/logs.txt"], "cost": { "credits": 1 } },
+    { "id": "deploys", "description": "Flags an alert when its service was deployed in the last 30 minutes.", "run": ["sh", "../../examples/alerts/detect-deploys.sh", "../../examples/alerts/deploys.txt"], "cost": { "credits": 1 } },
+    { "id": "metrics", "description": "Flags a critical alert when the service's error rate is above 5%.", "run": ["node", "neurons/metrics.mjs"], "cost": { "credits": 1 } },
+    { "id": "hypothesis", "description": "A 500 ms stand-in for a model call; acts once two distinct detectors flag one alert.", "run": ["node", "neurons/hypothesis.mjs", "500"], "threshold": 2, "within": 500, "cost": { "credits": 5 } },
+    { "id": "diagnosis", "description": "Composed: finds the root cause and the deploy to look at.", "network": "diagnosis.network.json", "cost": { "credits": 4 } }
+  ],
+  "links": [
+    { "from": "alerts", "to": "logs" },
+    { "from": "alerts", "to": "deploys" },
+    { "from": "alerts", "to": "metrics" },
+    { "from": "logs", "to": "hypothesis" },
+    { "from": "deploys", "to": "hypothesis" },
+    { "from": "metrics", "to": "hypothesis" },
+    { "from": "hypothesis", "to": "diagnosis" }
+  ]
+}

@@ -1,8 +1,8 @@
 {
   "fixture": 0,
   "description": "budget 10 credits, a and b cost 6: a runs; the input to b is refused with an error budget and the trace is finished exhausted.",
-  "pending": "v0.1: the budget (a top-level budget, a cost option, reserve and commit notes, a budget error, the finished event) is not implemented; the event shapes here are the brief's intent, to be fixed by the v0.1 spec",
   "notes": true,
+  "finished": true,
   "inputs": [
     {"at":0,"source":"s","payload":1}
   ],
@@ -15,7 +15,7 @@
     {"type":"note","t":10,"neuron":"a","what":"commit","units":{"credits":6},"ms":10,"basis":"estimated"},
     {"type":"answer","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":2}},
     {"type":"signal","t":10,"id":"#3","from":"a","to":["b"],"trace":"#1","hops":2,"cause":"#2","payload":{"type":"json","data":2}},
-    {"type":"error","t":10,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"neuron":"b","message":"budget","code":"budget","payload":{"type":"json","data":2}},
-    {"type":"finished","t":10,"trace":"#1","status":"exhausted","remaining":{"credits":4},"held":0}
+    {"type":"error","t":10,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"neuron":"b","message":"budget:","code":"budget","payload":{"type":"json","data":2}},
+    {"type":"finished","t":10,"trace":"#1","status":"exhausted","remaining":{"credits":4}}
   ]
 }

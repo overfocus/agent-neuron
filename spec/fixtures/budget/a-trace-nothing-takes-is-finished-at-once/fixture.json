@@ -1,0 +1,16 @@
+{
+  "fixture": 0,
+  "description": "A source with no outgoing links: the injected signal reaches no neuron, and its trace is finished at the same instant with the whole budget left.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":5,"source":"s","payload":1}
+  ],
+  "script": {
+
+  },
+  "expect": [
+    {"type":"signal","t":5,"id":"#1","from":"s","to":[],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"finished","t":5,"trace":"#1","status":"done","remaining":{"credits":10}}
+  ]
+}

@@ -1,8 +1,8 @@
 {
   "fixture": 0,
-  "description": "The same loop at cost 0 with maxHops 6: the budget never runs out and maxHops stops it, with the budget untouched.",
-  "pending": "v0.1: the budget (a top-level budget, a cost option, reserve and commit notes, a budget error, the finished event) is not implemented; the event shapes here are the brief's intent, to be fixed by the v0.1 spec",
+  "description": "A loop of a and b at cost 0 with maxHops 6: the budget never runs out and maxHops stops it, with the budget untouched.",
   "notes": true,
+  "finished": true,
   "inputs": [
     {"at":0,"source":"s","payload":1}
   ],
@@ -29,6 +29,6 @@
     {"type":"answer","t":4,"id":"#8","from":"b","to":["a"],"trace":"#1","replyTo":"#7","hops":7,"payload":{"type":"json","data":1}},
     {"type":"signal","t":4,"id":"#9","from":"b","to":["a"],"trace":"#1","hops":8,"cause":"#8","payload":{"type":"json","data":1}},
     {"type":"drop","t":4,"id":"#9","from":"b","to":["a"],"trace":"#1","cause":"#8","hops":8,"neuron":"a","reason":"hops","payload":{"type":"json","data":1}},
-    {"type":"finished","t":4,"trace":"#1","status":"complete","remaining":{"credits":5},"held":0}
+    {"type":"finished","t":4,"trace":"#1","status":"done","remaining":{"credits":5}}
   ]
 }

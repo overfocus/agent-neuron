@@ -1,7 +1,7 @@
 {
   "version": 0,
-  "name": "removing-a-settlement-observer-changes-nothing",
-  "description": "SPEC 8.5 with a budget: a scripted settlement observer reads the reserve and commit notes; without it the events are the same.",
+  "name": "a-cut-call-that-ignores-term-commits-when-killed",
+  "description": "A cut call that ignores SIGTERM is killed 2000 ms later: the commit (ms 2040) and the finished event of its trace wait for the kill, after the kill note.",
   "neurons": [
     {
       "id": "s",
@@ -13,7 +13,7 @@
         "neuron-a"
       ],
       "cost": {
-        "credits": 6
+        "credits": 4
       }
     }
   ],

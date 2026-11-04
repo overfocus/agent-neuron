@@ -1,0 +1,29 @@
+{
+  "version": 0,
+  "name": "an-injection-lowers-the-budget",
+  "description": "The file sets 10 credits; the first injection lowers its trace to 5, so the call costing 6 is refused; the second injection has the file ceiling and runs.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 6
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "version": 0,
+  "name": "the-inner-budget-lowers-the-cost-of-a-composed-neuron",
+  "description": "The composed neuron costs 8 but its file has a budget of 5, the lower: e (2) runs and x (4) is refused inside, though 8 would cover both. Outside, 8 is reserved and committed.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json",
+      "cost": {
+        "credits": 8
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

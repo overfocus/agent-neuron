@@ -7,12 +7,12 @@ import { VirtualHost, type Script } from './virtual.js';
 
 type Rule = { when: Record<string, unknown>; inject: { after: number; source: string; payload: unknown; replaces?: string } };
 export type Fixture = {
-  fixture: 0; description: string; network?: string; notes?: boolean; pending?: string; pingEvery?: number; refuses?: boolean;
+  fixture: 0; description: string; network?: string; notes?: boolean; finished?: boolean; pending?: string; pingEvery?: number; refuses?: boolean;
   inputs: Injection[]; script?: Script; observer?: Rule[]; expect: Event[]; expectWithout?: Event[]; independent?: boolean;
 };
 export type Result = { name: string; status: 'pass' | 'fail' | 'pending'; detail: string[] };
 type Engine = typeof runNetwork;
-const KNOWN = ['fixture', 'description', 'network', 'notes', 'pending', 'pingEvery', 'refuses', 'inputs', 'script', 'observer', 'expect', 'expectWithout', 'independent'];
+const KNOWN = ['fixture', 'description', 'network', 'notes', 'finished', 'pending', 'pingEvery', 'refuses', 'inputs', 'script', 'observer', 'expect', 'expectWithout', 'independent'];
 
 /** Ids become #1, #2, ... by first appearance, scanning id, trace, replyTo, cause (and a note's trigger) of each event in turn (8.3). */
 export function normalise(events: Event[]): Event[] {
@@ -25,9 +25,9 @@ export function normalise(events: Event[]): Event[] {
   });
 }
 
-/** The first difference between expected and actual events (notes only if asked), or undefined. `via` absent equals "emit"; an error's message is a prefix. */
-export function compare(expected: Event[], actual: Event[], notes: boolean): string | undefined {
-  const keep = (list: Event[]) => normalise(list).filter((e) => notes || e.type !== 'note').map(({ via, ...e }) => (via === 'emit' || via === undefined ? e : { ...e, via }));
+/** The first difference between expected and actual events (notes and `finished` events only if asked), or undefined. `via` absent equals "emit"; an error's message is a prefix. */
+export function compare(expected: Event[], actual: Event[], notes: boolean, finished = false): string | undefined {
+  const keep = (list: Event[]) => normalise(list).filter((e) => (notes || e.type !== 'note') && (finished || e.type !== 'finished')).map(({ via, ...e }) => (via === 'emit' || via === undefined ? e : { ...e, via }));
   const want = keep(expected), got = keep(actual);
   for (let i = 0; i < Math.max(want.length, got.length); i++) {
     const w = want[i], g = got[i];
@@ -67,20 +67,20 @@ async function one(engine: Engine, dir: string, name: string): Promise<Result> {
       return fail('the engine started, but the fixture says it must refuse to start');
     }
     const actual = await events(engine, dir, f, true);
-    const diff = compare(f.expect, actual, f.notes ?? false);
+    const diff = compare(f.expect, actual, f.notes ?? false, f.finished ?? false);
     if (diff) return fail(diff);
     if (f.observer) { // SPEC 8.5: take the observer away and rerun
       const without = await events(engine, dir, f, false);
       const wantWithout = f.expectWithout ?? (f.observer.length ? undefined : f.expect);
-      const d = wantWithout && compare(wantWithout, without, f.notes ?? false);
+      const d = wantWithout && compare(wantWithout, without, f.notes ?? false, f.finished ?? false);
       if (d) return fail(`without the observer, ${d}`);
       const at = actual.findIndex((e) => e.type === 'note' && e.what === 'inject'); // before its first injection nothing may differ
-      const early = compare(without.slice(0, at < 0 ? actual.length : at), actual.slice(0, at < 0 ? actual.length : at), true);
+      const early = compare(without.slice(0, at < 0 ? actual.length : at), actual.slice(0, at < 0 ? actual.length : at), true, true);
       if (early) return fail(`the observer changed events before its first injection: ${early}`);
       if (f.independent || at < 0) { // its injections only add events of their own traces
         const rooted = new Set(actual.flatMap((e, i) => (e.type === 'note' && e.what === 'inject' ? [actual[i + 1]!.trace as string] : [])));
         const rest = actual.filter((e) => e.type !== 'note' && !rooted.has(e.trace as string)); // notes take no part: they name no trace
-        const same = compare(without, rest, false);
+        const same = compare(without, rest, false, true);
         if (same) return fail(`removing the observer changed the other traces: ${same}`);
       }
     }

@@ -8,11 +8,11 @@ import { delimiter, dirname, join, normalize, resolve } from 'node:path';
 export type NeuronSpec = {
   id: string; description?: string;
   source?: true; run?: string[]; serve?: string[]; http?: string; human?: true; network?: string;
-  threshold?: number; within?: number; maxHops?: number; timeout?: number; env?: string[]; cwd?: string;
+  threshold?: number; within?: number; maxHops?: number; timeout?: number; env?: string[]; cwd?: string; cost?: Record<string, number>;
 };
 export type NetworkFile = {
   version: 0; name?: string; description?: string; entry?: string; exit?: string;
-  neurons: NeuronSpec[]; links?: { from: string; to: string }[];
+  neurons: NeuronSpec[]; links?: { from: string; to: string }[]; budget?: Record<string, number>;
 };
 export type Finding = { severity: 'error' | 'warning'; file: string; line?: number; column?: number; message: string };
 
@@ -58,8 +58,11 @@ export function validate(value: unknown, node: Schema = loadSchema(), path = '$'
     for (const [key, needs] of Object.entries((node.dependentRequired ?? {}) as Record<string, string[]>)) {
       if (key in value) for (const n of needs) if (!(n in value)) fail(`"${key}" needs "${n}"`);
     }
+    if (typeof node.minProperties === 'number' && Object.keys(value).length < node.minProperties) fail(`needs at least ${node.minProperties} members`);
     for (const [key, v] of Object.entries(value)) {
+      if (isObject(node.propertyNames)) errors.push(...validate(key, node.propertyNames as Schema, `${path}.${key}`));
       if (properties[key]) errors.push(...validate(v, properties[key], `${path}.${key}`));
+      else if (isObject(node.additionalProperties)) errors.push(...validate(v, node.additionalProperties as Schema, `${path}.${key}`));
       else if (node.additionalProperties === false) fail(`unknown field "${key}"`, `${path}.${key}`);
     }
   }
@@ -171,6 +174,20 @@ export function check(file: string, seen: string[] = [], shown?: string): Findin
     pairs.add(`${from}\0${to}`);
     if (byId.get(to)?.source) add('error', `$.links[${i}]`, `link ${from} -> ${to}: a source receives nothing`);
   });
+  // a cost names units the file's budget has (SPEC 2.7); amounts are integers from 0 (the schema)
+  const units = Object.keys(net.budget ?? {});
+  net.neurons.forEach((n, i) => {
+    for (const unit of Object.keys(n.cost ?? {})) {
+      if (units.includes(unit)) {
+        if (n.cost![unit]! > net.budget![unit]!) add('warning', `$.neurons[${i}].cost.${unit}`, `neuron "${n.id}" costs ${n.cost![unit]} ${unit}, more than the budget's ${net.budget![unit]}: it can never run`);
+        continue;
+      }
+      const near = nearest(unit, units);
+      add('error', `$.neurons[${i}].cost.${unit}`, `cost names unit "${unit}", which is not in the budget${units.length ? ` (${units.join(', ')})` : ' (the file has none)'}${near ? `: did you mean "${near}"?` : ''}`);
+    }
+  });
+  // with a budget every neuron but a source declares a cost, 0 allowed: a neuron that could spend without one would escape it (SPEC 10.1)
+  if (net.budget) net.neurons.forEach((n, i) => { if (!n.source && !n.cost) add('error', `$.neurons[${i}]`, `neuron "${n.id}" has no cost, and the file has a budget: every neuron but a source declares one (0 is allowed)`); });
   for (const key of ['entry', 'exit'] as const) if (net[key] && !ids.has(net[key]!)) add('error', `$.${key}`, unknown(`"${key}"`, net[key]!));
   // a cycle in which no neuron has maxHops never ends
   const open = (id: string) => byId.get(id)?.maxHops === undefined;
@@ -204,6 +221,8 @@ export function check(file: string, seen: string[] = [], shown?: string): Findin
     if (sub.neurons.some((x) => x.id === n.id)) add('error', `${at}.id`, `neuron "${n.id}" has the same id as a neuron inside ${n.network}: a composed neuron's id must not be one of its inner ids`);
     for (const key of ['entry', 'exit'] as const) if (!sub[key]) add('error', `${at}.network`, `${n.network} is used as a composed neuron and needs "${key}"`);
     if (sub.neurons.some((x) => x.source)) add('error', `${at}.network`, `${n.network} is used as a composed neuron and may not contain a source`);
+    const lacking = [...new Set(sub.neurons.flatMap((x) => Object.keys(x.cost ?? {})))].filter((u) => n.cost && !(u in n.cost));
+    if (lacking.length) add('warning', at, `${n.network} has neurons costing ${lacking.join(', ')}, which the cost of "${n.id}" does not name: those calls are always refused (SPEC 10.5)`);
     if (sub.exit && (sub.links ?? []).some((l) => l.from === sub.exit)) add('error', `${at}.network`, `${n.network}: "exit" may not have outgoing links`);
   });
   return out;
