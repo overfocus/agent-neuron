@@ -22,7 +22,7 @@ export type Trace = {
 type Sig = { id: string; trace: string; from: string; to: string[]; hops: number; payload?: unknown; replyTo?: string; cause?: string; replaces?: string };
 type Outcome = { answer: unknown; replaces?: string | null; to?: string[] } | { quiet: true } | { error: string; code: string };
 
-const DEFAULT_WITHIN = 10_000, DEFAULT_TIMEOUT = 30_000, MAX_OUTPUT = 1 << 20, KILL_AFTER = 2_000, GRACE = 100, MAX_KEY = 256, PAYLOAD_CAP = 2000, PING_EVERY = 10_000, MAX_STARTS = 5;
+const DEFAULT_WITHIN = 10_000, DEFAULT_TIMEOUT = 30_000, MAX_OUTPUT = 1 << 20, KILL_AFTER = 2_000, GRACE = 100, MAX_KEY = 256, PAYLOAD_CAP = 2000, PING_EVERY = 10_000, MAX_STARTS = 5, STABLE_AFTER = 1_000;
 const groups = new Set<number>(); // process groups of running programs
 const killGroup = (pid: number | undefined, signal: NodeJS.Signals) => {
   try { process.kill(-pid!, signal); } catch { /* already gone */ }
@@ -35,6 +35,10 @@ export function killGroups(signal: NodeJS.Signals) {
   for (const pid of groups) killGroup(pid, signal);
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Resolves when no member of the process group is left, or after `ms`: the grace for what a leader left behind. */
+const groupGone = async (pid: number | undefined, ms: number) => {
+  for (let waited = 0; waited < ms && alive(pid); waited += 20) await sleep(20);
+};
 const withKey = (replaces: string | undefined) => (replaces === undefined ? {} : { replaces });
 /** A program in its own process group, with only PATH and its `env` names (SPEC 2.4); the group is registered in `groups`. */
 const launch = (node: Node): Proc => {
@@ -97,9 +101,11 @@ class Server {
   ready = false; failed = false; stopping = false;
   jobs = new Map<number, Job>(); // running, by re; a cancelled call stays until its reply or a hang
   queue: Job[] = [];
-  maxInflight = 1; re = 0; f = 0; pings = 0; line = 0; err = '';
+  maxInflight = 1; re = 0; pings = 0; line = 0; err = '';
+  failedStarts = 0; // consecutive starts that did not prove themselves: no ready, a crash within STABLE_AFTER of ready, or no pong
+  readyAt = 0;
   pinging?: number | undefined;
-  start_?: NodeJS.Timeout; ping_?: NodeJS.Timeout; hang_?: NodeJS.Timeout; restart_?: NodeJS.Timeout;
+  startTimer?: NodeJS.Timeout; pingTimer?: NodeJS.Timeout; pingHang?: NodeJS.Timeout; restartTimer?: NodeJS.Timeout;
   reaping: Promise<void>[] = [];
   private begin?: { ok: () => void; no: (e: Error) => void } | undefined;
   constructor(readonly node: Node, readonly run: Run, readonly pingEvery: number) {}
@@ -124,22 +130,26 @@ class Server {
     child.stdout.on('data', (d: Buffer) => { // bytes are split into lines first and each line is decoded once, so no character is cut by a chunk
       buf = Buffer.concat([buf, d]);
       for (let i = buf.indexOf(10); i >= 0 && child === this.child; i = buf.indexOf(10)) {
-        if (i > MAX_OUTPUT) return this.down(child, 'output', 'output too large');
+        if (i > MAX_OUTPUT) return this.tooLong(child);
         const line = buf.subarray(0, i).toString('utf8');
         buf = buf.subarray(i + 1);
         this.onLine(child, line);
       }
-      if (buf.length > MAX_OUTPUT && child === this.child) this.down(child, 'output', 'output too large');
+      if (buf.length > MAX_OUTPUT && child === this.child) this.tooLong(child);
     });
+    child.stdout.on('end', () => this.down(child, 'crash', 'process failed')); // stdout closed, though the process may stay
     const errs: Buffer[] = [];
     child.stderr.on('data', (d: Buffer) => { // logs only: the first 500 bytes, decoded when read
+      if (child !== this.child) return;
       if (Buffer.concat(errs).length < 500) errs.push(d);
       this.err = Buffer.concat(errs).subarray(0, 500).toString('utf8');
     });
     child.on('error', (e) => this.down(child, 'crash', `process failed: could not start ${this.node.spec.serve![0]}: ${e.message}`));
+    // A helper that inherited stdout keeps 'close' from firing, so the exit itself is enough, after a grace for the last lines.
+    child.on('exit', () => setTimeout(() => this.down(child, 'crash', 'process failed'), GRACE));
     child.on('close', () => this.down(child, 'crash', 'process failed'));
     this.write({ v: 1, type: 'hello', neuron: this.node.id });
-    this.start_ = setTimeout(() => this.down(child, 'timeout', `no ready within ${this.ms} ms`), this.ms);
+    this.startTimer = setTimeout(() => this.down(child, 'timeout', `no ready within ${this.ms} ms`), this.ms);
   }
 
   private onLine(child: Proc, text: string) {
@@ -152,8 +162,9 @@ class Server {
     if (!m) return this.junk(raw);
     if (m.type === 'pong') {
       if (m.n === this.pinging) {
-        clearTimeout(this.hang_);
+        clearTimeout(this.pingHang);
         this.pinging = undefined;
+        this.failedStarts = 0; // it answers: this start has proved itself
       }
     } else if (m.type === 'answer' || m.type === 'quiet' || m.type === 'error') this.reply(child, m);
   }
@@ -162,15 +173,15 @@ class Server {
     const mi = m?.maxInflight ?? 1;
     const bad = !m || m.type !== 'ready' ? 'the first line must be ready' : m.v !== 1 ? 'ready.v differs from hello.v' : !Number.isInteger(mi) || (mi as number) < 1 ? 'maxInflight must be an integer, at least 1' : '';
     if (bad) return this.down(child, 'protocol', `protocol: ${bad}`);
-    clearTimeout(this.start_);
+    clearTimeout(this.startTimer);
     this.ready = true;
-    this.f = 0;
+    this.readyAt = performance.now();
     this.maxInflight = mi as number;
-    this.ping_ = setInterval(() => { // liveness, only when nothing is running (3.2)
+    this.pingTimer = setInterval(() => { // liveness, only when nothing is running (3.2)
       if (this.jobs.size || this.pinging !== undefined) return;
       this.pinging = ++this.pings;
       this.write({ type: 'ping', n: this.pinging });
-      this.hang_ = setTimeout(() => this.down(child, 'crash', 'process failed: no pong'), this.ms);
+      this.pingHang = setTimeout(() => this.down(child, 'crash', 'process failed: no pong', true), this.ms);
     }, this.pingEvery);
     this.begin?.ok();
     this.begin = undefined;
@@ -188,20 +199,19 @@ class Server {
   }
 
   private reply(child: Proc, m: Record<string, unknown>) {
-    const message = typeof m.message === 'string' ? m.message : 'error';
-    if (m.type === 'error' && m.re === undefined) return this.down(child, 'crash', `process failed: ${message}`);
+    if (m.type === 'error' && m.re === undefined) return this.down(child, 'crash', `process failed: ${typeof m.message === 'string' ? m.message : 'error'}`);
     const job = typeof m.re === 'number' ? this.jobs.get(m.re) : undefined;
     if (!job) return; // unknown or finished: discarded
     this.jobs.delete(job.re!);
     clearTimeout(job.hang);
-    job.done(job.call.cancelled ? { quiet: true } : this.outcome(m, message)); // a cancelled call's reply is discarded
+    job.done(job.call.cancelled ? { quiet: true } : this.outcome(m)); // a cancelled call's reply is discarded
     this.pump();
   }
 
-  private outcome(m: Record<string, unknown>, message: string): Outcome {
+  private outcome(m: Record<string, unknown>): Outcome {
     const bad = (why: string): Outcome => ({ error: `protocol: ${why}`, code: 'protocol' });
     if (m.type === 'quiet') return { quiet: true };
-    if (m.type === 'error') return { error: message, code: 'neuron' };
+    if (m.type === 'error') return typeof m.message === 'string' ? { error: m.message, code: 'neuron' } : bad('error without a string message');
     const { replaces, to } = m;
     if (!('payload' in m)) return bad('answer without payload');
     if (replaces !== undefined && replaces !== null && (typeof replaces !== 'string' || Buffer.byteLength(replaces) > MAX_KEY)) return bad(`replaces must be null or a string of at most ${MAX_KEY} bytes`);
@@ -214,7 +224,8 @@ class Server {
     if (this.failed) return job.done({ error: 'neuron failed to start', code: 'start' });
     job.call.queued = true;
     job.call.stop = () => {
-      this.queue.splice(this.queue.indexOf(job), 1);
+      const at = this.queue.indexOf(job);
+      if (at >= 0) this.queue.splice(at, 1);
       job.done({ quiet: true });
     };
     this.queue.push(job);
@@ -237,15 +248,22 @@ class Server {
     }
   }
 
-  /** The process is gone or to be killed (exit, hang, bad first line, oversize line, `error` without `re`): fail what ran, restart with backoff. */
-  private down(child: Proc, code: string, message: string) {
+  /** A line over 1 MiB: the call fails with `output` only if it is the one call running; else it cannot be told which, and all crash. */
+  private tooLong(child: Proc) {
+    if (this.jobs.size === 1) this.down(child, 'output', 'output too large');
+    else this.down(child, 'crash', 'process failed: output too large');
+  }
+
+  /** The process is gone or to be killed (exit, hang, bad first line, oversize line, `error` without `re`): fail what ran, restart with backoff.
+   *  `unproven`: count this start as failed however long it lived (it never answered a ping). */
+  private down(child: Proc, code: string, message: string, unproven = false) {
     if (child !== this.child) return;
     this.child = undefined;
     const wasReady = this.ready;
     this.ready = false;
-    clearTimeout(this.start_);
-    clearInterval(this.ping_);
-    clearTimeout(this.hang_);
+    clearTimeout(this.startTimer);
+    clearInterval(this.pingTimer);
+    clearTimeout(this.pingHang);
     this.pinging = undefined;
     const why = this.err.trim();
     const text = code === 'crash' && why ? `${message}: ${why}` : message;
@@ -261,7 +279,9 @@ class Server {
       return;
     }
     if (this.stopping) return;
-    if (!wasReady && ++this.f >= MAX_STARTS) { // failed: every input is an error until the engine restarts
+    const proven = wasReady && !unproven && performance.now() - this.readyAt >= STABLE_AFTER;
+    this.failedStarts = proven ? 0 : this.failedStarts + 1;
+    if (this.failedStarts >= MAX_STARTS) { // failed: every input is an error until the engine restarts
       this.failed = true;
       for (const job of this.queue.splice(0)) {
         job.call.queued = false;
@@ -269,10 +289,10 @@ class Server {
       }
       return;
     }
-    this.restart_ = setTimeout(() => {
+    this.restartTimer = setTimeout(() => {
       this.run.processNote(this.node, 'restart');
       this.spawn();
-    }, Math.min(100 * 2 ** this.f, 5000));
+    }, Math.min(100 * 2 ** this.failedStarts, 5000));
   }
 
   /** What remains of the process group: SIGTERM, then SIGKILL after the grace period. */
@@ -284,8 +304,7 @@ class Server {
     }
     this.run.processNote(this.node, 'term');
     killGroup(pid, 'SIGTERM');
-    const closed = new Promise<void>((r) => (child.exitCode !== null || child.signalCode !== null ? r() : void child.once('close', () => r())));
-    this.reaping.push(Promise.race([closed, sleep(KILL_AFTER)]).then(() => {
+    this.reaping.push(groupGone(pid, KILL_AFTER).then(() => { // the grace holds for what a leader that has exited left behind, too
       if (alive(pid)) {
         killGroup(pid, 'SIGKILL');
         this.run.processNote(this.node, 'kill');
@@ -297,24 +316,18 @@ class Server {
   /** End of input: close stdin; SIGTERM after 2 s, SIGKILL 2 s later. Silent (SPEC 3.2). */
   async stop() {
     this.stopping = true;
-    clearTimeout(this.start_);
-    clearInterval(this.ping_);
-    clearTimeout(this.hang_);
-    clearTimeout(this.restart_);
+    clearTimeout(this.startTimer);
+    clearInterval(this.pingTimer);
+    clearTimeout(this.pingHang);
+    clearTimeout(this.restartTimer);
     const child = this.child, pid = child?.pid;
     this.child = undefined;
     if (child) {
-      const exited = new Promise<void>((r) => (child.exitCode !== null || child.signalCode !== null ? r() : void child.once('close', () => r())));
-      let kill: NodeJS.Timeout | undefined;
-      const term = setTimeout(() => {
-        killGroup(pid, 'SIGTERM');
-        kill = setTimeout(() => killGroup(pid, 'SIGKILL'), KILL_AFTER);
-      }, KILL_AFTER);
       child.stdin.end();
-      await exited;
-      clearTimeout(term);
-      clearTimeout(kill);
-      killGroup(pid, 'SIGKILL'); // anything the leader left behind
+      await groupGone(pid, KILL_AFTER);
+      killGroup(pid, 'SIGTERM'); // a no-op if the group is gone
+      await groupGone(pid, KILL_AFTER);
+      killGroup(pid, 'SIGKILL');
       if (pid !== undefined) groups.delete(pid);
     }
     await Promise.all(this.reaping);

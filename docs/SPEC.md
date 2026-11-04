@@ -86,6 +86,9 @@ Rules you will hit:
   list their names (`"env": ["OPENAI_API_KEY"]`). Use an absolute interpreter
   path, or name what the interpreter needs.
 - **Logs go to stderr.** Level 1 stdout carries protocol lines only.
+- **Answer a `cancel`.** The engine keeps a cancelled call's slot until you reply for
+  its `re`; send `quiet` (the reply is discarded). A neuron that never does is
+  killed and restarted after `timeout`.
 - **Quiet is a choice.** An error (non-zero exit) forwards nothing too, but is
   recorded as a failure.
 - **Running a network.** `npm run engine -- check <file>` validates a network file
@@ -288,7 +291,7 @@ on read), at most 1 MiB, blank lines ignored, every object has a string
 |---|---|---|
 | `hello` | `v` (1), `neuron` (the neuron's id in its file) | first line |
 | `signal` | `re`, `payload`, `inputs` only if threshold > 1 | an input; value shapes as 3.1 |
-| `cancel` | `re` | advisory, no reply expected |
+| `cancel` | `re` | advisory; the neuron SHOULD stop, and MUST reply for `re` (any reply, such as `quiet`) to free its slot |
 | `ping` | `n` | only when nothing is running |
 | (stdin closed) | | shut down |
 
@@ -315,7 +318,9 @@ the rest are queued in order. Replies may come in any order. A reply for an
 
 **Cancel** is sent for stale work and timeouts. A cancelled `re` keeps its slot
 until the neuron replies for it or `timeout` ms have passed, then the process
-is treated as hung (6.1).
+is treated as hung (6.1). So a neuron that stops cancelled work still replies
+for it (the reply is discarded, `quiet` is enough); one that drops it silently
+is killed and restarted when the time is up.
 
 **`timeout`** is per call, from the moment the `signal` line is written. Ping
 is sent only when nothing is running; no `pong` within `timeout` is a hang.
@@ -783,10 +788,16 @@ the Rust engine is compared with. It follows the specification, including the
   - a queued call (waiting for a slot) that goes stale is dropped as `replaced`, phase
     `waiting`, with no `cancel` note; if it belongs to a threshold call, the whole call
     is removed and one drop is written, for the crossing input;
-  - the `timeout` of a call starts when its `signal` line is written, not when it joins the queue;
-  - a cancelled call keeps its slot until its reply or `timeout` more ms; then the process is
-    hung (code `crash` for the calls still running, `term`, `kill` and `restart` notes). The run
-    is not over until the slot is free, so the trace records the kill;
+  - a hung process (3.2) is killed with `term`, then `kill` after 2 s if anything of its
+    group remains, whether or not its leader has exited, and restarted; the calls still
+    running fail with `crash`. The run is not over until a cancelled call's slot is free,
+    so the trace records the kill. A serve process is noticed as down when it exits (after a
+    100 ms grace, so its last lines are read) or closes stdout, so a helper that inherited
+    stdout does not hide a crash;
+  - a start counts as failed (the limit of 5 in 3.2) if it never reaches `ready`, or crashes
+    or fails to pong within 1 s of `ready` (decision 0001); a pong or a longer life clears it;
+  - a line over 1 MiB fails the call with `output` only if exactly one call is running, else
+    every running call fails with `crash`; the process is killed and restarted either way;
   - "exactly one call running" for junk counts every call holding a slot, cancelled ones
     included; a cancelled one is never failed, so then only the note is written. A call failed
     for junk gives its slot up at once and a later reply for it is discarded;
@@ -794,7 +805,7 @@ the Rust engine is compared with. It follows the specification, including the
     `maxInflight`) is a failed start; the engine does not restart a neuron whose first start
     fails, it refuses to start. After a later start fails, backoff and the limit of 5 apply;
   - `ping` is sent every 10 s while nothing is running (the text gives no interval;
-    `runNetwork`'s `pingEvery` option changes it), with `timeout` to answer;
+    `runNetwork`'s `pingEvery` option changes it); the time to answer is in 3.2;
   - a `restart` note is written when the new process is spawned, after the backoff;
   - the `error` message of a `crash` is `process failed`, then the first 500 bytes of stderr;
   - the engine's clock starts when every serve neuron is ready, so `at` in an inputs file

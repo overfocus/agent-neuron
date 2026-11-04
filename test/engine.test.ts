@@ -325,8 +325,28 @@ describe('level 1 serve neurons', () => {
     const t = await run([srv('x', made(), ['failrestart'])], [['s', 'x']], [inject(0, { exit: 1 }), inject(200, 'queued'), inject(3700, 'after')]);
     expect(events(t, 'error').map((e) => e.code)).toEqual(['crash', 'start', 'start']);
     expect(events(t, 'error')[1]!.message).toBe('neuron failed to start');
-    expect(notes(t)).toEqual(Array(5).fill('restart'));
+    expect(notes(t)).toEqual(Array(4).fill('restart')); // the first crash came within a second of ready, so it counts as a failed start
   }, 15_000);
+
+  it('notices a crash even when a helper keeps stdout open, and restarts', async () => {
+    const t = await run([srv('x', made())], [['s', 'x']], [inject(0, { helper: 1 }), inject(600, 'next')]);
+    expect(events(t, 'error').map((e) => e.code)).toEqual(['crash']);
+    expect(notes(t)).toEqual(['term', 'restart']); // the helper stayed in the process group until SIGTERM
+    expect(events(t, 'answer').map((e) => data(e))).toEqual(['next']);
+  });
+
+  it('fails the one running call with output for a line over 1 MiB, several with crash, and restarts', async () => {
+    const big = 'x'.repeat((1 << 20) + 10);
+    const one = await run([srv('x', made())], [['s', 'x']], [inject(0, { say: [{ type: 'answer', payload: big }] })]);
+    expect(events(one, 'error').map((e) => [e.code, e.message])).toEqual([['output', 'output too large']]);
+    const many = await run([srv('x', made(), ['many'])], [['s', 'x']], [inject(0, { hang: 1 }), inject(0, { say: [{ type: 'answer', payload: big }] })]);
+    expect(events(many, 'error').map((e) => e.code)).toEqual(['crash', 'crash']);
+  });
+
+  it('answers an error reply without a message with a protocol error', async () => {
+    const t = await run([srv('x', made())], [['s', 'x']], [inject(0, { say: [{ type: 'error' }] })]);
+    expect(events(t, 'error').map((e) => e.code)).toEqual(['protocol']);
+  });
 
   it('refuses to start when a serve neuron cannot reach ready', async () => {
     const refuse = (serve: string[], why: RegExp, extra: Record<string, unknown> = {}) => {
@@ -335,9 +355,9 @@ describe('level 1 serve neurons', () => {
       return expect(runNetwork(file, [])).rejects.toThrow(why);
     };
     await refuse(['node', '-e', 'process.exit(1)'], /serve neuron "x" did not reach ready: process failed/);
-    await refuse(['sh', '-c', 'echo \'{"type":"hello"}\'; sleep 3'], /the first line must be ready/);
-    await refuse(['sh', '-c', 'echo \'{"v":2,"type":"ready"}\'; sleep 3'], /ready\.v differs from hello\.v/);
-    await refuse(['sh', '-c', 'sleep 3'], /no ready within 100 ms/, { timeout: 100 });
+    await refuse(['sh', '-c', 'echo \'{"type":"hello"}\'; exec sleep 3'], /the first line must be ready/);
+    await refuse(['sh', '-c', 'echo \'{"v":2,"type":"ready"}\'; exec sleep 3'], /ready\.v differs from hello\.v/);
+    await refuse(['sh', '-c', 'exec sleep 3'], /no ready within 100 ms/, { timeout: 100 });
     await refuse(['no-such-program-here'], /could not start no-such-program-here/);
   });
 
@@ -369,7 +389,7 @@ describe('level 1 serve neurons', () => {
     const dead = await run([srv('x', made(), ['noping'], { timeout: 100 })], [['s', 'x']], [inject(0, 1), inject(600, 2)], {}, { pingEvery: 30 });
     expect(notes(dead).slice(0, 2)).toEqual(['term', 'restart']);
     expect(data(events(dead, 'answer')[0]!)).toBe(1);
-  });
+  }, 15_000);
 
   it('keeps one process for a serve neuron inside a composed neuron, shared by every call', async () => {
     const log = made(), dir = mkdtempSync(join(tmpdir(), 'engine-'));
