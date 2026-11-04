@@ -2,6 +2,7 @@
 // composed.mjs): a made-up catalogue (also in rust/catalogue/src/lib.rs, shared
 // by rust/music; change both together), the neurons around the tracks neuron,
 // and the printing.
+// `log` replaces console.log, and `listeners` ({ onSignal, onDrop, onError }) see every event before the demo prints it (the network view uses both).
 import { Network, Neuron, json, serialize, text } from '../dist/index.js';
 
 const tracks = [
@@ -48,15 +49,16 @@ export const jsTracks = () =>
 // width of the neuron id column in the output. With `suggest`, a `suggest`
 // neuron (threshold 2, held inputs expire after 400 ms) is added; the answers
 // of tracks, artist and lyrics are forwarded to it, and each run is counted.
-export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7, suggest = false }) {
+export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7, suggest = false, log = console.log, listeners = {} }) {
   // What the box emitted, by signal id: an answer's `replyTo` finds its prefix here.
   const typed = new Map();
 
   let suggestRuns = 0;
   const network = new Network({
     onSignal: (s) => {
+      listeners.onSignal?.(s);
       if (s.from === 'suggest') {
-        console.log(`  suggest  acts for "${typed.get(s.trace)}": ${s.payload.data.join(' + ')} agree`);
+        log(`  suggest  acts for "${typed.get(s.trace)}": ${s.payload.data.join(' + ')} agree`);
         return;
       }
       if (s.cause) return; // an answer forwarded to suggest, already printed
@@ -66,16 +68,17 @@ export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7, s
       }
       if (s.from === 'box' || serialize(s.payload) === '') return; // quiet neurons say nothing
       const hits = s.payload.data;
-      console.log(`  answer   ${s.from.padEnd(pad)} for "${typed.get(s.replyTo)}": ${hits.length ? hits.join(' | ') : 'no hits'}`);
+      log(`  answer   ${s.from.padEnd(pad)} for "${typed.get(s.replyTo)}": ${hits.length ? hits.join(' | ') : 'no hits'}`);
     },
     onDrop: (s, id, reason) => {
+      listeners.onDrop?.(s, id, reason);
       const why =
         id !== 'suggest'
           ? reason === 'replaced' ? 'stale' : reason
           : reason === 'replaced' ? 'stopped waiting: newer answer' : 'gave up waiting';
-      console.log(`  dropped  ${id.padEnd(pad)} for "${typed.get(s.trace)}" (${why})`);
+      log(`  dropped  ${id.padEnd(pad)} for "${typed.get(s.trace)}" (${why})`);
     },
-    onError: (e, s, id) => console.log(`  error    ${id}: ${e.message}`),
+    onError: (e, s, id) => (listeners.onError?.(e, s, id), log(`  error    ${id}: ${e.message}`)),
   });
 
   network.add(new Neuron('box', lookup(0, () => null)));
@@ -104,15 +107,15 @@ export async function runTyping({ tracksId = 'tracks', tracksAdapter, pad = 7, s
   const query = 'lumen harbor';
   for (let i = 1; i <= query.length; i++) {
     const prefix = query.slice(0, i);
-    console.log(`typed "${prefix}"`);
+    log(`typed "${prefix}"`);
     typed.set(network.emit('box', text(prefix), { replaces: 'query' }).id, prefix);
     await sleep(100);
   }
   await network.idle();
   if (suggest) {
     await sleep(450); // idle does not wait for held inputs; let the last one expire
-    console.log(`suggest ran ${suggestRuns} time${suggestRuns === 1 ? '' : 's'} for ${query.length} keystrokes`);
-    console.log('only the last keystroke can agree: artist answers only the full name, and lyrics is always replaced before it answers.');
-    console.log('lyrics arrived after suggest had acted, so it started a new hold and gave up waiting.');
+    log(`suggest ran ${suggestRuns} time${suggestRuns === 1 ? '' : 's'} for ${query.length} keystrokes`);
+    log('only the last keystroke can agree: artist answers only the full name, and lyrics is always replaced before it answers.');
+    log('lyrics arrived after suggest had acted, so it started a new hold and gave up waiting.');
   }
 }

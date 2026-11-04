@@ -41,10 +41,14 @@ here. One line each:
 - **Gates:** `npm run verify` is the kit's verify over the config's
   `verify.steps`: typecheck, Rust test and build, test (Vitest), build (`tsc` to `dist/`); it
   writes `.verify/receipt.json`.
-- **Browser gate:** none yet. This is a library with no UI; the gate is the
-  tests. When a UI lands (a graph visualiser), add `check:browser` and fill
-  `browser.md`.
-- **Dev server:** none. Use `npm run test:watch` while building.
+- **Browser gate:** the network view (`examples/view/`) is the only UI. Start
+  `npm run view`, then `npm run check:browser -- --base <url> --routes /
+  --checks examples/view/checks.json` and `npm run check:layout -- --base <url>
+  --file examples/view/layout.json` (and `layout-suggest.json`). `docs/agents/browser.md` has the traps. A
+  change with no UI is gated by the tests alone.
+- **Dev server:** `npm run view` (a free port, printed with its pid; stop it
+  with `kill <pid>`). It is not part of `verify`. Use `npm run test:watch` for
+  library work.
 - **Branches:** `feat/` branches may be pushed to the private GitHub repo as
   a backup (no previews); only `main` is the release line.
 - **Production:** nothing deploys; `origin` is unset in
@@ -102,8 +106,11 @@ when it starts and again when it ends; a run during which files changed fails.
 The builder reports the receipt; the reviewer and `/loop:ship` trust it and
 re-run verify only on a mismatch.
 
-**The browser gate:** not used yet (no UI). When one exists, follow
-`browser.md`.
+**The browser gate:** for a change to `examples/view/`, follow `browser.md`: start
+`npm run view`, then `npm run check:browser -- --base <url> --routes /
+--checks examples/view/checks.json` and `npm run check:layout -- --base <url>
+--file examples/view/layout.json` (and `layout-suggest.json`). `npm run verify`
+does not run them (they need a server). A change with no UI skips the gate.
 
 If a gate fails, go back to Build. Fix the cause; never relax the check, raise
 a baseline or delete the failing case.

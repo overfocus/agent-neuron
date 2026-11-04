@@ -1,0 +1,18 @@
+{
+  "route": "/?demo=suggest",
+  "viewports": ["320x568", "390x664", "1280x720"],
+  "settle": 250,
+  "states": [
+    {
+      "name": "suggest run: the waiting badge is shown, inside the picture and clear of the others",
+      "steps": [{ "click": "#run" }, { "wait": 1200 }],
+      "assert": [
+        { "kind": "count", "selector": ".node", "equals": 5 },
+        { "kind": "count", "selector": ".badge:not([display='none'])", "equals": 1 },
+        { "kind": "inView", "selector": ".badge:not([display='none'])", "min": 14 },
+        { "kind": "count", "selector": "svg[data-clipped]", "equals": 0 },
+        { "kind": "noHScroll" }
+      ]
+    }
+  ]
+}

@@ -21,5 +21,5 @@ export type AlertRun = {
   final: Verdict;
   neurons: Neuron[];
 };
-export function runAlerts(lib: typeof import('../src/index.js'), options?: { log?: (line: string) => void }): Promise<AlertRun>;
+export function runAlerts(lib: typeof import('../src/index.js'), options?: { log?: (line: string) => void; listeners?: import('../src/index.js').NetworkOptions }): Promise<AlertRun>;
 export function printSummary(run: AlertRun, log?: (line: string) => void): void;

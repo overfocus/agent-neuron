@@ -1,0 +1,9 @@
+{
+  "routes": {
+    "/": {
+      "exists": ["#demo", "#run", "svg#graph", "#log[aria-live='polite']", "#state"],
+      "count": [{ "selector": "#demo option", "min": 3 }],
+      "text": [{ "selector": "h1", "contains": "Network view" }]
+    }
+  }
+}
