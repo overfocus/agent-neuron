@@ -1,0 +1,1 @@
+{"version": 0, "neurons": [{"id": "s", "source": true}, {"id": "diag", "network": "inner.network.json", "timeout": 100}, {"id": "b", "run": ["b"]}], "links": [{"from": "s", "to": "diag"}, {"from": "s", "to": "b"}]}

@@ -1,0 +1,64 @@
+{
+ "fixture": 0,
+ "description": "A pong that never comes is a hang at ping + timeout; the restarted process serves the next input.",
+ "expect": [
+  {
+   "type": "signal",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "a"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "t": 0
+  },
+  {
+   "type": "answer",
+   "id": "#2",
+   "from": "a",
+   "to": [
+    "s"
+   ],
+   "trace": "#1",
+   "hops": 1,
+   "replyTo": "#1",
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "t": 10
+  }
+ ],
+ "notes": true,
+ "pingEvery": 50,
+ "inputs": [
+  {
+   "at": 0,
+   "source": "s",
+   "payload": 1
+  }
+ ],
+ "script": {
+  "a": {
+   "starts": [
+    {
+     "pong": false
+    },
+    {}
+   ],
+   "calls": [
+    {
+     "after": 10,
+     "reply": {
+      "answer": 1
+     }
+    }
+   ]
+  }
+ }
+}

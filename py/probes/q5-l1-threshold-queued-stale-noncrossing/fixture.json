@@ -1,0 +1,278 @@
+{
+ "fixture": 0,
+ "description": "A level 1 threshold neuron (2) fed by two level 0 neurons, one injection keyed and one not, at one instant.",
+ "expect": [
+  {
+   "type": "signal",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "p",
+    "q"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "replaces": "k",
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "t": 0
+  },
+  {
+   "type": "signal",
+   "id": "#2",
+   "from": "s",
+   "to": [
+    "p",
+    "q"
+   ],
+   "trace": "#2",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 9
+   },
+   "t": 0
+  },
+  {
+   "type": "answer",
+   "id": "#3",
+   "from": "p",
+   "to": [
+    "s"
+   ],
+   "trace": "#1",
+   "hops": 1,
+   "replyTo": "#1",
+   "payload": {
+    "type": "text",
+    "text": "p1"
+   },
+   "t": 1
+  },
+  {
+   "type": "signal",
+   "id": "#4",
+   "from": "p",
+   "to": [
+    "h"
+   ],
+   "trace": "#1",
+   "hops": 2,
+   "cause": "#3",
+   "replaces": "k",
+   "payload": {
+    "type": "text",
+    "text": "p1"
+   },
+   "t": 1
+  },
+  {
+   "type": "answer",
+   "id": "#5",
+   "from": "q",
+   "to": [
+    "s"
+   ],
+   "trace": "#1",
+   "hops": 1,
+   "replyTo": "#1",
+   "payload": {
+    "type": "text",
+    "text": "q1"
+   },
+   "t": 1
+  },
+  {
+   "type": "signal",
+   "id": "#6",
+   "from": "q",
+   "to": [
+    "h"
+   ],
+   "trace": "#1",
+   "hops": 2,
+   "cause": "#5",
+   "replaces": "k",
+   "payload": {
+    "type": "text",
+    "text": "q1"
+   },
+   "t": 1
+  },
+  {
+   "type": "answer",
+   "id": "#7",
+   "from": "p",
+   "to": [
+    "s"
+   ],
+   "trace": "#2",
+   "hops": 1,
+   "replyTo": "#2",
+   "payload": {
+    "type": "text",
+    "text": "p2"
+   },
+   "t": 1
+  },
+  {
+   "type": "signal",
+   "id": "#8",
+   "from": "p",
+   "to": [
+    "h"
+   ],
+   "trace": "#2",
+   "hops": 2,
+   "cause": "#7",
+   "payload": {
+    "type": "text",
+    "text": "p2"
+   },
+   "t": 1
+  },
+  {
+   "type": "answer",
+   "id": "#9",
+   "from": "q",
+   "to": [
+    "s"
+   ],
+   "trace": "#2",
+   "hops": 1,
+   "replyTo": "#2",
+   "payload": {
+    "type": "text",
+    "text": "q2"
+   },
+   "t": 1
+  },
+  {
+   "type": "signal",
+   "id": "#10",
+   "from": "q",
+   "to": [
+    "h"
+   ],
+   "trace": "#2",
+   "hops": 2,
+   "cause": "#9",
+   "payload": {
+    "type": "text",
+    "text": "q2"
+   },
+   "t": 1
+  },
+  {
+   "type": "answer",
+   "id": "#11",
+   "from": "h",
+   "to": [
+    "q"
+   ],
+   "trace": "#1",
+   "hops": 3,
+   "replyTo": "#6",
+   "payload": {
+    "type": "text",
+    "text": "x"
+   },
+   "t": 501
+  },
+  {
+   "type": "finished",
+   "trace": "#1",
+   "status": "done",
+   "t": 501
+  },
+  {
+   "type": "answer",
+   "id": "#12",
+   "from": "h",
+   "to": [
+    "q"
+   ],
+   "trace": "#2",
+   "hops": 3,
+   "replyTo": "#10",
+   "payload": {
+    "type": "text",
+    "text": "y"
+   },
+   "t": 506
+  },
+  {
+   "type": "finished",
+   "trace": "#2",
+   "status": "done",
+   "t": 506
+  }
+ ],
+ "notes": true,
+ "finished": true,
+ "inputs": [
+  {
+   "at": 0,
+   "source": "s",
+   "payload": 1,
+   "replaces": "k"
+  },
+  {
+   "at": 0,
+   "source": "s",
+   "payload": 9
+  }
+ ],
+ "script": {
+  "p": {
+   "calls": [
+    {
+     "after": 1,
+     "reply": {
+      "answer": "p1"
+     }
+    },
+    {
+     "after": 1,
+     "reply": {
+      "answer": "p2"
+     }
+    }
+   ]
+  },
+  "q": {
+   "calls": [
+    {
+     "after": 1,
+     "reply": {
+      "answer": "q1"
+     }
+    },
+    {
+     "after": 1,
+     "reply": {
+      "answer": "q2"
+     }
+    }
+   ]
+  },
+  "h": {
+   "calls": [
+    {
+     "after": 500,
+     "reply": {
+      "answer": "x"
+     }
+    },
+    {
+     "after": 5,
+     "reply": {
+      "answer": "y"
+     }
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,1 @@
+{"version": 0, "budget": {"credits": 10}, "neurons": [{"id": "s", "source": true}, {"id": "a", "run": ["a"], "cost": {"credits": 3}}], "links": [{"from": "s", "to": "a"}]}

@@ -300,6 +300,21 @@ The format and the command-line contract any engine implements are in
 [docs/CONFORMANCE.md](docs/CONFORMANCE.md). None is pending; the fixtures under `budget/` pin the budget
 of version 0.1 and the `finished` event, `effect/` the effect option and the `unknown` outcome, and `stream/` the live stream.
 
+#### A second engine, in Python
+
+[`py/`](py/) holds an engine written from the specification and the fixtures alone, in Python 3.11 or later with the standard
+library only (no `pip install`), to test whether the specification is a protocol and not just the TypeScript code. It reads
+the same network files and fixtures and implements the command-line contract of CONFORMANCE section 8. It has no process
+layer: it runs scripted programs on the virtual clock, as the fixtures require, and refuses `http` and `human` neurons.
+
+```sh
+npm run conformance:py                                        # all of spec/fixtures; pass or fail per fixture, then the totals
+PYTHONPATH=py python3 -m agent_neuron conform spec/fixtures --only staleness/   # a subset
+PYTHONPATH=py python3 -m agent_neuron conform py/probes       # extra fixtures, which the TypeScript engine also passes
+```
+
+What it passed, what the specification left open and where the two engines differ: [docs/conformance-python.md](docs/conformance-python.md).
+
 ## The first example
 
 Three neurons wrapping three very different things:

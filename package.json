@@ -37,6 +37,7 @@
     "rust:test": "cargo test --manifest-path rust/Cargo.toml",
     "demo:rust": "npm run -s build && npm run -s rust:build && node examples/rust.mjs",
     "demo:composed": "npm run -s build && npm run -s rust:build && node examples/composed.mjs",
+    "conformance:py": "PYTHONPATH=py python3 -B -m agent_neuron conform spec/fixtures",
     "check": "npm run -s typecheck && npm run -s rust:test && npm run -s rust:build && npm run -s test && npm run -s build",
     "view": "npm run -s build && node examples/view/server.mjs",
     "record": "npm run -s build && node examples/trace/record.mjs"

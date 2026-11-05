@@ -1,0 +1,1 @@
+{"version": 0, "neurons": [{"id": "s", "source": true}, {"id": "a", "serve": ["a"], "timeout": 100}], "links": [{"from": "s", "to": "a"}]}

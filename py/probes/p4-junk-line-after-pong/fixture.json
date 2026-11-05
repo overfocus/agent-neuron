@@ -1,0 +1,67 @@
+{
+ "fixture": 0,
+ "description": "The junk line number counts every stdout line of the process, ready and pong included.",
+ "expect": [
+  {
+   "type": "signal",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "a"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "t": 120
+  },
+  {
+   "type": "note",
+   "neuron": "a",
+   "what": "junk",
+   "line": 4,
+   "text": "oops",
+   "t": 120
+  },
+  {
+   "type": "error",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "a"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "neuron": "a",
+   "message": "junk on stdout: oops",
+   "code": "junk",
+   "t": 120
+  }
+ ],
+ "notes": true,
+ "pingEvery": 50,
+ "inputs": [
+  {
+   "at": 120,
+   "source": "s",
+   "payload": 1
+  }
+ ],
+ "script": {
+  "a": {
+   "calls": [
+    {
+     "reply": {
+      "junk": "oops"
+     }
+    }
+   ]
+  }
+ }
+}

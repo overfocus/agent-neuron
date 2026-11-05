@@ -1,0 +1,130 @@
+{
+ "fixture": 0,
+ "description": "A restart whose process never says ready fails the start after timeout (term note at 310), and the next restart waits 400 ms.",
+ "expect": [
+  {
+   "type": "signal",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "a"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "t": 0
+  },
+  {
+   "type": "answer",
+   "id": "#2",
+   "from": "a",
+   "to": [
+    "s"
+   ],
+   "trace": "#1",
+   "hops": 1,
+   "replyTo": "#1",
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "t": 1
+  },
+  {
+   "type": "note",
+   "neuron": "a",
+   "what": "restart",
+   "t": 210
+  },
+  {
+   "type": "note",
+   "neuron": "a",
+   "what": "term",
+   "t": 310
+  },
+  {
+   "type": "note",
+   "neuron": "a",
+   "what": "restart",
+   "t": 710
+  },
+  {
+   "type": "signal",
+   "id": "#3",
+   "from": "s",
+   "to": [
+    "a"
+   ],
+   "trace": "#3",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 2
+   },
+   "t": 2000
+  },
+  {
+   "type": "answer",
+   "id": "#4",
+   "from": "a",
+   "to": [
+    "s"
+   ],
+   "trace": "#3",
+   "hops": 1,
+   "replyTo": "#3",
+   "payload": {
+    "type": "json",
+    "data": 2
+   },
+   "t": 2000
+  }
+ ],
+ "notes": true,
+ "pingEvery": 100000,
+ "inputs": [
+  {
+   "at": 0,
+   "source": "s",
+   "payload": 1
+  },
+  {
+   "at": 2000,
+   "source": "s",
+   "payload": 2
+  }
+ ],
+ "script": {
+  "a": {
+   "starts": [
+    {
+     "end": {
+      "after": 10
+     }
+    },
+    {
+     "ready": false
+    },
+    {}
+   ],
+   "calls": [
+    {
+     "when": 1,
+     "after": 1,
+     "reply": {
+      "answer": 1
+     }
+    },
+    {
+     "when": 2,
+     "reply": {
+      "answer": 2
+     }
+    }
+   ]
+  }
+ }
+}
