@@ -4,6 +4,8 @@ Any program (a shell script, a Python file, a model call) goes inside the same w
 
 This is an experiment at concept stage: a specification (version 0.1, draft), a reference engine and a set of demos. Nothing is on npm yet.
 
+The idea as a protocol, for agent and framework developers: [docs/WHITEPAPER.md](docs/WHITEPAPER.md) (a draft).
+
 ## What's built, what's planned
 
 | Built | Planned |
@@ -35,6 +37,8 @@ Alert storm from alerts.network.json: 40 alerts over 5.6 s, run by the engine.
 7 diagnoses; the last: {"alert":35,"service":"checkout","detectors":["deploys","logs"],"root":"gateway","deploy":"dep-8b21","minutes":14}
 321 events in the trace; no inner id of diagnosis in it: true
 ```
+
+A live run on real processes varies slightly from run to run (17 or 16 calls, say); the fixed numbers quoted elsewhere come from the recorded trace, `traces/alerts.json`.
 
 That is a made-up storm of 40 alerts for five services. Cheap detectors flag alerts, a slow neuron stands in for a model call (a 500 ms timer) and runs only when two detectors agree, and a composed neuron answers with a diagnosis. The summary says 17 slow calls ran instead of 40.
 
