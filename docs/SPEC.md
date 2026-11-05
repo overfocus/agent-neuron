@@ -25,7 +25,7 @@ Contents
 11. Effects (normative)
 
 Appendices (informative): A. Walk-through: one alert. B. Out of version 0.1.
-C. How the TypeScript library differs.
+C. How the TypeScript library differs. D. A page for `human` neurons.
 
 ## 0. Quick start for neuron authors (informative)
 
@@ -205,7 +205,7 @@ program's working directory.
 | `threshold` | integer, at least 1 | none | run, serve, http, human | act when this many distinct senders have each sent an input on one trace (5.2) |
 | `within` | integer ms | 10000 | with `threshold` | longest a held input waits; applies to holds only, never to queued or running work |
 | `maxHops` | integer, at least 0 | none | all but source | refuse inputs with more hops (5.3) |
-| `timeout` | integer ms | 30000 | all but source | longest a call may run, counted from its start; for `network`, the whole composed call |
+| `timeout` | integer ms | 30000 | all but source | longest a call may run, counted from its start; for `network`, the whole composed call. At most 3600000 (an hour); on `human`, at most 86400000 (a day: a person is slower than a program; [decision 0008](decisions/0008-human-neurons-on-a-page.md)) |
 | `env` | array of unique names | `[]` | run, serve | environment variables passed through: names only |
 | `cwd` | path | the directory of the file that declares the neuron | run, serve | working directory |
 | `cost` | units (10.1) | none | all but source | what one call reserves, and the most it may consume (10) |
@@ -419,7 +419,7 @@ version 0.
 
 The engine shows the input to a person and takes a typed reply: empty is quiet,
 anything else is a text payload. Cancel and `timeout` stop the wait. The
-interface is the engine's business.
+interface is the engine's business; the reference engine's is a page (Appendix D).
 
 ## 4. Routing (normative)
 
@@ -1048,7 +1048,8 @@ where the trace shows it; a composed neuron may feed it.
   met the call is a started call (11.2), and any of its inputs going stale marks it.
 - **Levels.** At level 0 and level 1 alike a stale input starts nothing: no signal to the process group, no
   `cancel` line. The slot of a level 1 effect call is its own until it replies or `timeout` ends it.
-  `http` and `human` neurons are not run by the reference engine; the rules apply to them when an engine does.
+  `http` neurons are not run by the reference engine; the rules apply to them when an engine does. A `human` effect
+  call is as any other: an answer is committed, and a `timeout` is `unknown`.
 - **`finished`.** A trace is finished when nothing is running, queued or held (7.2); a running effect call
   that went stale is still running, so the trace waits for it.
 
@@ -1087,7 +1088,8 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
 - Strength: a state file keyed by instance path, adjusted by the caller. Until
   then every sender counts 1.
 - Passive and active channels (open; no field reserved); link attributes.
-- `http` authentication and headers; `human` interface; Wasm neurons;
+- `http` authentication and headers; a `human` wait that survives a restart, several people and who may answer
+  ([decision 0008](decisions/0008-human-neurons-on-a-page.md)); Wasm neurons;
   Windows; concurrency limits at level 0; a run-level result; inspecting inside
   a composed neuron; byte-level fixtures and real-process fixtures; hot reload.
 - Distribution: the engine will ship as a binary inside the npm and pip
@@ -1128,8 +1130,10 @@ separate from the library (`src/index.ts` is unchanged) and is the reference
 any further engine is compared with (a Rust one was tried and stopped: decision 0005). It follows the specification, including the
 6.2 event order, where the library differs (the list above). Conformance gaps:
 
-- **Neuron kinds**: `source`, `run`, `serve` and `network`. `http` and `human` are
-  reported by `check` as warnings and refused by `run`.
+- **Neuron kinds**: `source`, `run`, `serve`, `network` and `human`. `human` needs a desk: the command line's `run`
+  serves the page of Appendix D, and the library's `runNetwork` takes a `desk` option and refuses a `human` neuron
+  without one. `http` is reported by `check` as a warning and refused by `run`. The conformance runner has no scripted
+  person yet, so no fixture has a `human` neuron.
 - **Fixtures** (section 8): `npm run engine -- conform spec/fixtures` runs them on a
   virtual clock with scripted programs (`src/engine/virtual.ts`, a `Host` the engine takes in
   place of real time and processes). Its other tests run real processes (`sh`, `cat`) for what
@@ -1195,3 +1199,24 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
   storm's detector budget of about 150 ms, a level 0 Python detector spends about 13% of it on start-up, a
   level 1 one under 0.1%. A level 1 neuron pays its start once, at engine start (about the same 20 ms). The
   engine adds routing on top of both.
+
+## Appendix D. A page for `human` neurons (informative)
+
+What the reference engine does for `human` neurons (3.4), written down so another engine's page can show the same
+thing ([decision 0008](decisions/0008-human-neurons-on-a-page.md)). None of it is normative: 3.4 leaves the
+interface to the engine.
+
+- **One page per run**, opened at the first question, on 127.0.0.1 only, behind a random token; its address goes to
+  stderr (stdout carries the answers). It closes when the run ends.
+- **Each call is an item** showing the neuron, its `description` and the input.
+- **Three answers.** *Approve* replies with the proposed text: the input's `proposal` field if it is a string, else the
+  input itself if it is a string, else the input as JSON text. *Edit* replies with the person's text (never empty).
+  *No* replies empty, which is quiet.
+- **The `draft`/`proposal` convention.** An input that is an object with string fields `draft` and `proposal` is shown
+  as the draft beside a word diff of the proposal against it. Any other input is shown as text or as JSON. A neuron
+  that sends something else is not wrong; it is just shown plainly.
+- **Withdrawn.** A call cancelled by staleness (5.4), `timeout` or the end of the run takes its item down: the page
+  says it is no longer waiting, and an answer to it is refused.
+- **Nothing is fetched from elsewhere.** The page loads its fonts from its own origin and runs one inline script under
+  a nonce; every value from an input is shown as text, never parsed as HTML.
+

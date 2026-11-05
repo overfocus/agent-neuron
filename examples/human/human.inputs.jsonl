@@ -1,0 +1,3 @@
+{"at": 0, "source": "notes", "replaces": "search", "payload": {"text": "It is important to note that search is now really fast on large catalogues."}}
+{"at": 200, "source": "notes", "replaces": "export", "payload": {"text": "In order to export orders, basically open the admin and choose Export."}}
+{"at": 400, "source": "notes", "replaces": "login", "payload": {"text": "Please note that login now actually remembers your last workspace."}}

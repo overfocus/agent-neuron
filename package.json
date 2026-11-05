@@ -32,6 +32,7 @@
     "engine": "npm run -s build && node dist/engine/cli.js",
     "demo:network": "npm run -s build && node examples/network.mjs",
     "demo:notify": "npm run -s build && node examples/notify.mjs",
+    "demo:human": "npm run -s engine -- run examples/human/human.network.json --inputs examples/human/human.inputs.jsonl",
     "demo:loop": "npm run -s build && node examples/loop.mjs",
     "rust:build": "cargo build --release --manifest-path rust/Cargo.toml",
     "rust:test": "cargo test --manifest-path rust/Cargo.toml",

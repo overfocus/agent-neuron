@@ -36,6 +36,16 @@ describe('network schema v0', () => {
     expect(kinds.every((k) => k.additionalProperties === false)).toBe(true);
   });
 
+  it('caps timeout at an hour, and at a day on a human neuron only (decision 0008)', () => {
+    const one = (neuron: object) => validate({ version: 0, neurons: [{ id: 's', source: true }, { id: 'p', ...neuron }], links: [{ from: 's', to: 'p' }] }).map((f) => f.message);
+    expect(one({ human: true, timeout: 86_400_000 })).toEqual([]);
+    expect(one({ human: true, timeout: 86_400_001 }).join()).toContain('above 86400000');
+    expect(one({ run: ['true'], timeout: 3_600_000 })).toEqual([]);
+    expect(one({ run: ['true'], timeout: 86_400_000 }).join()).toContain('above 3600000');
+    expect(one({ serve: ['true'], timeout: 3_600_001 }).join()).toContain('above 3600000');
+    expect(one({ human: true, timeout: 0 }).join()).toContain('below 1');
+  });
+
   it('accepts the alert storm and its composed neuron, files and all', () => {
     expect(checkFile(join(examples, 'alerts.network.json'))).toEqual([]);
     expect(checkFile(join(examples, 'diagnosis.network.json'))).toEqual([]);

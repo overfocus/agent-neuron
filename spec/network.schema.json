@@ -80,6 +80,12 @@
       "minimum": 1,
       "maximum": 3600000
     },
+    "humanMs": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 86400000,
+      "description": "A human neuron's timeout: up to a day (decision 0008); every other kind is capped at an hour."
+    },
     "link": {
       "type": "object",
       "additionalProperties": false,
@@ -312,7 +318,7 @@
               "minimum": 0
             },
             "timeout": {
-              "$ref": "#/$defs/ms"
+              "$ref": "#/$defs/humanMs"
             },
             "cost": {
               "$ref": "#/$defs/units"

@@ -1,5 +1,5 @@
 // The reference engine: runs a network file (docs/SPEC.md) and returns a trace (docs/TRACE.md, format v1).
-// `source`, level 0 `run`, level 1 `serve` and composed `network` neurons, with budgets (SPEC 10), effects (SPEC 11) and the live stream (SPEC 9.1). Not here: http, human (SPEC 3.3, 3.4).
+// `source`, level 0 `run`, level 1 `serve`, composed `network` and, given a desk, `human` neurons, with budgets (SPEC 10), effects (SPEC 11) and the live stream (SPEC 9.1). Not here: http (SPEC 3.3).
 //
 // Vocabulary as in the spec: an input is delivered to a neuron as a Work; a threshold group turns held works into one
 // Call; a Call ends in an Outcome (answer, quiet, error). Everything is one synchronous event loop, so the order of the
@@ -24,6 +24,21 @@ type Sig = { id: string; trace: string; from: string; to: string[]; hops: number
 type Outcome = { answer: unknown; replaces?: string | null; to?: string[] } | { quiet: true } | { error: string; code: string; started?: false };
 
 const MAX_AMOUNT = Number.MAX_SAFE_INTEGER, DEFAULT_WITHIN = 10_000, DEFAULT_TIMEOUT = 30_000, MAX_OUTPUT = 1 << 20, KILL_AFTER = 2_000, GRACE = 100, MAX_KEY = 256, PAYLOAD_CAP = 2000, PING_EVERY = 10_000, MAX_STARTS = 5, STABLE_AFTER = 1_000;
+/**
+ * A question to a person (SPEC 3.4): a `human` neuron's input, and where it comes from. `id` is the crossing signal's id.
+ * `t` is the engine's clock (ms since the run started, as in the trace).
+ */
+export type Question = { id: string; neuron: string; path: string; description: string; payload: unknown; t: number };
+/**
+ * Where a `human` neuron's questions go: the command line's page (`./page.js`), or a test's scripted person. `answer` ends the call: an
+ * empty string is quiet, any other string is the text payload it replies with (SPEC 3.4); a second answer, or one after `withdraw`, is
+ * ignored. `withdraw` says the call ended without an answer (stale, timed out, or the run was cut), so the question can be taken down.
+ */
+export interface Desk {
+  ask(q: Question, answer: (text: string) => void): void;
+  withdraw(id: string): void;
+}
+
 /** The failures of an effect call (SPEC 11.3) that stay errors: the call never started, or the neuron itself said it failed. Every other failure is `unknown`. */
 const KNOWN_FAILURES = ['budget', 'start', 'neuron'];
 const groups = new Set<number>(); // process groups of running programs
@@ -384,7 +399,7 @@ class Run {
   events: Event[] = [];
   rootScope: Scope;
   open = new Map<string, number>(); // outer trace -> unfinished works; at none the trace is finished
-  constructor(readonly root: Instance, readonly inner?: (path: string, e: Event) => void, readonly result?: (neuron: string, t: number, payload: unknown) => void, readonly observer?: Observer, readonly onEvent?: (e: Event) => unknown) {
+  constructor(readonly root: Instance, readonly inner?: (path: string, e: Event) => void, readonly result?: (neuron: string, t: number, payload: unknown) => void, readonly observer?: Observer, readonly onEvent?: (e: Event) => unknown, readonly desk?: Desk) {
     this.rootScope = new Scope('', root, (e) => (this.events.push(e), this.observe(e), this.stream(e)), root.net.budget);
   }
 
@@ -584,6 +599,7 @@ class Run {
     if (refused) return done(refused);
     // The program's wake-ups are set before the timeout's: a reply due at the very instant of the timeout wins (SPEC 6.2 rule 7).
     if (node.inner) this.compose(call, node, value, done);
+    else if (node.spec.human) this.person(call, node, value, done);
     else this.program(call, node, value, done);
     if (!call.finished) arm();
   }
@@ -628,6 +644,24 @@ class Run {
     call.cancelled = true;
     if (!call.queued) this.note(call.crossing, 'cancel');
     call.stop();
+  }
+
+  /** `human` (SPEC 3.4): the input goes to the desk as a question; the answer ends the call; a cancel withdraws the question. */
+  private person(call: Call, node: Node, value: unknown, done: (o: Outcome) => void) {
+    const id = call.crossing.sig.id;
+    let over = false;
+    const end = (o: Outcome) => {
+      if (over) return;
+      over = true;
+      done(o);
+    };
+    call.stop = () => {
+      if (over) return;
+      this.desk!.withdraw(id);
+      end({ quiet: true }); // a cancelled call's outcome is not replied (done skips it)
+    };
+    this.desk!.ask({ id, neuron: node.id, path: node.path, description: node.spec.description ?? '', payload: value, t: this.now() }, (text) =>
+      end(typeof text === 'string' && text !== '' ? { answer: text } : { quiet: true }));
   }
 
   /** Level 0: one process per call, in its own process group, which is killed when the call ends. */
@@ -836,15 +870,16 @@ async function drive<T>(p: Promise<T>): Promise<T> {
  * `host` replaces time and processes (a virtual clock and scripted programs, SPEC 8); one virtual run at a time.
  * `observer` is called with each outer event; the injections it returns (`at` is a delay in ms) enter later (SPEC 9).
  * `onEvent` is the live stream (SPEC 9.1): each event of the trace, in written order, as it happens; its failure never touches the run.
+ * `desk` takes the questions of `human` neurons (SPEC 3.4) and answers them; without one, a file with a `human` neuron is refused.
  */
 export type Observer = (e: Event) => Injection[] | void;
-export async function runNetwork(file: string, injections: Injection[], options: { pingEvery?: number; inner?: (path: string, e: Event) => void; result?: (neuron: string, t: number, payload: unknown) => void; host?: Host; observer?: Observer; onEvent?: (e: Event) => unknown } = {}): Promise<Trace> {
+export async function runNetwork(file: string, injections: Injection[], options: { pingEvery?: number; inner?: (path: string, e: Event) => void; result?: (neuron: string, t: number, payload: unknown) => void; host?: Host; observer?: Observer; onEvent?: (e: Event) => unknown; desk?: Desk } = {}): Promise<Trace> {
   const errors = check(file).filter((f) => f.severity === 'error');
   if (errors.length) throw Object.assign(new Error(errors.map(formatFinding).join('\n')), { refusal: true }); // a file that does not check is refused like a serve neuron that is not ready (CONFORMANCE 4.3)
   const net = readNetwork(file);
   const root = new Instance(resolve(file), net, '');
   const unsupported = (i: Instance): string[] =>
-    [...i.nodes.values()].flatMap((n) => (n.inner ? unsupported(n.inner) : n.spec.http || n.spec.human ? [`${n.path} (${n.spec.http ? 'http' : 'human'})`] : []));
+    [...i.nodes.values()].flatMap((n) => (n.inner ? unsupported(n.inner) : n.spec.http ? [`${n.path} (http)`] : n.spec.human && !options.desk ? [`${n.path} (human, and no desk to ask)`] : []));
   if (unsupported(root).length) throw new Error(`unsupported neuron kinds in v0 of the engine: ${unsupported(root).join(', ')}`);
   for (const inj of injections) {
     const wrong = problem(inj, net.budget);
@@ -856,7 +891,7 @@ export async function runNetwork(file: string, injections: Injection[], options:
   const previous = host;
   if (options.host) host = options.host;
   active++;
-  const run = new Run(root, options.inner, options.result, options.observer, options.onEvent);
+  const run = new Run(root, options.inner, options.result, options.observer, options.onEvent, options.desk);
   try {
     await drive(run.startServers(options.pingEvery ?? PING_EVERY)); // throws if a serve neuron cannot reach ready
     try {

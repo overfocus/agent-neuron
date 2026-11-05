@@ -262,9 +262,9 @@ describe('refusals before a run', () => {
     return file;
   };
 
-  it('says plainly that http and human are not run by this engine', async () => {
+  it('says plainly that http is not run by this engine, nor human without a desk to ask (decision 0008)', async () => {
     await expect(runNetwork(one({ id: 'x', http: 'http://127.0.0.1:1' }), [])).rejects.toThrow('unsupported neuron kinds in v0 of the engine: x (http)');
-    await expect(runNetwork(one({ id: 'x', human: true }), [])).rejects.toThrow(/x \(human\)/);
+    await expect(runNetwork(one({ id: 'x', human: true }), [])).rejects.toThrow('x (human, and no desk to ask)');
   });
 
   it('refuses a file that does not check, and an injection into something that is not a source', async () => {

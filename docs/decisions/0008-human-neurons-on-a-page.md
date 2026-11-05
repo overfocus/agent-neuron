@@ -1,7 +1,8 @@
 # Decision record 0008: `human` neurons on a page (2026-11-05)
 
-**Status: decided, not built.** Kevin answered the seven questions below on 2026-11-05, each as suggested; the order
-of work follows from them.
+**Status: decided; step 1 built (2026-11-05).** Kevin answered the seven questions below on 2026-11-05, each as
+suggested. Step 1 of the order of work is in: `src/engine/page.ts`, the `desk` option of `runNetwork`, the day-long
+ceiling, SPEC Appendix D and `npm run demo:human`. Steps 2 to 4 are not started.
 
 ## The problem
 

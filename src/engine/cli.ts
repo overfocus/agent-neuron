@@ -1,12 +1,15 @@
 // npm run engine -- check <file>
 // npm run engine -- conform <dir> [--only <text>]
 // npm run engine -- run <file> --inputs <jsonl> [--trace <out.json>] [--inner <out.json>] [--stream <path>]
+// (a run with `human` neurons serves the people page, decision 0008: its address is printed on stderr at the first question)
 import { closeSync, constants, existsSync, openSync, writeFileSync, writeSync } from 'node:fs';
+import { basename } from 'node:path';
 import { conform, report } from './conform.js';
-import { check, formatFinding, formatTrace, killGroups, readInjections, runNetwork, type Event } from './index.js';
+import { check, formatFinding, formatTrace, killGroups, readInjections, runNetwork, type Desk, type Event } from './index.js';
+import { openPage } from './page.js';
 
 const STREAM_GRACE = 1000; // ms the CLI waits for the stream's reader once the run is over
-const usage = 'usage: engine check <file>\n       engine conform <dir> [--only <text>]\n       engine run <file> --inputs <jsonl> [--trace <out.json>] [--inner <out.json>] [--stream <path>]\n       (run prints the answers of neurons with no outgoing links, a stale effect call\'s included; --stream writes every event as a JSON line, a file or a pipe)';
+const usage = 'usage: engine check <file>\n       engine conform <dir> [--only <text>]\n       engine run <file> --inputs <jsonl> [--trace <out.json>] [--inner <out.json>] [--stream <path>]\n       (run prints the answers of neurons with no outgoing links, a stale effect call\'s included; --stream writes every event as a JSON line, a file or a pipe;\n        a human neuron\'s questions go to a page on 127.0.0.1, whose address is printed on stderr)';
 const [command, file, ...rest] = process.argv.slice(2);
 const flag = (name: string) => {
   const i = rest.indexOf(name);
@@ -85,11 +88,20 @@ async function main(): Promise<number> {
   const inside: { path: string; event: Event }[] = [];
   const inner = flag('--inner');
   const results: string[] = []; // the answers of the neurons with no outgoing links, whole (the trace cuts long payloads)
+  // The people page (decision 0008): opened at the first question, so a run that asks nothing opens nothing; one page per run.
+  let page: ReturnType<typeof openPage> | undefined;
+  const opened = () => (page ??= openPage({ title: basename(file) }).then((p) => (console.error(`people: questions for a person at ${p.url}`), p)));
+  const desk: Desk = {
+    ask: (q, answer) => void opened().then((p) => p.desk.ask(q, answer)), // asks and withdrawals keep their order: one promise, chained
+    withdraw: (id) => void page?.then((p) => p.desk.withdraw(id)),
+  };
   const trace = await runNetwork(file, readInjections(inputs), {
     ...(inner && { inner: (path: string, event: Event) => inside.push({ path, event }) }),
     result: (neuron, t, payload) => results.push(JSON.stringify({ neuron, t, payload })),
     ...(sink && { onEvent: (event: Event) => sink.write(`${JSON.stringify(event)}\n`) }),
+    desk,
   });
+  if (page) await (await page).close(); // the run is over: every question was answered or withdrawn
   const out = flag('--trace');
   if (out) writeFileSync(out, formatTrace(trace));
   if (inner) writeFileSync(inner, JSON.stringify(inside) + '\n');

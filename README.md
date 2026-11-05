@@ -10,10 +10,10 @@ The idea as a protocol, for agent and framework developers: [docs/WHITEPAPER.md]
 
 | Built | Planned |
 |---|---|
-| Wrapper for scripts, executables, HTTP APIs and a human on stdin (`src/adapters/`) | Connections that strengthen and weaken, and a network that rewires itself |
+| Wrapper for scripts, executables, HTTP APIs and a human on stdin (`src/adapters/`); `human` neurons in network files, answered on a local page (`npm run demo:human`) | Connections that strengthen and weaken, and a network that rewires itself |
 | Many-to-many links, broadcast or targeted signals, each signal tracing its chain | Ignore conditions, passive and active channels |
 | Per-neuron `threshold` (N distinct senders must agree), `within`, `replaces` (a newer input cuts stale work) and `maxHops` (loops stop) | Limits other than `maxHops` |
-| Network files: a JSON format, a closed schema, a validator and a reference engine that runs them (`npm run engine`) | Running `http` and `human` neurons from a network file |
+| Network files: a JSON format, a closed schema, a validator and a reference engine that runs them (`npm run engine`) | Running `http` neurons from a network file; a `human` wait that survives a restart |
 | Per-trace budgets, effects that are never cut, a live event stream | A neuron reporting its own spend |
 | Composed neurons: a whole network behind one wrapper, sealed from outside | Anything that learns: today each call is its own process and nothing is kept |
 | 193 conformance fixtures any other engine must pass; recorded traces; a local page that draws a run | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
@@ -286,6 +286,7 @@ callback (`onEvent`) and as JSON lines (`run --stream <path>`); a consumer that 
 
 ```sh
 npm run demo:notify   # a notification that a newer build update does not cancel, and a crash recorded as unknown
+npm run demo:human    # a person approves, edits or refuses each proposed rewrite on a local page
 ```
 
 ### Conformance fixtures
@@ -309,7 +310,7 @@ of version 0.1 and the `finished` event, `effect/` the effect option and the `un
 [`py/`](py/) holds an engine written from the specification and the fixtures alone, in Python 3.11 or later with the standard
 library only (no `pip install`), to test whether the specification is a protocol and not just the TypeScript code. It reads
 the same network files and fixtures and implements the command-line contract of CONFORMANCE section 8. It has no process
-layer: it runs scripted programs on the virtual clock, as the fixtures require, and refuses `http` and `human` neurons.
+layer: it runs scripted programs on the virtual clock, as the fixtures require, and refuses `http` and `human` neurons (it has no scripted person yet).
 
 ```sh
 npm run conformance:py                                        # all of spec/fixtures; pass or fail per fixture, then the totals

@@ -1,0 +1,17 @@
+{
+  "$schema": "../../spec/network.schema.json",
+  "version": 0,
+  "name": "release-notes",
+  "description": "A person approves, edits or refuses each proposed rewrite before it is published (decision 0008).",
+  "neurons": [
+    { "id": "notes", "source": true, "description": "Drafted release notes, one per item, keyed by item (replaces)." },
+    { "id": "rewrite", "run": ["node", "rewrite.mjs"], "description": "Proposes a tighter wording: sends { draft, proposal }." },
+    { "id": "editor", "human": true, "timeout": 600000, "description": "Approve the proposal, edit it, or say no." },
+    { "id": "publish", "run": ["node", "publish.mjs"], "effect": true, "description": "Publishes what the editor approved." }
+  ],
+  "links": [
+    { "from": "notes", "to": "rewrite" },
+    { "from": "rewrite", "to": "editor" },
+    { "from": "editor", "to": "publish" }
+  ]
+}
