@@ -1,7 +1,7 @@
-# Decision record 0008: `human` neurons on a page (a proposal, 2026-11-05)
+# Decision record 0008: `human` neurons on a page (2026-11-05)
 
-**Status: proposal.** Nothing here is built or decided. The rows under "Kevin's decisions" are questions until he
-answers them; the rest is the design they would lead to.
+**Status: decided, not built.** Kevin answered the seven questions below on 2026-11-05, each as suggested; the order
+of work follows from them.
 
 ## The problem
 
@@ -79,7 +79,7 @@ The voice pipeline becomes a network file. Invented names, the real shape:
 }
 ```
 
-The file passes `npm run engine -- check`. Its `timeout` is the schema's ceiling, one hour (decision 7 below).
+The file passes `npm run engine -- check`. Its `timeout` is today's ceiling, one hour; decision 7 raises it to a day for `human` neurons.
 
 (The retry is left out of the sketch: it is a link back to `writer` bounded by `maxHops`, or the reviewers' notes in
 the payload. Which one is a question for the voice pipeline, not for the engine.)
@@ -96,22 +96,23 @@ with the token in a header and a JSON body under a size cap; a nonce CSP with no
 value from a payload set as text, never as HTML. The look can be shared with the other two pages as a template file
 (the three are in TypeScript, JavaScript and Rust, so a shared library would not fit).
 
-## Kevin's decisions
+## Kevin's decisions (2026-11-05)
 
-| # | Question | The builder's suggestion |
+| # | Question | Decision |
 |---|---|---|
-| 1 | Does the reference engine run `human` neurons at all, or does it stay a library adapter? | Run them: it is the most-asked-for neuron, and 3.4 already allows it. |
-| 2 | One page per run, or one page per engine process serving several runs? | Per run: the page's life is the run's, and nothing outlives what the trace records. |
-| 3 | The three answers (Approve, Edit, No), or also a free reply that is neither? | Three. Edit covers a free reply; a fourth button is a fourth meaning to learn. |
-| 4 | The `draft`/`proposal` diff convention, documented as non-normative (an appendix), or kept as a page detail? | An appendix, so another engine's page shows the same thing. |
-| 5 | Does the voice review move onto it, retiring the hand-built pipeline once the network matches it? | Yes, in the order below, keeping the old one until the new one has reviewed a real proposal. |
-| 6 | The page's look: kevinferron.com's (as rigswig's page), or agent-neuron's own? | Open: the brand says who made it; a protocol's reference page may want to look like no one in particular. |
-| 7 | The schema caps `timeout` at one hour, which is short for a person. Does `human` get a longer ceiling (a day?), or does a long review use no `timeout` and rely on cancel? | A longer ceiling for `human` only. No timeout at all leaves a forgotten item holding the run open, which is what timeouts exist to stop. It is a schema change, so a SPEC row and fixtures go with it. |
+| 1 | Does the reference engine run `human` neurons at all, or does it stay a library adapter? | **Yes, the engine runs them.** It is the most-asked-for neuron, and SPEC 3.4 already allows it. |
+| 2 | One page per run, or one page per engine process serving several runs? | **One page per run.** The page lives as long as the run, and nothing outlives what the trace records. |
+| 3 | The three answers (Approve, Edit, No), or also a free reply that is neither? | **Three.** Edit covers a free reply; a fourth button would be a fourth meaning to learn. |
+| 4 | The `draft`/`proposal` diff convention, documented as non-normative (an appendix), or kept as a page detail? | **A non-normative appendix**, so another engine's page shows the same thing. |
+| 5 | Does the voice review move onto it, retiring the hand-built pipeline once the network matches it? | **Yes**, in the order below, keeping the old one until the new one has reviewed a real proposal. |
+| 6 | The page's look: kevinferron.com's (as rigswig's page), or agent-neuron's own? | **kevinferron.com's**, as rigswig's page and the voice review: black, neon green and cyan, Josefin Sans and Pixelify Sans (SIL OFL, served from the page's own origin), the kevinferron.com wordmark. |
+| 7 | The schema caps `timeout` at one hour, which is short for a person. A longer ceiling for `human`? | **Yes: a day (86,400,000 ms) for `human` neurons only**; other kinds keep the hour. A schema change, so a SPEC row and fixtures go with it. |
 
-## The order of work, if decided
+## The order of work
 
 1. **The engine runs `human` neurons through the page** (`src/adapters/` gains the page; the engine stops refusing
-   `human`). The library's stdin adapter stays.
+   `human`), with the day-long `timeout` ceiling for `human` (schema, SPEC row, fixtures) and the diff convention as a
+   non-normative appendix. The library's stdin adapter stays.
 2. **Conformance**: a scripted person in the conformance runner (as the scripted observer, decision 0007 row 16) that
    answers by rule, so approve, edit, no, withdrawn-by-staleness and timeout are fixtured like everything else. The
    runner refuses `human` today; it stops refusing it.
@@ -129,7 +130,7 @@ value from a payload set as text, never as HTML. The look can be shared with the
 
 ## What it would cost
 
-No normative change to the specification beyond decision 7's ceiling, if taken; at most a non-normative appendix (decision 4). In the reference engine, the
+One normative change to the specification, decision 7's ceiling for `human`, and a non-normative appendix (decision 4). In the reference engine, the
 page server and the adapter that feeds it (by the voice review's size, about 250 lines with the page), and the end of
 the refusal of `human`. Conformance gains a scripted person and fixtures for the five outcomes above. A network file
 without a `human` neuron behaves as it did, and so does the stdin adapter.
