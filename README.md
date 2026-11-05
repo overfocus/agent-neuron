@@ -1,20 +1,82 @@
 # agent-neuron
 
-> **Experimental, concept stage.** This README describes the idea; the code
-> implements a few small demos so far (see [docs/DEMOS.md](docs/DEMOS.md)).
+Any program (a shell script, a Python file, a model call) goes inside the same wrapper, a JSON stdin/stdout contract, so they can be wired together in any shape. Instead of a central controller deciding what runs, each wrapper carries its own rules: how many inputs must agree before it acts, when work has gone stale and gets cut, how much it may spend.
 
-An **agent-neuron** is a universal wrapper for any piece of software: an AI
-agent, a script, an executable, a plain function, or something else entirely.
-The wrapper adapts whatever is inside it, whether that is an API, a command
-line or a stream of input and output, to one common interface, so that any
-neuron can connect to any other.
+This is an experiment at concept stage: a specification (version 0.1, draft), a reference engine and a set of demos. Nothing is on npm yet.
 
-Neurons connect **many to many**. Together they form a network that can
-rewire itself, strengthening the connections that matter and weakening the
-ones that don't.
+## What's built, what's planned
 
-This is an experiment, for experimenters and technologists and anyone
-interested in new ideas about how agents can be connected.
+| Built | Planned |
+|---|---|
+| Wrapper for scripts, executables, HTTP APIs and a human on stdin (`src/adapters/`) | Connections that strengthen and weaken, and a network that rewires itself |
+| Many-to-many links, broadcast or targeted signals, each signal tracing its chain | Ignore conditions, passive and active channels |
+| Per-neuron `threshold` (N distinct senders must agree), `within`, `replaces` (a newer input cuts stale work) and `maxHops` (loops stop) | Limits other than `maxHops` |
+| Network files: a JSON format, a closed schema, a validator and a reference engine that runs them (`npm run engine`) | Running `http` and `human` neurons from a network file |
+| Per-trace budgets, effects that are never cut, a live event stream | A neuron reporting its own spend |
+| Composed neurons: a whole network behind one wrapper, sealed from outside | Anything that learns: today each call is its own process and nothing is kept |
+| 193 conformance fixtures any other engine must pass; recorded traces; a local page that draws a run | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
+
+## Try it
+
+You need Node 22 or later. You do not need Rust for this one (the two Rust demos and the Rust tests do), and it makes no network requests. Run it on macOS or Linux.
+
+```sh
+git clone https://github.com/overfocus/agent-neuron && cd agent-neuron
+npm install
+npm run demo:network
+```
+
+Output (a run takes about 7 seconds; the counts vary a little with machine load):
+
+```
+Alert storm from alerts.network.json: 40 alerts over 5.6 s, run by the engine.
+40 alerts -> 52 flags -> 17 hypothesis calls instead of 40
+10 calls cut short as stale, 11 waiting flags replaced, 7 gave up waiting
+7 diagnoses; the last: {"alert":35,"service":"checkout","detectors":["deploys","logs"],"root":"gateway","deploy":"dep-8b21","minutes":14}
+321 events in the trace; no inner id of diagnosis in it: true
+```
+
+That is a made-up storm of 40 alerts for five services. Cheap detectors flag alerts, a slow neuron stands in for a model call (a 500 ms timer) and runs only when two detectors agree, and a composed neuron answers with a diagnosis. The summary says 17 slow calls ran instead of 40.
+
+### The network file
+
+The whole storm is this file, `spec/examples/alerts.network.json`. The programs it names are in `spec/examples/neurons/` and `examples/alerts/`.
+
+```json
+{
+  "$schema": "../network.schema.json",
+  "version": 0,
+  "name": "alerts",
+  "description": "Alert storm triage: cheap detectors flag alerts, a slow neuron runs only when two detectors agree, a composed neuron finds the root cause.",
+  "neurons": [
+    { "id": "alerts", "description": "Where alerts enter. The producer tags each with a replaces key (its service).", "source": true },
+    { "id": "logs", "description": "Flags an alert when the log has error lines for its service.", "run": ["sh", "../../examples/alerts/detect-logs.sh", "../../examples/alerts/logs.txt"] },
+    { "id": "deploys", "description": "Flags an alert when its service was deployed in the last 30 minutes.", "run": ["sh", "../../examples/alerts/detect-deploys.sh", "../../examples/alerts/deploys.txt"] },
+    { "id": "metrics", "description": "Flags a critical alert when the service's error rate is above 5%.", "run": ["node", "neurons/metrics.mjs"] },
+    { "id": "hypothesis", "description": "A 500 ms stand-in for a model call; acts once two distinct detectors flag one alert.", "run": ["node", "neurons/hypothesis.mjs", "500"], "threshold": 2, "within": 500 },
+    { "id": "diagnosis", "description": "Composed: finds the root cause and the deploy to look at.", "network": "diagnosis.network.json" }
+  ],
+  "links": [
+    { "from": "alerts", "to": "logs" },
+    { "from": "alerts", "to": "deploys" },
+    { "from": "alerts", "to": "metrics" },
+    { "from": "logs", "to": "hypothesis" },
+    { "from": "deploys", "to": "hypothesis" },
+    { "from": "metrics", "to": "hypothesis" },
+    { "from": "hypothesis", "to": "diagnosis" }
+  ]
+}
+```
+
+`hypothesis` has `threshold: 2` and `within: 500`: it acts only when two distinct senders (here `logs`, `deploys` and `metrics` are the candidates) have each flagged the same alert, and a flag that waits longer than 500 ms for a partner is dropped. `replaces` is not in the file: the producer puts it on each input (here, the alert's service), and a newer input with the same key cuts older work for that key that is still waiting or running, which is where the "cut short as stale" and "replaced" counts come from. Edit the file, run `npm run engine -- check spec/examples/alerts.network.json` to validate it, and run it again.
+
+## How it compares
+
+- **Unix pipes.** A level-0 neuron is a filter: a program that reads JSON on stdin and writes JSON on stdout. The difference is that neurons form a graph (many in, many out, loops allowed and bounded), not a line.
+- **Node-RED and similar flow files.** The shape is similar: a JSON file lists nodes and links. The difference I am trying for is that each node carries its own firing rules (threshold, staleness, budget, effect), and that those rules have a written specification and conformance fixtures, so a second engine can be checked against the first.
+- **Agent frameworks.** They usually put a controller or planner in the middle. Here nothing in the middle decides; and no model is required, since a neuron can be any program.
+
+I have not benchmarked any of these against it, and this one is far smaller and younger than all of them.
 
 ## The idea
 
@@ -28,9 +90,10 @@ interested in new ideas about how agents can be connected.
 - **Many-to-many connections.** Every connection can be bidirectional. A
   neuron can also be told to ignore input from a connection when other
   conditions hold.
-- **Adaptive.** The network can rewire itself, and connections can
-  strengthen and weaken over time. Strengths are meant to carry over from one
-  run to the next, so the network keeps what it learns.
+- **Adaptive (planned, not built).** The aim is a network that can rewire
+  itself, with connections that strengthen and weaken over time and carry over
+  from one run to the next. Today every link counts the same (`weight` in
+  `src/network.ts` always returns 1) and nothing is kept between runs.
 - **Simple at the core.** The neuron interface is most valuable the simpler
   it is: wrapping something should stay a few lines, whatever the network
   learns to do around it.
@@ -46,9 +109,9 @@ specified in [docs/SPEC.md](docs/SPEC.md) (version 0.1, draft).
 ## Why "neuron"
 
 The name is a loose analogy, not a model of biology. A neuron here stands for
-adaptive connective tissue between arbitrary functions and agents: the part
-that decides what is connected to what, how strongly, and what flows between
-them.
+connective tissue between arbitrary functions and agents: the part that
+decides what is connected to what and what flows between them. How strongly
+things are connected is the planned part.
 
 ## What the wrapper gives what's inside it
 
@@ -141,11 +204,11 @@ that crosses the boundary goes through the composed neuron's own interface.
 - **Traceable from inside only.** A signal can be traced through the
   neurons inside, but only from within the composed neuron. From outside,
   the trace shows a signal going in and an answer coming out.
-- **Learning stays inside.** Connections that strengthen inside a composed
-  neuron stay inside it. What shows outside is the result: the composed
-  neuron as a whole becomes more capable.
-- **Each use learns on its own.** The same composed network used in two
-  places becomes two neurons that learn separately.
+- **Learning stays inside (planned).** The intent is that connections that
+  strengthen inside a composed neuron stay inside it, and what shows outside
+  is the result.
+- **Each use learns on its own (planned).** The same composed network used in
+  two places would become two neurons that learn separately.
 
 The first working example is `npm run demo:composed`: a Rust program
 `music` with a tiny inner network (tracks, artist and lyrics neurons) that
@@ -418,12 +481,14 @@ work was dropped; the numbers are the same on an idle machine.
 
 ## Development
 
-Node 22 or later, and a Rust toolchain (`cargo` on PATH, typically rustup's `~/.cargo/bin`): `npm run check` and `npm test` build and run the Rust example.
+Node 22 or later. A Rust toolchain (`cargo` on your PATH) is needed only for the two Rust demos (`demo:rust`, `demo:composed`) and the tests that run them. The engine is POSIX only (macOS or Linux); Python 3 is optional, for the Python variants of the alert storm.
 
 ```sh
 npm install
 npm run check   # typecheck, Rust test and build, test, build
 ```
+
+`npm test` on its own does not build the Rust binaries: two test files run them and fail, with the fix in the message, until you run `npm run rust:build`. `npm run check` builds them first. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

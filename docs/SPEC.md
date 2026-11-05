@@ -160,8 +160,8 @@ it does not implement. Values are literals: used exactly as written, with no
 interpolation, conditions or expressions. The schema rejects `${...}` and
 `{{...}}` where a literal is expected; it cannot prove a string is not an
 expression, so the rule binds, not the pattern. Its `$id` is a URN
-(`urn:agent-neuron:schema:network:0`) because the repository is private; it
-becomes a URL when the repository is public.
+(`urn:agent-neuron:schema:network:0`) because the repository was private when
+it was written; it may become a URL later.
 
 ### 2.1 Top level
 
@@ -285,7 +285,7 @@ refused, 10.5) (warnings); an executable that cannot be found (warning).
 
 9 top-level fields; per neuron `id`, `description`, one kind field, at most 8
 options; 2 per link. A new field must answer one question: does it say how
-neurons connect, or how one decides? Deciders are programs. `AGENTS.md` holds
+neurons connect, or how one decides? Deciders are programs. `CONTRIBUTING.md` holds
 the rule. Version 0.1 added `budget` (the ninth top-level field), `cost` (the seventh option) and `effect` (the
 eighth): a limit on spend is the engine's to enforce, not a program's to declare for itself, the same class
 as `timeout` and `maxHops` ([decision 0006](decisions/0006-budgets.md)); whether staleness may cut a call,
