@@ -9,14 +9,12 @@ Kevin Ferron. Specification version 0.1 (draft). Repository: [github.com/overfoc
 
 ## 1. Abstract
 
-When scripts, models and people are wired together, the hard part is not the wiring but deciding when
-each one should act, when its work has gone stale, how much it may spend, and what to record when a side
-effect's outcome is unknown. In the tools I looked at, that logic sits in a central workflow or in caller
+When scripts, models and people are wired together, the hard part is deciding when each should act, when
+its work is stale, how much it may spend, and what to record when an effect's outcome is unknown. In the tools I looked at, that logic sits in a central workflow or in caller
 code, where it is tied to that code's language and can only be tested through it. agent-neuron moves it onto each
-component's wrapper: a network file declares, per neuron, how many distinct senders must agree, how long
-an input may wait, what makes work stale, how far a chain may loop, what a call may cost and whether a
-call has an effect, and an engine enforces those rules around any program that reads JSON on stdin and
-writes JSON on stdout. The specification is a draft at version 0.1, with 193 conformance fixtures that
+component's wrapper: a network file declares per neuron how many distinct senders must agree, how long an
+input may wait, what makes work stale, what a call may cost and whether it has an effect, and an engine
+enforces that around any program that reads and writes JSON on stdin and stdout. The specification is a draft at version 0.1, with 193 conformance fixtures that
 compare exact event lists on a virtual clock, a TypeScript reference engine, and a Python engine written
 from the text that passes the fixtures and found where the text says less than they do. I present it as
 a small, checkable protocol for the agent and developer community to test, break and implement again.
@@ -37,8 +35,7 @@ easy. Stopping work that is already running, and discarding its late answer, is 
 left out, and it is where the waste is when the running work is the costly call.
 
 **How much may be spent.** A chain that fans out or loops can spend without limit unless something outside
-the components keeps the books, refuses a call before it starts, and does not let a crash or a cut give
-the money back.
+the components keeps the books and refuses a call before it starts.
 
 **What to record when an effect's outcome is unknown.** If a call that sends a message crashes, nobody
 knows whether the message went. Recording that as an ordinary error tells every tool that retries on
@@ -75,18 +72,18 @@ absent from all of them [[8]](#ref-8) (preprint; I read the abstract only). Orac
 which aims to make agents portable across frameworks, leaves the order among parallel branches
 unguaranteed [[9]](#ref-9).
 
-So the pieces exist. What I did not find is the combination: a quorum of distinct senders, cancellation
-of running work derived from a key on newer input, a fail-closed budget per trace and an honest unknown
-outcome for side effects, all declared per node in a file, enforced by an engine and checked by comparing whole event lists.
-My argument (not a survey) is that when this logic lives in a controller, it is tied to the controller's
-language, and it can only be tested through that code's own tests: there is no file to read the rules
-from and no shared test a second implementation must pass.
+So the pieces exist; the combination, declared per node, enforced by an engine and checked by comparing
+event lists, I did not find. My argument (not a survey) is that logic in a controller is tied to the
+controller's language and testable only through its own tests: no file to read the rules from, no shared
+test a second implementation must pass.
 
 ## 4. The protocol
 
 The specification ([SPEC.md](SPEC.md), version 0.1, draft, RFC 2119 words) has four parts: a network
 file format (SPEC 2), a neuron contract (SPEC 3), engine semantics (SPEC 4 to 6, 10, 11) and a trace
 format (SPEC 7, [TRACE.md](TRACE.md)). The reasons for each rule are in [decisions/](decisions/).
+
+Each rule below has fixtures; the ones this paper relies on are listed in Appendix A.
 
 ### 4.1 The neuron contract
 
@@ -129,19 +126,14 @@ way one neuron reaches another; nothing in the middle decides.
 
 **Threshold and within.** Inputs are grouped by (neuron, trace). A sender counts once; its newer input
 replaces its held one. When `threshold` distinct senders have an input held, the neuron acts once with
-all of them. Each held input expires after its own `within` (default 10000 ms) (SPEC 5.2; fixtures
-`threshold/same-sender-counts-once`, `threshold/every-held-input-has-its-own-timer`).
+all of them. Each held input expires after its own `within` (default 10000 ms) (SPEC 5.2).
 
 **Replaces.** The producer sets the key, because only it knows what makes an input stale (SPEC 4.1;
 decision 0002). A newer signal with the same (sender, key) makes older work stale: waiting work is
-dropped, running work is cancelled and its late answer discarded (SPEC 5.4; fixtures
-`staleness/running-call-is-cut`, `staleness/level1-cut-late-reply-is-discarded`). Any replaced input cuts
-a running threshold call, not only the one that crossed (SPEC 5.4; decision 0001 section 3; fixture
-`staleness/17-earlier-input-cuts-a-running-call`). Staleness does not travel down a chain (fixture
-`staleness/does-not-travel-down-a-chain`).
+dropped, running work is cancelled and its late answer discarded (SPEC 5.4). Any replaced input cuts
+a running threshold call, not only the one that crossed (SPEC 5.4; decision 0001 section 3). Staleness does not travel down a chain (SPEC 5.4).
 
-**maxHops and timeout.** An input above `maxHops` is refused, never run (SPEC 5.3; fixture
-`hops/loop-ends-at-maxhops`). A call longer than `timeout` (default 30000 ms) fails; a reply due at the
+**maxHops and timeout.** An input above `maxHops` is refused, never run (SPEC 5.3). A call longer than `timeout` (default 30000 ms) fails; a reply due at the
 timeout instant wins (SPEC 6.2 rule 7).
 
 **Budgets that fail closed.** A network may declare a `budget` of named whole-number units and each neuron
@@ -149,8 +141,7 @@ a `cost`; under a budget every non-source neuron must declare one, or `check` re
 10.1; decision 0006 A). Each trace has its own pool, which a producer may lower but never raise (SPEC
 10.2). A call reserves its cost when it starts, or is refused with an `error` of code `budget` if the pool
 cannot cover every unit (SPEC 10.3). A started call commits its reservation on every outcome, a cut or a
-crash included, so failing never runs for free (SPEC 10.4; decision 0006 decision 1; fixture
-`budget/a-cut-call-commits-its-reservation`). In 0.1 every commit is the reservation, labelled
+crash included, so failing never runs for free (SPEC 10.4; decision 0006 decision 1). In 0.1 every commit is the reservation, labelled
 `"basis": "estimated"` (SPEC 10.4).
 
 ```json
@@ -163,19 +154,15 @@ crash included, so failing never runs for free (SPEC 10.4; decision 0006 decisio
 
 **Effects and the unknown outcome.** A neuron declared `"effect": true` does something in the world. A
 started effect call is never cut by staleness: its answer is recorded, its cost committed, and only its
-forward is suppressed, marked `"forwarded": false` (SPEC 11.2; fixture
-`effect/the-answer-of-a-stale-effect-call-is-recorded-but-not-forwarded`). If it crashes, hangs or times
-out, the engine reports `unknown` in place of `error` (SPEC 11.3; fixture
-`effect/a-crashed-effect-call-is-unknown-and-commits-its-cost`); a budget refusal, a failed start and a
+forward is suppressed, marked `"forwarded": false` (SPEC 11.2). If it crashes, hangs or times
+out, the engine reports `unknown` in place of `error` (SPEC 11.3); a budget refusal, a failed start and a
 level 1 `error` reply stay errors (SPEC 6.1). The engine does not retry; SPEC 11.4 describes a
-reconciliation pattern, which fixture `observer/an-observer-reconciles-an-unknown-effect` runs.
+reconciliation pattern, which a fixture runs.
 
 ### 4.4 Sealing
 
 A `network` neuron makes a whole network file one neuron (SPEC 2.6). Each call gets a new inner trace, so
-threshold groups and staleness never cross calls (fixtures `composed/threshold-groups-never-mix-calls`,
-`composed/staleness-is-scoped-to-a-call`). Inner ids, signals and errors never appear outside (fixture
-`composed/inside-notes-stay-inside`). Its `cost` caps its inside (SPEC 10.5), and it may not contain an
+threshold groups and staleness never cross calls. Inner ids, signals and errors never appear outside. Its `cost` caps its inside (SPEC 10.5), and it may not contain an
 effect (SPEC 11.5). Sealing is between neurons, not against whoever holds the file (SPEC 2.6; decision 0007
 decision 17).
 
@@ -186,7 +173,7 @@ in the order it was scheduled, a signal comes before the drops it causes, a repl
 trace is `agent-neuron-trace` version 1, whose readers ignore what they do not know, so every 0.1 addition
 is an optional field or a new event type (TRACE.md; decision 0003). Events are `signal`, `answer`,
 `quiet`, `drop`, `error`, `unknown`, `finished` (once per trace) and `note` (SPEC 7.2, 6.3). The same events
-are offered live as a stream that fails open (SPEC 9.1; fixture `stream/a-failing-consumer-changes-nothing`).
+are offered live as a stream that fails open (SPEC 9.1).
 
 ## 5. Conformance
 
@@ -194,16 +181,14 @@ are offered live as a stream that fails open (SPEC 9.1; fixture `stream/a-failin
 
 An engine conforms when it passes every fixture in `spec/fixtures/` that is not pending (SPEC 8). There
 are 193, none pending, in 13 areas: budget 26, failures 29, level1 20, composed 19, routing 18, staleness
-18, threshold 17, effect 15, ordering 13, observer 6, runend 6, hops 4, stream 2 (counted from the
-directory at commit `4043967`; `npm run engine -- conform spec/fixtures` reports 193 passed, 0 failed,
-0 pending).
+18, threshold 17, effect 15, ordering 13, observer 6, runend 6, hops 4, stream 2 (counted at commit
+`4043967`, where `npm run engine -- conform spec/fixtures` passes all 193).
 
 Each fixture is a network file plus a `fixture.json`: timed injections, a script that stands in for
 every program (which reply, after how many virtual milliseconds) and the exact expected events
 (CONFORMANCE.md 2, 5). No process starts and no clock is read; ids are normalised by first appearance and
-events are compared one by one, every field, `t` included (CONFORMANCE.md 3, 4). Every run also checks
-that the live stream equals the trace (CONFORMANCE.md 3, item 6). A fixture changes only in the same
-commit as the text it pins (SPEC 8). This one pins that a newer input cuts a running call
+events are compared one by one, every field, `t` included (CONFORMANCE.md 3, 4). A fixture changes only in
+the same commit as the text it pins (SPEC 8). This one pins that a newer input cuts a running call
 (`spec/fixtures/staleness/running-call-is-cut/fixture.json`, shortened):
 
 ```json
@@ -221,12 +206,9 @@ commit as the text it pins (SPEC 8). This one pins that a newer input cuts a run
 
 ### 5.2 Fixtures that bite
 
-A test suite can pass and still miss bugs. `test/conformance.test.ts` builds 81 copies of the reference
-engine, each with one deliberate bug, and requires every one of them to fail at least one fixture.
-Examples from that list: threshold counting the same sender twice, `maxHops` off by one, a cut call
-releasing its reservation instead of committing it, one pool shared by every trace, a stale input cutting
-an effect call, a failed effect call recorded as an error, and the stream delivered out of order. (The
-count is from the test file; decision 0004 still says 33, from when the suite was smaller.)
+`test/conformance.test.ts` builds 81 copies of the reference engine, each with one deliberate bug (for
+example threshold counting the same sender twice, a cut call releasing its reservation, a stale input
+cutting an effect call), and requires each to fail at least one fixture.
 
 ### 5.3 What "an agent-neuron engine" means
 
@@ -235,10 +217,9 @@ command-line contract `<engine> conform <dir>` (SPEC 8; CONFORMANCE.md 8), not b
 claim in a README. The fixtures test what an engine does with an outcome, not how it parses bytes; real
 process behaviour is each engine's own tests' business (CONFORMANCE.md introduction, 9).
 
-The reference engine is TypeScript, in `src/engine/`. An earlier Rust engine, written from the text in a
-time-boxed experiment, was stopped as a no-go against criteria agreed in advance; its differential runs
-still led to clearer text and new fixtures for timeout ties, signal names in error messages and the kill
-grace (decision 0005).
+The reference engine is TypeScript (`src/engine/`). An earlier Rust engine was stopped as a no-go against
+criteria agreed in advance, though its differential runs led to clearer text and new fixtures (decision
+0005).
 
 ### 5.4 A second engine
 
@@ -248,36 +229,27 @@ merged; [conformance-python.md](conformance-python.md) and `py/agent_neuron/`). 
 standard library only (3.11 or later) and is 1,551 lines by `wc -l`, comments and blank lines included.
 
 **Result:** 193 of 193 fixtures pass, identically on repeated runs. Its first complete run passed 177; the
-16 failures were its own bugs and places where the fixtures pin more than the text says, and none was fixed
-by loosening the runner (conformance-python.md, "Result"). After it passed, its author used the TypeScript
-engine only as a black box on 10 extra probe fixtures (`py/probes/`), which both engines pass; the probes
-found two Python bugs that no fixture covers.
+failures were its own bugs and places where the fixtures pin more than the text says (conformance-python.md,
+"Result"). Ten probe fixtures (`py/probes/`), run against both engines, found two Python bugs no fixture covers.
 
-**Scope:** it runs fixtures on a virtual clock with scripted programs. It starts no real process, has no
-`check`, `run`, trace file or `--stream`, and refuses `http` and `human` neurons. So it tests the engine
-semantics of SPEC 4 to 11, not the byte-level contract of SPEC 3 (conformance-python.md, "What this engine
-does not do").
+**Scope:** fixtures on a virtual clock with scripted programs. It starts no real process and has no
+`check`, `run`, trace or stream commands, so it tests the engine semantics, not the byte-level contract of
+SPEC 3 (conformance-python.md, "What this engine does not do").
 
-**What it found** is the point of a second engine: the places where the fixtures pin behaviour the text
-does not state. Most important first (conformance-python.md, "Ambiguities and gaps"):
+**What it found** is the point of a second engine: places where the fixtures pin behaviour the text does
+not state. The three most important (conformance-python.md, "Ambiguities and gaps", items 1 to 3):
 
-1. A level 1 restart that falls due while only a kill grace keeps the run open (SPEC 3.2, 6.2 rule 6;
-   CONFORMANCE 9 lists the race as not covered, yet a fixture pins it).
-2. A call queued behind a crashed level 1 process must keep the run open across the restart (6.2 rule 6);
-   no fixture covers it, and the Python engine first got it wrong.
+1. A level 1 restart that falls due while only a kill grace keeps the run open. CONFORMANCE 9 lists the
+   race as not covered, yet a fixture pins it (SPEC 3.2, 6.2 rule 6).
+2. A call queued behind a crashed level 1 process must keep the run open across the restart (6.2 rule 6).
+   No fixture covers it, and the Python engine first got it wrong.
 3. Rule 7 for a composed neuron: the text says an exit reply due at the instant of the composed neuron's
    `timeout` wins, but **both engines** let the timeout win (6.2 rule 7, CONFORMANCE 4.1). Either the
-   engines or the sentence are wrong; no fixture decides it.
-4. The `budget` error message: the fixtures pin `budget: needs 1 calls, 0 left`, more than the prefix
-   SPEC 6.1 fixes (CONFORMANCE 3, item 4).
-5. Where `finished` goes relative to the delivery effects of the signal that ended the trace (6.2 rules 2
-   and 8).
-6. Whether the failed-start count `f` in the restart delay includes the start that just failed (3.2).
-7. When the hang timer of a cancelled level 1 slot starts (3.2).
-8. A trailing space after `signal S:` that a prefix comparison turns into a rule (6.1).
+   engines or the sentence are wrong, and no fixture decides it.
 
-None of these is fixed in the specification yet. Item 3 is the clearest case for a third engine, or a
-decision.
+Five smaller ones (the `budget` message format, the place of `finished`, the failed-start count, the hang
+timer of a cancelled slot, a trailing space after `signal S:`) are in conformance-python.md. None is fixed
+in the specification yet.
 
 ## 6. Worked example: the alert storm
 
@@ -287,14 +259,16 @@ arrive over 5.6 seconds. Three cheap detectors look at each: `logs` and `deploys
 and should run only when two detectors flag the same alert. A composed neuron, `diagnosis`, finds a root
 cause and a deploy to look at. **No model is called;** the stand-in is a timer (README; DEMOS.md).
 
-### Before: the rule in a controller
+### Before: the rule in a controller (an invented sketch, never run)
 
 Without engine rules, the caller keeps the books: a group per alert, a timer per held flag, the running
-calls and the inputs each was built from, and cancel logic keyed by detector and service. The sketch below
-is illustrative, written for this paper and never run; it is not code from the repository.
+calls and the inputs each was built from, and cancel logic keyed by detector and service.
+
+> **An invented sketch, never run.** It was written for this paper to show the bookkeeping. It is not code
+> from the repository and has not been tested.
 
 ```js
-// Illustrative only. Not from the repository, not run.
+// AN INVENTED SKETCH, NEVER RUN. Not from the repository.
 const held = new Map();     // alertId -> Map(detector -> { flag, timer })
 const running = [];         // { inputs: [{ detector, service, alertId }], abort }
 const latest = new Map();   // `${detector}|${service}` -> alertId of the newest flag
@@ -352,18 +326,15 @@ diagnoses. The same storm recorded with other thresholds (`traces/alerts-thresho
 `alerts-threshold-3.json`) gives 52 calls at threshold 1 (one per flag; 31 cut, 21 finished, 16
 diagnoses) and 0 calls at threshold 3 (21 flags expired, 31 replaced while waiting).
 
-Three cautions, which I would rather state than have a reader find:
+Three cautions:
 
-- **The alerts are invented, and the waste is built in.** Alerts for one service come either 150 ms apart
-  or 900 ms or more apart, against a 500 ms stand-in call, so bursts are designed to make calls go stale
-  (`examples/alerts-demo.mjs` comments; DEMOS.md).
-- **The verdicts match by construction.** The invented topology maps every service to `gateway` as its
-  root (`examples/alerts/topology.json`), so all 7 diagnoses in the recording name `gateway` and deploy
-  `dep-8b21`. The example shows how many costly calls run and how many are cut, not diagnostic quality.
-- **The numbers depend on timing.** The committed traces were recorded with the TypeScript library demo
-  (`npm run record -- alerts`, TRACE.md), and TRACE.md says the numbers are what that run produced, not
-  constants. Two runs of the engine version (`npm run demo:network`) on one machine on 2026-11-05 gave
-  52 flags, 17 calls, 10 cut, then 50 flags, 16 calls, 9 cut; the README says counts vary with load.
+- **The alerts are invented, and the waste is built in.** Alerts for one service come 150 ms apart or
+  900 ms or more apart, against a 500 ms stand-in call, so bursts make calls go stale (DEMOS.md).
+- **The verdicts match by construction.** The invented topology makes `gateway` every service's root
+  (`examples/alerts/topology.json`), so all 7 diagnoses agree. The example measures costly calls run and
+  cut, not diagnostic quality.
+- **The numbers depend on timing.** The traces were recorded with the library demo (TRACE.md). Two engine
+  runs (`npm run demo:network`) on 2026-11-05 gave 17 calls with 10 cut, then 16 with 9 cut.
 
 ## 7. Where it sits
 
@@ -373,9 +344,8 @@ described by an Agent Card [[7]](#ref-7). ANP gives agents decentralised identit
 internet [[11]](#ref-11). MCP and A2A now sit under the Linux Foundation [[12]](#ref-12) [[13]](#ref-13), and both have
 conformance suites [[14]](#ref-14) [[15]](#ref-15).
 
-What I specify sits one level in: inside a single engine, the rules for **when** a wrapped program runs.
-
-Pieces of this exist elsewhere:
+What I specify sits one level in: the rules, inside one engine, for **when** a wrapped program runs.
+Pieces of it exist elsewhere:
 
 | Project | What it already covers | What I did not find in it |
 |---|---|---|
@@ -384,21 +354,18 @@ Pieces of this exist elsewhere:
 | CloudEvents | an `expirytime` extension; consumers may discard expired events [[16]](#ref-16) | cancellation of running work |
 | Apache NiFi | per-connection expiry of queued items, back pressure [[5]](#ref-5) | supersession of running work by a keyed newer input |
 | MCP, A2A, Temporal | cancellation requested by a caller; in MCP the receiver may ignore it [[6]](#ref-6) [[7]](#ref-7) [[2]](#ref-2) | cancellation derived from a key on newer input |
-| Cosmonapse | an agent runtime and envelope spec described as "modeled on a nervous system" [[17]](#ref-17), with cost rolled up in envelopes, deadlines and a `STOP` that cancels a whole trace | declared per-node firing rules; reserve-and-commit budget rules; a conformance suite (none found) |
+| Cosmonapse | an agent runtime "modeled on a nervous system" [[17]](#ref-17): envelopes with rolled-up cost, deadlines, a `STOP` that cancels a trace | declared per-node firing rules; reserve-and-commit budgets; a conformance suite |
 | OpenTelemetry | spans with links, events and status; GenAI agent conventions, marked as in development [[18]](#ref-18) [[19]](#ref-19) | it records runs; it does not decide them |
 
-MCP Tasks have the nearest cousin of `unknown` I found: a cancelled task stays cancelled even if
-execution later completes or fails [[20]](#ref-20). That keeps the record stable; it does not say the
-effect is unknown. Alertmanager groups alerts over time windows and inhibits one alert while another
-fires [[21]](#ref-21), which overlaps the alert storm's goal but has no rule that several sources must
-agree.
+The nearest cousin of `unknown` I found is in MCP Tasks: a cancelled task stays cancelled even if
+execution later completes [[20]](#ref-20), which keeps the record stable without saying the effect is
+unknown. Alertmanager groups alerts over time windows and inhibits one alert while another fires
+[[21]](#ref-21), with no rule that several sources must agree. I have not found a specification that
+combines these rules and checks them by exact event lists; I may have missed one.
 
-I have not found a specification that combines these rules and checks them by comparing exact event
-lists. I may have missed one, and I would like to hear about it.
-
-The gap is also narrower than it looks: agent-neuron is a single-engine, single-host specification with
-no identity, authentication, discovery or transport between machines (SPEC 3.3, Appendix B). It does not
-compete with MCP, A2A or ANP at their layer.
+The gap is also narrower than it looks: agent-neuron is single-engine and single-host, with no identity,
+authentication, discovery or transport between machines (SPEC 3.3, Appendix B). It does not compete with
+MCP, A2A or ANP at their layer.
 
 ### 7.1 Composition with MCP and A2A (proposal)
 
@@ -410,45 +377,37 @@ OpenTelemetry today, and none of it is built.
   notification (or the task cancel for a task-augmented call) [[6]](#ref-6) [[20]](#ref-20). Because an
   MCP receiver may ignore a cancel [[6]](#ref-6), the network's author should declare a tool that changes
   the world `effect: true`. Budgets need no MCP change: the engine meters the declared `cost`.
-- **A neuron that wraps an A2A agent.** Also a level 1 adapter: send a message, map a completed task to
-  `answer` and a failed or rejected one to `error`, and call `CancelTask` on `cancel` [[7]](#ref-7). A2A's
-  input-required state has no mapping, because a neuron cannot ask its caller a question in the middle
-  of a call; that is an open question.
-- **A network exposed as an A2A agent.** An engine could publish an Agent Card for a network file's
-  `entry` and `exit`. SPEC 2.6 already says that a boundary that must hold against another party is an
-  `http` neuron to that party's own engine, which fits A2A's opaque agents.
+- **A neuron that wraps an A2A agent.** Also a level 1 adapter: map completed tasks to `answer`, failed or
+  rejected ones to `error`, and `cancel` to `CancelTask` [[7]](#ref-7). A2A's input-required state has no
+  mapping; that is open.
+- **A network exposed as an A2A agent.** An engine could publish an Agent Card for a file's `entry` and
+  `exit`, which fits SPEC 2.6's advice that a boundary against another party is an `http` neuron.
 
 ### 7.2 OpenTelemetry as a non-normative export (proposal)
 
-I would keep `agent-neuron-trace` version 1 as the normative record, because conformance compares exact
-event lists with virtual times and normalised ids, and the OpenTelemetry GenAI agent conventions are
-still marked as in development [[19]](#ref-19). A non-normative export could map one agent-neuron trace to
-one OpenTelemetry trace and one call to one span; a threshold call's span would carry span links to each
-input it consumed, since links exist to tie a span to one or more causes [[18]](#ref-18); drops,
-expiries and hops refusals would be span events, and `reserve` and `commit` span attributes. `unknown`
+I would keep `agent-neuron-trace` version 1 normative, since conformance compares exact event lists on
+virtual time and the OpenTelemetry GenAI agent conventions are still in development [[19]](#ref-19). An
+export could map a trace to a trace and a call to a span, with a threshold call's span linked to each input
+it consumed, since links tie a span to one or more causes [[18]](#ref-18); drops would be span events. `unknown`
 has no OpenTelemetry equivalent; I would export it as status Error plus an attribute such as
 `agent_neuron.outcome = unknown` *(unsure: this is an open design question)*.
 
 ## 8. Non-goals and what is not built
 
-- **Link strength and learning.** The name suggests connections that strengthen. They are planned and
-  not specified: the library's `weight()` always returns 1 (`src/network.ts`), the network file has no
-  strength field (SPEC 2.5, Appendix B), and nothing is kept between runs (README).
+- **Link strength and learning** are planned, not specified: `weight()` always returns 1
+  (`src/network.ts`), the file has no strength field (SPEC 2.5, Appendix B), nothing is kept between runs.
 - **`http` and `human` neurons** are specified (SPEC 3.3, 3.4) but not run: the reference engine's
   `check` warns and `run` refuses (SPEC Appendix C). The `http` failure row has no fixture (decision 0004).
-- **No model is called in any demo.** Every "model" is a timed stand-in (README). A neuron can hold a
-  model, with the API key named in `env` (SPEC section 0); that is a property of the design, not something
-  the demos show.
+- **No model is called in any demo**; every "model" is a timed stand-in (README). A neuron can hold one,
+  with its API key named in `env` (SPEC section 0): a design property, not a demo.
 - **POSIX only.** The engine runs on macOS and Linux (README "Development"; CONTRIBUTING.md). Windows is
   out of version 0.1 (SPEC Appendix B).
 - **One engine on `main`**, in TypeScript. The Python engine (section 5.4) runs fixtures only and is not
   merged; the Rust attempt was stopped (decision 0005). The npm package is private and unpublished
   (`package.json`).
-- **Not in version 0.1:** usage reported by a neuron (so a commit could be below the reservation), an
-  owed ledger, spend per source or per time window, retries, an engine-held `unknown` that blocks a key
-  until reconciled, effects inside a composed file, passive and active channels, authentication for
-  `http` (SPEC 10.8, Appendix B; decisions 0006 and 0007). A trace explains what was spent; it does not
-  prove it to anyone else (SPEC 10.8).
+- **Not in version 0.1:** usage reported by a neuron, spend per source or time window, retries, an
+  engine-held `unknown`, effects inside a composed file, passive and active channels, `http`
+  authentication (SPEC 10.8, Appendix B).
 - **Not a wire protocol between parties** (section 7).
 
 ## 9. Status, versioning and how to take part
@@ -479,6 +438,26 @@ builder's choice 5). The level 1 protocol's `v` is `1`, bumped only by a change 
 ## 10. My view
 
 (Kevin to write)
+
+## Appendix A. Fixtures cited
+
+Each is a directory under `spec/fixtures/` (commit `4043967`).
+
+- `threshold/same-sender-counts-once`
+- `threshold/every-held-input-has-its-own-timer`
+- `staleness/running-call-is-cut`
+- `staleness/level1-cut-late-reply-is-discarded`
+- `staleness/17-earlier-input-cuts-a-running-call`
+- `hops/loop-ends-at-maxhops`
+- `budget/a-cut-call-commits-its-reservation`
+- `effect/the-answer-of-a-stale-effect-call-is-recorded-but-not-forwarded`
+- `effect/a-crashed-effect-call-is-unknown-and-commits-its-cost`
+- `stream/a-failing-consumer-changes-nothing`
+- `staleness/does-not-travel-down-a-chain`
+- `composed/threshold-groups-never-mix-calls`
+- `composed/staleness-is-scoped-to-a-call`
+- `composed/inside-notes-stay-inside`
+- `observer/an-observer-reconciles-an-unknown-effect`
 
 ## References
 

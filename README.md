@@ -38,6 +38,8 @@ Alert storm from alerts.network.json: 40 alerts over 5.6 s, run by the engine.
 321 events in the trace; no inner id of diagnosis in it: true
 ```
 
+A live run on real processes varies slightly from run to run (17 or 16 calls, say); the fixed numbers quoted elsewhere come from the recorded trace, `traces/alerts.json`.
+
 That is a made-up storm of 40 alerts for five services. Cheap detectors flag alerts, a slow neuron stands in for a model call (a 500 ms timer) and runs only when two detectors agree, and a composed neuron answers with a diagnosis. The summary says 17 slow calls ran instead of 40.
 
 ### The network file

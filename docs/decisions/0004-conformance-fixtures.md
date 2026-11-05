@@ -18,6 +18,7 @@ silent. The format itself is [CONFORMANCE.md](../CONFORMANCE.md).
   fixture; leaving a call without an entry is how a fixture says "this must not run".
 - **Mutants.** `test/conformance.test.ts` runs the fixtures against the engine source with one
   deliberate bug each (33 of them). Each must fail a fixture; this is what shows the fixtures bite.
+  *Note, 2026-11-05: the count has grown with the specification; `test/conformance.test.ts` now has 81.*
 
 ## Decisions (Kevin, 2026-11-04) and the gaps they close
 
