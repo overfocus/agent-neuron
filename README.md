@@ -4,6 +4,8 @@ Any program (a shell script, a Python file, a model call) goes inside the same w
 
 This is an experiment at concept stage: a specification (version 0.1, draft), a reference engine and a set of demos. Nothing is on npm yet.
 
+The idea as a protocol, for agent and framework developers: [docs/WHITEPAPER.md](docs/WHITEPAPER.md) (a draft).
+
 ## What's built, what's planned
 
 | Built | Planned |
