@@ -9,3 +9,10 @@ rust/target/
 .trace-denylist
 
 test/.mutants/
+
+# Local tooling of the maintainer (not part of the project)
+.claude/
+CLAUDE.md
+agent-kit.config.json
+scripts/kit.mjs
+docs/agents/

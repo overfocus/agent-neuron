@@ -11,8 +11,14 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "./engine": { "types": "./dist/engine/index.d.ts", "default": "./dist/engine/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./engine": {
+      "types": "./dist/engine/index.d.ts",
+      "default": "./dist/engine/index.js"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -33,20 +39,12 @@
     "demo:composed": "npm run -s build && npm run -s rust:build && node examples/composed.mjs",
     "check": "npm run -s typecheck && npm run -s rust:test && npm run -s rust:build && npm run -s test && npm run -s build",
     "view": "npm run -s build && node examples/view/server.mjs",
-    "record": "npm run -s build && node examples/trace/record.mjs",
-    "check:browser": "node scripts/kit.mjs check-browser",
-    "check:layout": "node scripts/kit.mjs check-layout",
-    "verify": "node scripts/kit.mjs verify",
-    "verify:receipt": "node scripts/kit.mjs verify-receipt",
-    "ship": "node scripts/kit.mjs ship",
-    "wt": "node scripts/kit.mjs wt",
-    "ships": "node scripts/kit.mjs ships",
-    "issue": "node scripts/kit.mjs issue"
+    "record": "npm run -s build && node examples/trace/record.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
     "playwright-core": "^1.64.1",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.7"
+    "vitest": "^5.1.0"
   }
 }
