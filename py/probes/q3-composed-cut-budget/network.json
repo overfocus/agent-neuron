@@ -1,0 +1,1 @@
+{"version": 0, "budget": {"credits": 10}, "neurons": [{"id": "s", "source": true}, {"id": "d", "network": "inner.network.json", "cost": {"credits": 3}, "timeout": 100}], "links": [{"from": "s", "to": "d"}]}

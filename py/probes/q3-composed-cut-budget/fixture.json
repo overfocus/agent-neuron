@@ -1,0 +1,176 @@
+{
+ "fixture": 0,
+ "description": "A composed call cut as stale commits its cost with its measured ms; the new call reserves its own.",
+ "expect": [
+  {
+   "type": "signal",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "d"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "replaces": "k",
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "t": 0
+  },
+  {
+   "type": "note",
+   "neuron": "d",
+   "what": "reserve",
+   "units": {
+    "credits": 3
+   },
+   "t": 0
+  },
+  {
+   "type": "signal",
+   "id": "#2",
+   "from": "s",
+   "to": [
+    "d"
+   ],
+   "trace": "#2",
+   "hops": 0,
+   "replaces": "k",
+   "payload": {
+    "type": "json",
+    "data": 2
+   },
+   "t": 40
+  },
+  {
+   "type": "drop",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "d"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "neuron": "d",
+   "reason": "replaced",
+   "phase": "running",
+   "t": 40
+  },
+  {
+   "type": "note",
+   "neuron": "d",
+   "what": "cancel",
+   "t": 40
+  },
+  {
+   "type": "note",
+   "neuron": "d",
+   "what": "commit",
+   "units": {
+    "credits": 3
+   },
+   "ms": 40,
+   "basis": "estimated",
+   "t": 40
+  },
+  {
+   "type": "finished",
+   "trace": "#1",
+   "status": "done",
+   "remaining": {
+    "credits": 7
+   },
+   "t": 40
+  },
+  {
+   "type": "note",
+   "neuron": "d",
+   "what": "reserve",
+   "units": {
+    "credits": 3
+   },
+   "t": 40
+  },
+  {
+   "type": "error",
+   "id": "#2",
+   "from": "s",
+   "to": [
+    "d"
+   ],
+   "trace": "#2",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 2
+   },
+   "neuron": "d",
+   "message": "timed out after 100 ms",
+   "code": "timeout",
+   "t": 140
+  },
+  {
+   "type": "note",
+   "neuron": "d",
+   "what": "cancel",
+   "t": 140
+  },
+  {
+   "type": "note",
+   "neuron": "d",
+   "what": "commit",
+   "units": {
+    "credits": 3
+   },
+   "ms": 100,
+   "basis": "estimated",
+   "t": 140
+  },
+  {
+   "type": "finished",
+   "trace": "#2",
+   "status": "done",
+   "remaining": {
+    "credits": 7
+   },
+   "t": 140
+  }
+ ],
+ "notes": true,
+ "finished": true,
+ "inputs": [
+  {
+   "at": 0,
+   "source": "s",
+   "payload": 1,
+   "replaces": "k"
+  },
+  {
+   "at": 40,
+   "source": "s",
+   "payload": 2,
+   "replaces": "k"
+  }
+ ],
+ "script": {
+  "d/e": {
+   "calls": [
+    {
+     "reply": {
+      "hang": true
+     }
+    },
+    {
+     "reply": {
+      "hang": true
+     }
+    }
+   ]
+  }
+ }
+}

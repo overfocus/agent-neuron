@@ -1,0 +1,61 @@
+{
+ "fixture": 0,
+ "description": "ready exactly at the timeout instant counts as within timeout.",
+ "expect": [
+  {
+   "type": "signal",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "a"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "t": 0
+  },
+  {
+   "type": "answer",
+   "id": "#2",
+   "from": "a",
+   "to": [
+    "s"
+   ],
+   "trace": "#1",
+   "hops": 1,
+   "replyTo": "#1",
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "t": 0
+  }
+ ],
+ "notes": true,
+ "inputs": [
+  {
+   "at": 0,
+   "source": "s",
+   "payload": 1
+  }
+ ],
+ "script": {
+  "a": {
+   "starts": [
+    {
+     "ready": 100
+    }
+   ],
+   "calls": [
+    {
+     "reply": {
+      "answer": 1
+     }
+    }
+   ]
+  }
+ }
+}

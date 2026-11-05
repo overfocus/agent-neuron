@@ -1,0 +1,1 @@
+{"version": 0, "neurons": [{"id": "s", "source": true}, {"id": "p", "run": ["p"]}, {"id": "q", "run": ["q"]}, {"id": "blk", "serve": ["b"]}, {"id": "h", "serve": ["h"], "threshold": 2}], "links": [{"from": "s", "to": "p"}, {"from": "s", "to": "q"}, {"from": "p", "to": "h"}, {"from": "q", "to": "h"}]}

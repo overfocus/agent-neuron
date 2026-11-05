@@ -1,0 +1,1 @@
+{"version": 0, "neurons": [{"id": "e", "run": ["e"]}, {"id": "x", "run": ["x"]}], "links": [{"from": "e", "to": "x"}], "entry": "e", "exit": "x"}

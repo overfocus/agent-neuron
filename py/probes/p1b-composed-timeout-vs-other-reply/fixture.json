@@ -1,0 +1,92 @@
+{
+ "fixture": 0,
+ "description": "A composed neuron's timeout set before another call's reply due at the same instant goes first (SPEC 6.2 rule 1).",
+ "expect": [
+  {
+   "type": "signal",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "diag",
+    "b"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "t": 0
+  },
+  {
+   "type": "error",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "diag",
+    "b"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "neuron": "diag",
+   "message": "timed out after 100 ms",
+   "code": "timeout",
+   "t": 100
+  },
+  {
+   "type": "note",
+   "neuron": "diag",
+   "what": "cancel",
+   "t": 100
+  },
+  {
+   "type": "answer",
+   "id": "#2",
+   "from": "b",
+   "to": [
+    "s"
+   ],
+   "trace": "#1",
+   "hops": 1,
+   "replyTo": "#1",
+   "payload": {
+    "type": "json",
+    "data": 2
+   },
+   "t": 100
+  }
+ ],
+ "notes": true,
+ "inputs": [
+  {
+   "at": 0,
+   "source": "s",
+   "payload": 1
+  }
+ ],
+ "script": {
+  "diag/e": {
+   "calls": [
+    {
+     "reply": {
+      "hang": true
+     }
+    }
+   ]
+  },
+  "b": {
+   "calls": [
+    {
+     "after": 100,
+     "reply": {
+      "answer": 2
+     }
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,95 @@
+{
+ "fixture": 0,
+ "description": "Level 0 output over 1 MiB under a budget: error, finished, then the kill note; commit before the error.",
+ "expect": [
+  {
+   "type": "signal",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "a"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "t": 0
+  },
+  {
+   "type": "note",
+   "neuron": "a",
+   "what": "reserve",
+   "units": {
+    "credits": 3
+   },
+   "t": 0
+  },
+  {
+   "type": "note",
+   "neuron": "a",
+   "what": "commit",
+   "units": {
+    "credits": 3
+   },
+   "ms": 5,
+   "basis": "estimated",
+   "t": 5
+  },
+  {
+   "type": "error",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "a"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "neuron": "a",
+   "message": "output too large",
+   "code": "output",
+   "t": 5
+  },
+  {
+   "type": "finished",
+   "trace": "#1",
+   "status": "done",
+   "remaining": {
+    "credits": 7
+   },
+   "t": 5
+  },
+  {
+   "type": "note",
+   "neuron": "a",
+   "what": "kill",
+   "t": 5
+  }
+ ],
+ "notes": true,
+ "finished": true,
+ "inputs": [
+  {
+   "at": 0,
+   "source": "s",
+   "payload": 1
+  }
+ ],
+ "script": {
+  "a": {
+   "calls": [
+    {
+     "after": 5,
+     "reply": {
+      "overlong": true
+     }
+    }
+   ]
+  }
+ }
+}

@@ -16,3 +16,5 @@ CLAUDE.md
 agent-kit.config.json
 scripts/kit.mjs
 docs/agents/
+__pycache__/
+*.pyc

@@ -1,0 +1,130 @@
+{
+ "fixture": 0,
+ "description": "A process that closes stdout and ignores SIGTERM: restart note at detection + backoff while the kill grace runs; kill note 2000 ms after term.",
+ "expect": [
+  {
+   "type": "signal",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "a"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "t": 0
+  },
+  {
+   "type": "error",
+   "id": "#1",
+   "from": "s",
+   "to": [
+    "a"
+   ],
+   "trace": "#1",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 1
+   },
+   "neuron": "a",
+   "message": "process failed",
+   "code": "crash",
+   "t": 10
+  },
+  {
+   "type": "note",
+   "neuron": "a",
+   "what": "term",
+   "t": 10
+  },
+  {
+   "type": "note",
+   "neuron": "a",
+   "what": "restart",
+   "t": 210
+  },
+  {
+   "type": "note",
+   "neuron": "a",
+   "what": "kill",
+   "t": 2010
+  },
+  {
+   "type": "signal",
+   "id": "#2",
+   "from": "s",
+   "to": [
+    "a"
+   ],
+   "trace": "#2",
+   "hops": 0,
+   "payload": {
+    "type": "json",
+    "data": 2
+   },
+   "t": 5000
+  },
+  {
+   "type": "answer",
+   "id": "#3",
+   "from": "a",
+   "to": [
+    "s"
+   ],
+   "trace": "#2",
+   "hops": 1,
+   "replyTo": "#2",
+   "payload": {
+    "type": "json",
+    "data": 2
+   },
+   "t": 5000
+  }
+ ],
+ "notes": true,
+ "inputs": [
+  {
+   "at": 0,
+   "source": "s",
+   "payload": 1
+  },
+  {
+   "at": 5000,
+   "source": "s",
+   "payload": 2
+  }
+ ],
+ "script": {
+  "a": {
+   "starts": [
+    {
+     "end": {
+      "after": 10,
+      "how": "closeStdout"
+     },
+     "ignoreTerm": true
+    },
+    {}
+   ],
+   "calls": [
+    {
+     "when": 1,
+     "after": 500,
+     "reply": {
+      "answer": 1
+     }
+    },
+    {
+     "when": 2,
+     "reply": {
+      "answer": 2
+     }
+    }
+   ]
+  }
+ }
+}
