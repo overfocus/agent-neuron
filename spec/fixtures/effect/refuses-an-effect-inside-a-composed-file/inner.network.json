@@ -1,0 +1,15 @@
+{
+  "version": 0,
+  "name": "inner",
+  "neurons": [
+    {
+      "id": "notify",
+      "run": [
+        "neuron-notify"
+      ],
+      "effect": true
+    }
+  ],
+  "entry": "notify",
+  "exit": "notify"
+}

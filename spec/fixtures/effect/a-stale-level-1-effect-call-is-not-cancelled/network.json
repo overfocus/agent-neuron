@@ -1,0 +1,34 @@
+{
+  "version": 0,
+  "name": "a-stale-level-1-effect-call-is-not-cancelled",
+  "description": "A level 1 effect call whose input goes stale gets no cancel (no cancel note) and its slot is its own until it replies; the answer is recorded, not forwarded.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "serve": [
+        "neuron-notify"
+      ],
+      "effect": true
+    },
+    {
+      "id": "log",
+      "run": [
+        "neuron-log"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    },
+    {
+      "from": "notify",
+      "to": "log"
+    }
+  ]
+}

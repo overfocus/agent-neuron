@@ -7,12 +7,12 @@ import { VirtualHost, type Script } from './virtual.js';
 
 type Rule = { when: Record<string, unknown>; inject: { after: number; source: string; payload: unknown; replaces?: string } };
 export type Fixture = {
-  fixture: 0; description: string; network?: string; notes?: boolean; finished?: boolean; pending?: string; pingEvery?: number; refuses?: boolean;
+  fixture: 0; description: string; network?: string; notes?: boolean; finished?: boolean; streamFails?: boolean; pending?: string; pingEvery?: number; refuses?: boolean;
   inputs: Injection[]; script?: Script; observer?: Rule[]; expect: Event[]; expectWithout?: Event[]; independent?: boolean;
 };
 export type Result = { name: string; status: 'pass' | 'fail' | 'pending'; detail: string[] };
 type Engine = typeof runNetwork;
-const KNOWN = ['fixture', 'description', 'network', 'notes', 'finished', 'pending', 'pingEvery', 'refuses', 'inputs', 'script', 'observer', 'expect', 'expectWithout', 'independent'];
+const KNOWN = ['fixture', 'description', 'network', 'notes', 'finished', 'streamFails', 'pending', 'pingEvery', 'refuses', 'inputs', 'script', 'observer', 'expect', 'expectWithout', 'independent'];
 
 /** Ids become #1, #2, ... by first appearance, scanning id, trace, replyTo, cause (and a note's trigger) of each event in turn (8.3). */
 export function normalise(events: Event[]): Event[] {
@@ -25,13 +25,13 @@ export function normalise(events: Event[]): Event[] {
   });
 }
 
-/** The first difference between expected and actual events (notes and `finished` events only if asked), or undefined. `via` absent equals "emit"; an error's message is a prefix. */
+/** The first difference between expected and actual events (notes and `finished` events only if asked), or undefined. `via` absent equals "emit"; an error's or unknown's message is a prefix. */
 export function compare(expected: Event[], actual: Event[], notes: boolean, finished = false): string | undefined {
   const keep = (list: Event[]) => normalise(list).filter((e) => (notes || e.type !== 'note') && (finished || e.type !== 'finished')).map(({ via, ...e }) => (via === 'emit' || via === undefined ? e : { ...e, via }));
   const want = keep(expected), got = keep(actual);
   for (let i = 0; i < Math.max(want.length, got.length); i++) {
     const w = want[i], g = got[i];
-    const same = w && g && (w.type === 'error' && typeof w.message === 'string' && typeof g.message === 'string'
+    const same = w && g && ((w.type === 'error' || w.type === 'unknown') && typeof w.message === 'string' && typeof g.message === 'string'
       ? g.message.startsWith(w.message) && isDeepStrictEqual({ ...w, message: 0 }, { ...g, message: 0 })
       : isDeepStrictEqual(w, g));
     if (!same) return `event ${i + 1}: expected ${w ? JSON.stringify(w) : '(none)'}\n         got      ${g ? JSON.stringify(g) : '(none)'}`;
@@ -47,11 +47,20 @@ const observer = (rules: Rule[]): Observer => {
   return (e) => rules.filter((r) => !fired.has(r) && Object.entries(r.when).every(([k, v]) => isDeepStrictEqual(e[k], v))).map((r) => (fired.add(r), { at: r.inject.after, source: r.inject.source, payload: r.inject.payload, ...(r.inject.replaces !== undefined && { replaces: r.inject.replaces }) }));
 };
 
-/** The events one run of the fixture in `dir` produces (all of them, notes included). */
+/** The events one run of the fixture in `dir` produces (all of them, notes included). The live stream of the run (SPEC 9.1) must equal them, event for event:
+ *  the consumer here keeps a copy, then scribbles on what it was given and, with `streamFails`, throws, so an engine that lets the consumer touch the run fails. */
 export async function events(engine: Engine, dir: string, f: Fixture, withObserver: boolean): Promise<Event[]> {
+  const streamed: Event[] = [];
   const trace = await engine(join(dir, f.network ?? 'network.json'), f.inputs, {
     host: new VirtualHost(f.script ?? {}), pingEvery: f.pingEvery ?? 10_000, ...(withObserver && f.observer && { observer: observer(f.observer) }),
+    onEvent: (e) => {
+      streamed.push(structuredClone(e));
+      e.type = 'scribbled';
+      if (f.streamFails) throw new Error('the stream consumer failed');
+    },
   });
+  const at = trace.events.findIndex((e, i) => !isDeepStrictEqual(e, streamed[i]));
+  if (at >= 0 || streamed.length !== trace.events.length) throw Object.assign(new Error(`the live stream differs from the trace at event ${Math.max(at, 0) + 1}: stream ${JSON.stringify(streamed[at])}, trace ${JSON.stringify(trace.events[at])}`), { harness: true });
   return trace.events;
 }
 

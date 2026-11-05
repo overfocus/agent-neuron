@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "an-error-the-neuron-reports-stays-an-error",
+  "description": "A level 1 effect neuron that replies with an error says itself that it failed: that stays an error (code neuron), not unknown.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "serve": [
+        "neuron-notify"
+      ],
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    }
+  ]
+}

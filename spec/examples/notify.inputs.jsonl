@@ -1,0 +1,3 @@
+{"at":0,"source":"builds","payload":{"id":"b-1","status":"red"},"replaces":"build"}
+{"at":100,"source":"builds","payload":{"id":"b-2","status":"red"},"replaces":"build"}
+{"at":2000,"source":"builds","payload":{"id":"b-3","status":"red","flaky":true},"replaces":"build"}

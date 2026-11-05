@@ -1,0 +1,42 @@
+{
+  "version": 0,
+  "name": "every-event-in-written-order",
+  "description": "The stream carries every event of the trace, notes and finished included, once each in the order they are written, through a cut, a refusal and a failure; the runner compares it with the events of every fixture (CONFORMANCE 3).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 6
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "cost": {
+        "credits": 6
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

@@ -28,9 +28,10 @@ npm run demo:suggest   # builds, then runs examples/suggest.mjs (the typing demo
 npm run example     # builds, then runs examples/first.mjs (pipe a reply into stdin: echo approve | npm run example)
 npm run demo:typing # builds, then runs examples/typing.mjs (send without waiting, dropping stale work)
 npm run demo:alerts # builds, then runs the alert storm triage demo (about 6 s)
+npm run demo:notify # builds, then runs the side-effecting notify demo (an effect not cut by a newer input, a crash recorded as unknown; about 3 s)
 npm run demo:network # builds, then runs the same storm from its network file with the engine (about 7 s); `-- <network file>` for another
 npm run engine -- check <file>   # builds, then validates a network file (schema and SPEC 2.7 findings, with line and column)
-npm run engine -- run <file> --inputs <jsonl> [--trace out.json] [--inner out.json]  # runs it; prints the answers of neurons with no outgoing links
+npm run engine -- run <file> --inputs <jsonl> [--trace out.json] [--inner out.json] [--stream path]  # runs it; prints the answers of neurons with no outgoing links; --stream writes each event as a JSON line as it happens (SPEC 9.1)
 npm run engine -- conform spec/fixtures [--only <text>]  # builds, then the conformance fixtures: pass/fail/pending per fixture, non-zero exit on a failure (docs/CONFORMANCE.md)
 npm run view        # builds, then serves the network view on a free 127.0.0.1 port; prints the URL and pid (stop it with kill <pid>)
 npm run record -- <alerts|typing|suggest> [--threshold n] [--out file]  # builds, runs the demo, writes traces/<demo>.json (docs/TRACE.md)
@@ -98,12 +99,12 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 | Area | Code | Tests |
 |---|---|---|
 | Core (neuron, network, signals, adapters in `src/adapters/`) | `src/` | `test/` |
-| The demos (`npm run example`, `demo:typing`, `demo:loop`, `demo:suggest`, `demo:alerts`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand, except `demo:alerts`: `test/alerts.test.ts` |
+| The demos (`npm run example`, `demo:typing`, `demo:loop`, `demo:suggest`, `demo:alerts`, `demo:notify`; they build first. `demo:rust` and `demo:composed` live here too and need the Rust build; list in `docs/DEMOS.md`) | `examples/` | none: run by hand, except `demo:alerts`: `test/alerts.test.ts` |
 | The network view (`npm run view`): a Node server, one page, no framework | `examples/view/` | `test/view.test.ts` (server); `examples/view/checks.json` and `layout.json` and `layout-suggest.json` (browser, by hand) |
 | The specification, version 0.1 (network file, neuron contract, routing; [docs/SPEC.md](docs/SPEC.md)), its decisions (`docs/decisions/`), the closed schema and the alert storm as network files (`spec/`) | `docs/SPEC.md`, `spec/` | `test/spec.test.ts` (schema, examples, broken copies, the example programs) |
 | The reference engine for network files (`npm run engine`, subpath `agent-neuron/engine`): `check.ts` (validator and `check`), `engine.ts` (routing, threshold, staleness, level 0 processes, level 1 `Server`, composed neurons, budgets, trace), `cli.ts`, `virtual.ts` (the virtual clock and scripted programs, a `Host` the engine takes instead of real time and processes), `conform.ts` (the fixture runner). Separate from the library: `src/index.ts` does not export it | `src/engine/` | `test/engine.test.ts` (the storm in JavaScript, Python and Python level 1, small networks of real processes, a scriptable level 1 neuron in `test/support/serve.mjs`), `test/spec.test.ts` (`check`) |
 | Trace recorder and replay (`npm run record`): `examples/trace/` (tap, scenarios, record, replay) and the recorded files in `traces/` | `examples/trace/`, `traces/` | `test/recording.test.ts` (validity, replay, privacy of every committed trace) |
-| The conformance fixtures, SPEC section 8 ([docs/CONFORMANCE.md](docs/CONFORMANCE.md)): one directory each, network file, scripted inputs and replies, expected events; `budget/` pins the v0.1 budget and the `finished` event | `spec/fixtures/` | `test/conformance.test.ts` (all pass, five identical runs, and 61 deliberately broken engines that must each fail one) |
+| The conformance fixtures, SPEC section 8 ([docs/CONFORMANCE.md](docs/CONFORMANCE.md)): one directory each, network file, scripted inputs and replies, expected events; `budget/` pins the v0.1 budget and the `finished` event, `effect/` the `effect` option and the `unknown` outcome, `stream/` the live stream | `spec/fixtures/` | `test/conformance.test.ts` (all pass, five identical runs, and 81 deliberately broken engines that must each fail one) |
 | Rust neurons (std-only): `catalogue` (library + binary; `npm run demo:rust`) and `music`, a composed neuron with its own inner network (`npm run demo:composed`) | `rust/` | `cargo test` in each crate; `test/rust.test.ts` and `test/composed.test.ts` drive the built binaries |
 
 ## Everywhere
@@ -120,8 +121,8 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
   literals: no `${}`, no conditions, no expressions. The schema
   (`spec/network.schema.json`) is closed. **Field budget**: a network file has
   9 top-level fields (`budget` is the ninth), a neuron has `id`, `description`, one kind field and at
-  most 7 options (`threshold`, `within`, `maxHops`, `timeout`, `env`, `cwd`, `cost`; `effect` is
-  planned as the eighth), a link has `from` and `to`. Test every proposed field with one question:
+  most 8 options (`threshold`, `within`, `maxHops`, `timeout`, `env`, `cwd`, `cost`, `effect`; `effect` is
+  the eighth and the last planned), a link has `from` and `to`. Test every proposed field with one question:
   *does it say how neurons connect, or how one decides?* Only the first kind
   gets in, and only with a decision record in `docs/decisions/` that says what
   it costs against the budget. A change to the file, the protocol or the
@@ -207,6 +208,16 @@ TODO(Kevin): whether this becomes an npm package or a deployed service.
 
 - A trace ends with a `finished` event (SPEC 7.2); fixtures compare it only with `"finished": true`, as notes
   need `"notes": true`, so a fixture about something else does not change when the trace gains an event.
+- The conformance runner checks the live stream (SPEC 9.1) against the events of every run it makes, so an engine
+  change that reorders, drops or hands over its events fails every fixture. A neuron with `effect` is never cut by
+  staleness and fails as `unknown`, not `error` (SPEC 11); `effect` is refused inside a composed file.
+- **Gotcha: a serve neuron's `timeout` is also its ready deadline on restart** (`startTimer` in `engine.ts`). A test that
+  restarts one with a short `timeout` can flake on a loaded machine; keep such timeouts wide (hundreds of ms) rather than
+  loosening the assertion.
+- An `observer` function that throws used to crash the process; it now fails open (SPEC 9). That was a bug in the
+  feature-1 engine, fixed with feature 2.
+- A FIFO opened by `blocking` Node file APIs (`createWriteStream`) with no reader hangs `process.exit`; the CLI's stream sink opens
+  non-blocking for that reason (`openSink` in `cli.ts`).
 
 ## Known limits
 

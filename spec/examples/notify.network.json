@@ -1,0 +1,18 @@
+{
+  "$schema": "../network.schema.json",
+  "version": 0,
+  "name": "notify",
+  "description": "A build monitor with one side effect. notify sends a message about a build and takes 300 ms; it is an effect, so a newer update of the same build never cuts a message that is being sent, and a crash is recorded as unknown, not as a failure. The producer reconciles an unknown by injecting the build id into the source `reconcile`.",
+  "neurons": [
+    { "id": "builds", "description": "Where build updates enter. The producer tags each with the replaces key `build`.", "source": true },
+    { "id": "notify", "description": "Sends one message about a build (appends its id to the file named by SENT_LOG) and answers with the id.", "run": ["node", "neurons/notify.mjs"], "env": ["SENT_LOG"], "effect": true },
+    { "id": "archive", "description": "Keeps the answer of notify; says nothing.", "run": ["true"] },
+    { "id": "reconcile", "description": "Where the producer asks whether an unknown message was sent, with the build id in the payload.", "source": true },
+    { "id": "lookup", "description": "Reads the file named by SENT_LOG and answers whether the build id is in it.", "run": ["node", "neurons/lookup.mjs"], "env": ["SENT_LOG"] }
+  ],
+  "links": [
+    { "from": "builds", "to": "notify" },
+    { "from": "notify", "to": "archive" },
+    { "from": "reconcile", "to": "lookup" }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "A network file used as a composed neuron may not contain an effect neuron (a cut of the composed call would cancel it): check refuses the file, so the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

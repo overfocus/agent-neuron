@@ -1,0 +1,24 @@
+{
+  "fixture": 0,
+  "description": "A level 1 effect call whose input goes stale gets no cancel (no cancel note) and its slot is its own until it replies; the answer is recorded, not forwarded.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1,"replaces":"k"},
+    {"at":40,"source":"s","payload":2,"replaces":"k"}
+  ],
+  "script": {
+    "notify": {"calls":[{"when":1,"after":100,"reply":{"answer":"late"}},{"when":2,"after":10,"reply":{"answer":"fresh"}}],"starts":[{"maxInflight":2}]},
+    "log": {"calls":[{"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":1}},
+    {"type":"signal","t":40,"id":"#2","from":"s","to":["notify"],"trace":"#2","hops":0,"replaces":"k","payload":{"type":"json","data":2}},
+    {"type":"answer","t":50,"id":"#3","from":"notify","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"fresh"}},
+    {"type":"signal","t":50,"id":"#4","from":"notify","to":["log"],"trace":"#2","cause":"#3","hops":2,"replaces":"k","payload":{"type":"text","text":"fresh"}},
+    {"type":"quiet","t":50,"id":"#5","from":"log","to":["notify"],"trace":"#2","replyTo":"#4","hops":3},
+    {"type":"finished","t":50,"trace":"#2","status":"done"},
+    {"type":"answer","t":100,"id":"#6","from":"notify","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"forwarded":false,"payload":{"type":"text","text":"late"}},
+    {"type":"finished","t":100,"trace":"#1","status":"done"}
+  ]
+}

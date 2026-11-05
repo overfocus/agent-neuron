@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "A refused call never started, so nothing can have happened: an effect call the pool cannot cover is an error with code budget, not unknown.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":0,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"neuron":"notify","message":"budget: needs 3 credits, 2 left","code":"budget","payload":{"type":"json","data":1}},
+    {"type":"finished","t":0,"trace":"#1","status":"exhausted","remaining":{"credits":2}}
+  ]
+}

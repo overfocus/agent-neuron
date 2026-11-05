@@ -1,0 +1,19 @@
+{
+  "fixture": 0,
+  "description": "A level 0 effect call killed by a signal is recorded as unknown, not as an error; nothing is forwarded; its cost is committed (estimated, with the measured ms) and the trace finishes.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "notify": {"calls":[{"after":20,"reply":{"crash":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"notify","what":"reserve","units":{"credits":3}},
+    {"type":"note","t":20,"neuron":"notify","what":"commit","units":{"credits":3},"ms":20,"basis":"estimated"},
+    {"type":"unknown","t":20,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"neuron":"notify","message":"signal SIGKILL:","code":"exit","payload":{"type":"json","data":1}},
+    {"type":"finished","t":20,"trace":"#1","status":"done","remaining":{"credits":7}}
+  ]
+}

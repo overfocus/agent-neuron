@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "a-non-zero-exit-and-junk-are-unknown-too",
+  "description": "Every failure of a started effect call except the neuron's own error is unknown: a level 0 exit with status 1 and an answer that is not JSON.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "run": [
+        "neuron-notify"
+      ],
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    }
+  ]
+}

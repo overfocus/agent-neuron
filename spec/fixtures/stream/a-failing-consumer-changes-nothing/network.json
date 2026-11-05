@@ -1,0 +1,42 @@
+{
+  "version": 0,
+  "name": "a-failing-consumer-changes-nothing",
+  "description": "The consumer of the live stream throws on every event; the events of the run are exactly the same as with no consumer (SPEC 9.1: the stream fails open).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "cost": {
+        "credits": 4
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "cost": {
+        "credits": 4
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

@@ -206,10 +206,25 @@ injects, never raise it. A network with no budget works as before, bar the `fini
 npm run demo:network -- spec/examples/alerts-budget.network.json   # the storm with 12 credits an alert
 ```
 
+### Effects and the live stream
+
+A neuron that does something in the world is declared `"effect": true`. A newer input never cuts a
+call that has started (nothing is cancelled, its answer is recorded, its cost committed), it only keeps
+that answer from being forwarded (`"forwarded": false` on the `answer` event); and if the call crashes, hangs
+or times out, the trace says `unknown`, not `error`, because nobody can tell whether the effect
+happened. The engine reconciles nothing: a producer or an observer injects the id from the payload into a
+declared source (SPEC 11.4). Every event is also offered as it happens, in written order, to a library
+callback (`onEvent`) and as JSON lines (`run --stream <path>`); a consumer that fails never changes the run
+(SPEC 9.1). See [SPEC section 11](docs/SPEC.md) and [decision 0007](docs/decisions/0007-effects-and-the-live-stream.md).
+
+```sh
+npm run demo:notify   # a notification that a newer build update does not cancel, and a crash recorded as unknown
+```
+
 ### Conformance fixtures
 
 Any further engine must give the same events as this one on
-the same inputs (a Rust one was tried and stopped: [decision 0005](docs/decisions/0005-rust-engine-experiment.md)). The shared test is [`spec/fixtures/`](spec/fixtures/): 174
+the same inputs (a Rust one was tried and stopped: [decision 0005](docs/decisions/0005-rust-engine-experiment.md)). The shared test is [`spec/fixtures/`](spec/fixtures/): 193
 small fixtures, each a network file, scripted inputs, scripted neuron replies with
 latencies on a virtual clock, and the exact events expected, ids normalised. No
 process starts and no clock is read, so a run is exactly repeatable.
@@ -220,7 +235,7 @@ npm run engine -- conform spec/fixtures   # pass or fail per fixture; non-zero e
 
 The format and the command-line contract any engine implements are in
 [docs/CONFORMANCE.md](docs/CONFORMANCE.md). None is pending; the fixtures under `budget/` pin the budget
-of version 0.1 and the `finished` event.
+of version 0.1 and the `finished` event, `effect/` the effect option and the `unknown` outcome, and `stream/` the live stream.
 
 ## The first example
 

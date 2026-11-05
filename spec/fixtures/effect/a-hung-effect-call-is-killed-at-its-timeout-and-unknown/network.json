@@ -1,0 +1,31 @@
+{
+  "version": 0,
+  "name": "a-hung-effect-call-is-killed-at-its-timeout-and-unknown",
+  "description": "A level 0 effect call that hangs is cancelled and killed at its timeout, as any call is, and recorded as unknown at that instant; its cost is committed when the program is gone.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "run": [
+        "neuron-notify"
+      ],
+      "effect": true,
+      "cost": {
+        "credits": 4
+      },
+      "timeout": 50
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

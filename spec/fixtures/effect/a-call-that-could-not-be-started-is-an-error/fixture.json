@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "A level 0 effect program that cannot be started (no such executable) never ran, so nothing can have happened: an error with code exit (127), not unknown.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "notify": {"calls":[{"reply":{"spawnFails":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":0,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"neuron":"notify","message":"exit 127:","code":"exit","payload":{"type":"json","data":1}}
+  ]
+}

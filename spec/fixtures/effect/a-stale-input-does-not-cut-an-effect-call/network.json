@@ -1,0 +1,30 @@
+{
+  "version": 0,
+  "name": "a-stale-input-does-not-cut-an-effect-call",
+  "description": "A newer input with the same (sender, key) does not cut a running effect call: no drop, no cancel, the call answers at its own time, its cost is reserved and committed with the measured ms.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "run": [
+        "neuron-notify"
+      ],
+      "effect": true,
+      "cost": {
+        "credits": 2
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

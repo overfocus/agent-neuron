@@ -1,0 +1,21 @@
+{
+  "fixture": 0,
+  "description": "A level 0 effect call that hangs is cancelled and killed at its timeout, as any call is, and recorded as unknown at that instant; its cost is committed when the program is gone.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "notify": {"calls":[{"reply":{"hang":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"notify","what":"reserve","units":{"credits":4}},
+    {"type":"unknown","t":50,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"neuron":"notify","message":"timed out after 50 ms","code":"timeout","payload":{"type":"json","data":1}},
+    {"type":"note","t":50,"neuron":"notify","what":"cancel"},
+    {"type":"note","t":50,"neuron":"notify","what":"term"},
+    {"type":"note","t":50,"neuron":"notify","what":"commit","units":{"credits":4},"ms":50,"basis":"estimated"},
+    {"type":"finished","t":50,"trace":"#1","status":"done","remaining":{"credits":6}}
+  ]
+}

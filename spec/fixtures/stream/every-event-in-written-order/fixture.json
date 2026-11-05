@@ -1,0 +1,36 @@
+{
+  "fixture": 0,
+  "description": "The stream carries every event of the trace, notes and finished included, once each in the order they are written, through a cut, a refusal and a failure; the runner compares it with the events of every fixture (CONFORMANCE 3).",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1,"replaces":"k"},
+    {"at":30,"source":"s","payload":2,"replaces":"k"},
+    {"at":200,"source":"s","payload":3}
+  ],
+  "script": {
+    "a": {"calls":[{"after":100,"reply":{"answer":"old"}},{"after":10,"reply":{"answer":"fresh"}},{"after":10,"reply":{"error":"boom"}}]},
+    "b": {"calls":[{"after":5,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"a","what":"reserve","units":{"credits":6}},
+    {"type":"signal","t":30,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"replaces":"k","payload":{"type":"json","data":2}},
+    {"type":"drop","t":30,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","reason":"replaced","phase":"running","payload":{"type":"json","data":1}},
+    {"type":"note","t":30,"neuron":"a","what":"cancel"},
+    {"type":"note","t":30,"neuron":"a","what":"term"},
+    {"type":"note","t":30,"neuron":"a","what":"commit","units":{"credits":6},"ms":30,"basis":"estimated"},
+    {"type":"finished","t":30,"trace":"#1","status":"done","remaining":{"credits":4}},
+    {"type":"note","t":30,"neuron":"a","what":"reserve","units":{"credits":6}},
+    {"type":"note","t":40,"neuron":"a","what":"commit","units":{"credits":6},"ms":10,"basis":"estimated"},
+    {"type":"answer","t":40,"id":"#3","from":"a","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"fresh"}},
+    {"type":"signal","t":40,"id":"#4","from":"a","to":["b"],"trace":"#2","cause":"#3","hops":2,"replaces":"k","payload":{"type":"text","text":"fresh"}},
+    {"type":"error","t":40,"id":"#4","from":"a","to":["b"],"trace":"#2","cause":"#3","hops":2,"neuron":"b","message":"budget: needs 6 credits, 4 left","code":"budget","payload":{"type":"text","text":"fresh"}},
+    {"type":"finished","t":40,"trace":"#2","status":"exhausted","remaining":{"credits":4}},
+    {"type":"signal","t":200,"id":"#5","from":"s","to":["a"],"trace":"#5","hops":0,"payload":{"type":"json","data":3}},
+    {"type":"note","t":200,"neuron":"a","what":"reserve","units":{"credits":6}},
+    {"type":"note","t":210,"neuron":"a","what":"commit","units":{"credits":6},"ms":10,"basis":"estimated"},
+    {"type":"error","t":210,"id":"#5","from":"s","to":["a"],"trace":"#5","hops":0,"neuron":"a","message":"exit 1:","code":"exit","payload":{"type":"json","data":3}},
+    {"type":"finished","t":210,"trace":"#5","status":"done","remaining":{"credits":4}}
+  ]
+}

@@ -29,6 +29,7 @@ One JSON object. An engine MUST fail a fixture with an unknown top-level field.
 | `network` | path | `network.json` | The network file, relative to the fixture directory. |
 | `notes` | boolean | `false` | Compare `note` events (3). |
 | `finished` | boolean | `false` | Compare `finished` events (3). |
+| `streamFails` | boolean | `false` | The consumer of the live stream throws on every event (3, item 6). |
 | `pending` | string | none | If present, the fixture is not run; the string is the reason (7). |
 | `pingEvery` | integer ms | `10000` | The idle ping interval the engine uses for level 1 neurons in this run (4.4). |
 | `refuses` | boolean | `false` | The engine must refuse to start (4.3); `expect` is then `[]`. |
@@ -65,11 +66,18 @@ The engine runs the network with the `inputs` and the script and produces its ev
    each event equal to its expected event in every field, `t` included, the order of keys
    irrelevant. A `via` field that is absent equals `"emit"`. A field the expected event does not
    have MUST NOT be in the actual one.
-4. **Messages.** For an `error` event, `message` is compared as a prefix: the actual message
+4. **Messages.** For an `error` or `unknown` event, `message` is compared as a prefix: the actual message
    must start with the expected one. The expected messages hold only what SPEC 6.1 fixes
    (`exit 1:`, `process failed`, `timed out after 100 ms`, a `neuron`'s own text, ...); what
    follows (stderr, line previews) is the engine's.
 5. **Payloads.** As SPEC 7.2. Payloads over 2000 characters are not used in fixtures.
+
+6. **The live stream.** The runner gives the engine a consumer of the live stream (SPEC 9.1) in every run, with
+   and without an observer. The consumer keeps a copy of each event it is given, then alters the event it
+   was given (so an engine that hands over its own events fails) and, if `streamFails` is true, throws. The
+   run fails if the copies are not the engine's events, event for event in the same order, notes and `finished`
+   included whatever `notes` and `finished` say: those flags choose what `expect` lists, not what the stream
+   carries. With `streamFails` the events must still equal `expect`: the stream fails open.
 
 A fixture that fails reports the first difference.
 
@@ -178,6 +186,7 @@ At level 0 (a program that reads stdin once):
 | `{"crash": "SIGUSR1"}` | is killed by the named signal (any signal name) |
 | `{"hang": true}` | never ends by itself |
 | `{"overlong": true}` | prints more than 1 MiB |
+| `{"spawnFails": true}` | cannot be started (no such executable): the engine's start fails at once |
 
 At level 1 (a neuron on the protocol of SPEC 3.2) the neuron writes, at `after`:
 
@@ -227,11 +236,12 @@ grace, or at once for level 0 output over 1 MiB), each after the event that repo
 
 `observer` is a list of rules. A rule is `{"when": {...}, "inject": {"after": ms, "source": id,
 "payload": P, "replaces"?: K}}`. Each rule fires once, on the first event (of the outer
-network) with an `id`, that is a signal, answer, quiet, drop or error (notes are not shown to an
-observer), whose fields include every field of `when` with an equal value; it
+network) that is a signal, answer, quiet, drop, error or unknown (events with an `id`) or a `finished` event (notes
+are not shown to an observer), whose fields include every field of `when` with an equal value; it
 then injects `payload` into `source` `after` ms later (SPEC 9: asynchronous, into a `source`
 only). The engine records the injection as a note `{"type":"note","t":T,"neuron":SOURCE,"what":"inject","trigger":ID}`
-(`ID` the `id` of the event that fired the rule) just before the injected signal. An observer
+(`ID` the `id` of the event that fired the rule, or, for a `finished` event, which has none, its `trace`) just before the injected signal.
+A rule on `finished` can match on `type`, `status` and `remaining` (the trace is not known to the fixture). An observer
 sees the outer network only. An empty list is an observer that only reads.
 
 SPEC 8.5 is checked by running twice, and which list belongs to which run is fixed:
@@ -283,7 +293,7 @@ The reference engine: `npm run engine -- conform spec/fixtures` (about 1 s with 
 
 `http` and `human` neurons; real processes, bytes and framing (the junk and over-long outcomes
 are scripted, not parsed); payloads over 2000 characters; `check` (SPEC 2.7); the fail-open
-behaviour of a slow or crashed observer; the file formats of `trace` output. The 6.1 row for
+behaviour of a *slow* stream consumer or observer (one that throws is `streamFails`), or a stream written to a file or pipe (the engine's own tests); the file formats of `trace` output. The 6.1 row for
 `http` has no fixture until an engine runs `http` neurons.
 
 Not covered, on purpose or for lack of a model:

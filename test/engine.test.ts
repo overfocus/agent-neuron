@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { closeSync, constants, existsSync, mkdtempSync, openSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -98,7 +98,7 @@ describe('the alert storm with a budget (alerts-budget.network.json)', () => {
 
 // Small networks of real processes (sh, cat) for the rules the storm does not pin down.
 type Spec = Record<string, unknown> & { id: string };
-function run(neurons: Spec[], links: [string, string][], inputs: Injection[], extra: Record<string, unknown> = {}, options: { pingEvery?: number } = {}): Promise<EngineTrace> {
+function run(neurons: Spec[], links: [string, string][], inputs: Injection[], extra: Record<string, unknown> = {}, options: Parameters<typeof runNetwork>[2] = {}): Promise<EngineTrace> {
   const file = join(mkdtempSync(join(tmpdir(), 'engine-')), 'n.network.json');
   const all = [{ id: 's', source: true }, ...neurons];
   writeFileSync(file, JSON.stringify({ version: 0, neurons: all, links: links.map(([from, to]) => ({ from, to })), ...extra }));
@@ -342,8 +342,8 @@ describe('level 1 serve neurons', () => {
   });
 
   it('times out a hung call, records cancel and term, kills what ignores SIGTERM, restarts, and carries on', async () => {
-    const t = await run([srv('x', made(), ['stubborn'], { timeout: 150 })], [['s', 'x']], [inject(0, { hang: 1 }), inject(500, 'again')]);
-    expect(events(t, 'error').map((e) => [e.code, e.message])).toEqual([['timeout', 'timed out after 150 ms']]);
+    const t = await run([srv('x', made(), ['stubborn'], { timeout: 800 })], [['s', 'x']], [inject(0, { hang: 1 }), inject(1800, 'again')]); // the timeout is also the ready deadline of the restarted process (engine.ts startTimer): keep it wide
+    expect(events(t, 'error').map((e) => [e.code, e.message])).toEqual([['timeout', 'timed out after 800 ms']]);
     expect(notes(t)).toEqual(['cancel', 'term', 'restart', 'kill']);
     expect(events(t, 'answer').map((e) => data(e))).toEqual(['again']);
   }, 15_000);
@@ -481,4 +481,112 @@ describe('budgets, with real processes (docs/SPEC.md 3.5)', () => {
     expect(t.events.at(-1)).not.toHaveProperty('remaining');
     expect(t).not.toHaveProperty('budget');
   });
+});
+
+describe('the notify demo (notify.network.json): an effect, and reconciling an unknown by injection', () => {
+  it('sends every message, forwards only the fresh answer, and reconciles the crash through the declared source', async () => {
+    const sent = join(mkdtempSync(join(tmpdir(), 'engine-')), 'sent');
+    process.env.SENT_LOG = sent;
+    const observer = (e: { type: string; payload?: unknown }) => (e.type === 'unknown' ? [{ at: 50, source: 'reconcile', payload: { id: (e.payload as { data: { id: string } }).data.id } }] : []);
+    const t = await runNetwork(join(examples, 'notify.network.json'), readInjections(join(examples, 'notify.inputs.jsonl')), { observer });
+    delete process.env.SENT_LOG;
+    expect(readFileSync(sent, 'utf8').trim().split('\n')).toEqual(['b-1', 'b-2', 'b-3']); // the stale input cut nothing
+    expect(events(t, 'drop')).toEqual([]);
+    expect(events(t, 'answer').filter((e) => e.from === 'notify').map((e) => [(e.payload as { data: { sent: string } }).data.sent, e.forwarded])).toEqual([['b-1', false], ['b-2', undefined]]);
+    expect(events(t, 'signal').filter((e) => e.from === 'notify').map((e) => (e.payload as { data: { sent: string } }).data.sent)).toEqual(['b-2']);
+    expect(events(t, 'unknown')).toEqual([expect.objectContaining({ neuron: 'notify', code: 'exit' })]);
+    expect(events(t, 'error')).toEqual([]);
+    expect(events(t, 'answer').find((e) => e.from === 'lookup')!.payload).toEqual({ type: 'json', data: { id: 'b-3', sent: true } });
+    expect(events(t, 'finished')).toHaveLength(4); // three builds and the reconciliation
+  }, 15_000);
+});
+
+describe('effects and the live stream, with real processes (docs/SPEC.md 9.1, 11)', () => {
+  it('lets a stale input leave an effect call running to its answer, recorded and not forwarded; a crash is unknown, not an error', async () => {
+    const t = await run(
+      [sh('notify', 'sleep 0.4; echo \\"sent\\"', { effect: true }), echo('log'), sh('crash', 'kill -9 $$', { effect: true })],
+      [['s', 'notify'], ['notify', 'log'], ['s', 'crash']],
+      [inject(0, 1, 'k'), inject(150, 2, 'k')],
+    );
+    expect(events(t, 'drop')).toEqual([]);
+    expect(t.events.filter((e) => e.type === 'note')).toEqual([]); // no cancel, no term
+    expect(events(t, 'answer').filter((e) => e.from === 'notify').map((e) => e.forwarded)).toEqual([false, undefined]); // the first is stale, the second is not
+    expect(events(t, 'answer').filter((e) => e.from === 'log')).toHaveLength(1); // only the fresh answer was forwarded
+    expect(events(t, 'unknown').map((e) => [e.neuron, e.code, e.message])).toEqual([['crash', 'exit', expect.stringMatching(/^signal SIGKILL/)], ['crash', 'exit', expect.stringMatching(/^signal SIGKILL/)]]);
+    expect(events(t, 'error')).toEqual([]);
+  }, 10_000);
+
+  it('offers the stream event for event, in written order, whatever the consumer does', async () => {
+    const net = [sh('a', 'sleep 0.3; echo 1', { effect: true }), sh('b', 'echo 2'), sh('hang', 'sleep 5', { timeout: 300, effect: true }), sh('bad', 'exit 3', { effect: true })];
+    const links: [string, string][] = [['s', 'a'], ['a', 'b'], ['s', 'hang'], ['s', 'bad']];
+    const streamed: unknown[] = [];
+    const t = await run(net, links, [inject(0, 1, 'k'), inject(150, 2, 'k')], {}, { onEvent: (e) => (streamed.push(structuredClone(e)), (e.type = 'scribbled')) });
+    expect(streamed).toEqual(t.events);
+    expect(t.events.some((e) => e.type === 'unknown' && e.code === 'timeout')).toBe(true);
+    expect(t.events.at(-1)!.type).toBe('finished');
+    for (const consumer of [() => { throw new Error('no'); }, () => Promise.reject(new Error('no'))]) {
+      const again = await run(net, links, [inject(0, 1, 'k'), inject(150, 2, 'k')], {}, { onEvent: consumer });
+      expect(again.events.map((e) => [e.type, e.neuron, e.code, e.forwarded])).toEqual(t.events.map((e) => [e.type, e.neuron, e.code, e.forwarded]));
+    }
+  }, 20_000);
+
+  it('survives an observer that throws: the run and its events are the same as with none', async () => {
+    const net = [sh('a', 'echo 1'), sh('b', 'echo 2')];
+    const links: [string, string][] = [['s', 'a'], ['a', 'b']];
+    const plain = await run(net, links, [inject(0, 1)]);
+    const thrown = await run(net, links, [inject(0, 1)], {}, { observer: () => { throw new Error('observer bug'); } });
+    expect(thrown.events.map((e) => [e.type, e.neuron])).toEqual(plain.events.map((e) => [e.type, e.neuron]));
+  });
+
+  it('records a program that cannot be started as an error even for an effect (it never ran)', async () => {
+    const t = await run([{ id: 'gone', run: ['no-such-program-here'], effect: true }], [['s', 'gone']], [inject(0, 1)]);
+    expect(events(t, 'unknown')).toEqual([]);
+    expect(events(t, 'error')).toEqual([expect.objectContaining({ neuron: 'gone', code: 'exit', message: expect.stringMatching(/^exit 127:/) })]);
+  });
+
+  const cli = fileURLToPath(new URL('../dist/engine/cli.js', import.meta.url));
+  it('writes the stream as JSON lines while the run is still going (--stream), the same events as --trace', async () => {
+    const newest = Math.max(...['cli', 'engine', 'check', 'conform'].map((f) => statSync(fileURLToPath(new URL(`../src/engine/${f}.ts`, import.meta.url))).mtimeMs));
+    if (!existsSync(cli) || statSync(cli).mtimeMs < newest) expect(spawnSync('npm', ['run', '-s', 'build'], { encoding: 'utf8' }).status).toBe(0); // the CLI is built code: build only when it is missing or older than its sources
+    const dir = mkdtempSync(join(tmpdir(), 'engine-'));
+    const [net, inputs, stream, trace] = ['n.network.json', 'in.jsonl', 'stream.jsonl', 'trace.json'].map((f) => join(dir, f));
+    writeFileSync(net!, JSON.stringify({ version: 0, neurons: [{ id: 's', source: true }, sh('slow', 'sleep 1; echo 1', { effect: true })], links: [{ from: 's', to: 'slow' }] }));
+    writeFileSync(inputs!, '{"at":0,"source":"s","payload":1}\n');
+    const child = spawn(process.execPath, [cli, 'run', net!, '--inputs', inputs!, '--stream', stream!, '--trace', trace!], { stdio: 'ignore' });
+    const done = new Promise<number | null>((r) => child.on('exit', r));
+    let early = '';
+    for (let i = 0; i < 40 && !early.includes('"type":"signal"'); i++) {
+      await new Promise((r) => setTimeout(r, 25));
+      early = existsSync(stream!) ? readFileSync(stream!, 'utf8') : '';
+    }
+    expect(early).toContain('"type":"signal"'); // the first event is out before the run is over
+    expect(child.exitCode).toBeNull();
+    expect(await done).toBe(0);
+    const lines = readFileSync(stream!, 'utf8').trimEnd().split('\n').map((l) => JSON.parse(l) as unknown);
+    expect(lines).toEqual((JSON.parse(readFileSync(trace!, 'utf8')) as EngineTrace).events);
+  }, 30_000);
+
+  // A FIFO whose reader is absent or never reads must not hold the CLI: its trace and results are written first, then the stream is cut.
+  const fifoRun = async (reader: boolean) => {
+    const dir = mkdtempSync(join(tmpdir(), 'engine-'));
+    const [net, inputs, fifo, trace] = ['n.network.json', 'in.jsonl', 'stream.fifo', 'trace.json'].map((f) => join(dir, f));
+    expect(spawnSync('mkfifo', [fifo!]).status).toBe(0);
+    writeFileSync(net!, JSON.stringify({ version: 0, neurons: [{ id: 's', source: true }, echo('a')], links: [{ from: 's', to: 'a' }] }));
+    writeFileSync(inputs!, Array.from({ length: 150 }, (_, i) => JSON.stringify({ at: 0, source: 's', payload: `${i} ${'x'.repeat(1500)}` })).join('\n') + '\n'); // far more than a pipe holds
+    const held = reader ? openSync(fifo!, constants.O_RDONLY | constants.O_NONBLOCK) : undefined; // the read end is open and never read
+    const child = spawn(process.execPath, [cli, 'run', net!, '--inputs', inputs!, '--stream', fifo!, '--trace', trace!], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let err = '';
+    child.stderr.on('data', (d: Buffer) => (err += d.toString()));
+    const code = await new Promise<number | null>((r) => child.on('exit', r));
+    if (held !== undefined) closeSync(held);
+    expect(code).toBe(0);
+    expect((JSON.parse(readFileSync(trace!, 'utf8')) as EngineTrace).events.filter((e) => e.type === 'answer')).toHaveLength(150);
+    return err;
+  };
+  it('writes its trace and exits when nobody has the --stream pipe open', async () => {
+    expect(await fifoRun(false)).toContain('--stream');
+  }, 30_000);
+  it('writes its trace and exits when the --stream reader never reads, and says the stream was cut', async () => {
+    expect(await fifoRun(true)).toMatch(/--stream .*cut after 1000 ms/);
+  }, 30_000);
 });
