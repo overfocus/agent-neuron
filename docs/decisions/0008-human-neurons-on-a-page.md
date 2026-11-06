@@ -1,10 +1,11 @@
 # Decision record 0008: `human` neurons on a page (2026-11-05)
 
-**Status: decided; steps 1 and 2 built (2026-11-05).** Kevin answered the seven questions below on 2026-11-05, each as
+**Status: decided; steps 1 and 2 built, step 3 built and tried on two passages (2026-11-05).** Kevin answered the seven questions below on 2026-11-05, each as
 suggested. Step 1 of the order of work is in: `src/engine/page.ts`, the `desk` option of `runNetwork`, the day-long
 ceiling, SPEC Appendix D and `npm run demo:human`. Step 2 is in too: the scripted person (CONFORMANCE 5.5,
-`VirtualHost.desk()`), 8 fixtures in `spec/fixtures/human/`, both engines at 201 of 201, and 3 more mutants. Steps 3
-and 4 are not started.
+`VirtualHost.desk()`), 8 fixtures in `spec/fixtures/human/`, both engines at 201 of 201, and 3 more mutants. Step 3's network is
+built in the kit and has run on two real passages; the side-by-side run on a whole real proposal waits on Kevin ("What
+step 3 found", below). Step 4 is not started.
 
 ## The problem
 
@@ -137,3 +138,26 @@ One normative change to the specification, decision 7's ceiling for `human`, and
 page server and the adapter that feeds it (by the voice review's size, about 250 lines with the page), and the end of
 the refusal of `human`. Conformance gains a scripted person and fixtures for the five outcomes above. A network file
 without a `human` neuron behaves as it did, and so does the stdin adapter.
+
+## What step 3 found (2026-11-05)
+
+The voice network is in the kit (`plugins/loop/scripts/voice-net/`, `voice net`): the sketch above, with `retry` as a
+second threshold-2 join that sends a failing round-1 rewrite back to the writer once (the writer's `maxHops` refuses a
+third round), and the writer and both reviewers wrapping the kit's existing agents, run headless one passage at a time.
+On two passages of a real draft it worked end to end: each reached the page with its checks as notes. Four findings.
+
+1. **A person's answer does not say which question it answers.** SPEC 3.4 makes the reply a text payload, so the
+   neuron after a `human` neuron gets the text alone. In the sketch, `apply` would not know which passage to write.
+   The kit's network ends at the person instead, and its host keeps each question with its answer through the desk
+   (the library's `desk` option), writing them into the proposal that the existing `voice apply` applies. A join
+   (`threshold: 2` on the question and the answer) would keep it inside the network, but `within` is capped at an hour,
+   shorter than a person may take. Whether a `human` reply should carry its question (a field beside `text`), or
+   `within` should follow `human`'s day, is a decision for the specification, not taken here.
+2. **The page drew nothing.** A name used before its declaration in the page script (step 1, from a late change to
+   the counts) threw on every poll, and the poll loop swallowed it: the questions were on the API and no card ever
+   showed. Fixed, and `test/page.test.ts` now draws the page in headless Chrome, so the fix is tested.
+3. **The page needed to say what each question is about.** Appendix D gains `title` and `notes` beside the pair:
+   shown, never sent.
+4. **Cost.** One agent call per passage per step, about 1.2 dollars a passage for one round (the CLI's figure), where
+   the skill makes one call per step for the whole file. A file of 37 passages is roughly 45 to 55 dollars with
+   retries. The page's gain (answering each passage as it clears) is paid for there.
