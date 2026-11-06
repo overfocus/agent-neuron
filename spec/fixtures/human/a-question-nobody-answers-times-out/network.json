@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "a-question-nobody-answers-times-out",
+  "description": "A question nobody answers ends at the human neuron's timeout, as any call (SPEC 3.4, 6.1).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "person",
+      "human": true,
+      "timeout": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "person"
+    }
+  ]
+}

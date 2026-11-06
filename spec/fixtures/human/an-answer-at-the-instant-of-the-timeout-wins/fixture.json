@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "A person's answer due at the instant of the timeout is processed first (SPEC 6.2 rule 7, CONFORMANCE 4.1).",
+  "inputs": [
+    {"at":0,"source":"s","payload":"x"}
+  ],
+  "script": {
+    "person": {"calls":[{"after":100,"reply":{"answer":"just in time"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["person"],"trace":"#1","hops":0,"payload":{"type":"text","text":"x"}},
+    {"type":"answer","t":100,"id":"#2","from":"person","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"just in time"}}
+  ]
+}

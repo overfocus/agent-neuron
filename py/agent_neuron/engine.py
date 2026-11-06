@@ -685,7 +685,7 @@ class Run:
                 yield n.kind
                 if n.inner:
                     yield from kinds(n.inner)
-        bad = sorted({k for k in kinds(self.root) if k in ("http", "human")})
+        bad = sorted({k for k in kinds(self.root) if k == "http"})
         if bad:
             raise Refused(f"{bad[0]} neurons are not run by this engine")
         servers = list(self.root.servers())
@@ -897,6 +897,8 @@ class Run:
             self.start_l0(call)
         elif n.kind == "network":
             self.start_composed(call)
+        elif n.kind == "human":
+            self.start_human(call)
         else:
             raise Refused(f"{n.kind} neurons are not run by this engine")
 
@@ -1015,6 +1017,9 @@ class Run:
         elif n.kind == "network":
             self.close_ctx(call.inner_ctx)
             self.program_over(call)
+        elif n.kind == "human":
+            s.cancel(call.reply_item)  # the question is withdrawn: its pending reply never comes
+            self.program_over(call)
 
     def timeout(self, call):
         n = call.neuron
@@ -1024,6 +1029,27 @@ class Run:
             return
         self.fail(call, "timeout", f"timed out after {n.timeout} ms", commit=False)
         self.cancel_program(call)
+
+    # --- people (CONFORMANCE 5.5)
+
+    def start_human(self, call):
+        """The scripted person: the first matching call entry; its reply `after` ms later, set before the timeout."""
+        n, s = call.neuron, self.sched
+        entry = self.pick(n, self.input_value(call))
+        reply = entry.get("reply", {})
+        if not (reply.get("hang") is True or reply.get("quiet") is True or isinstance(reply.get("answer"), str)):
+            raise Harness(f'{n.path}: a person replies {{"answer": text}}, {{"quiet": true}} or {{"hang": true}}, not {json.dumps(reply)[:100]}')
+        call.reply_item = None if reply.get("hang") else s.at(s.now + entry.get("after", 0), lambda: self.human_outcome(call, reply))
+        call.timeout_item = s.at(s.now + n.timeout, lambda: self.timeout(call))
+
+    def human_outcome(self, call, reply):
+        if call.cancelled or call.state != "running":
+            return
+        self.sched.cancel(call.timeout_item)
+        if reply.get("quiet"):
+            self.do_quiet(call)
+        else:
+            self.do_answer(call, reply["answer"])
 
     # --- level 0
 

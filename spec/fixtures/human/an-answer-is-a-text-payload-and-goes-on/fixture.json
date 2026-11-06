@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "A person's answer (CONFORMANCE 5.5) is the human neuron's reply, a text payload, forwarded along its links (SPEC 3.4).",
+  "inputs": [
+    {"at":0,"source":"s","payload":{"draft":"a","proposal":"b"}}
+  ],
+  "script": {
+    "person": {"calls":[{"after":30,"reply":{"answer":"b"}}]},
+    "log": {"calls":[{"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["person"],"trace":"#1","hops":0,"payload":{"type":"json","data":{"draft":"a","proposal":"b"}}},
+    {"type":"answer","t":30,"id":"#2","from":"person","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"b"}},
+    {"type":"signal","t":30,"id":"#3","from":"person","to":["log"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"b"}},
+    {"type":"quiet","t":30,"id":"#4","from":"log","to":["person"],"trace":"#1","replyTo":"#3","hops":3}
+  ]
+}

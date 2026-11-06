@@ -80,8 +80,9 @@ def _neuron(n, i):
     if "threshold" in n and (not _isint(n["threshold"]) or n["threshold"] < 1):
         raise CheckError(f"neurons[{i}]: threshold must be an integer >= 1")
     for f in ("within", "timeout"):
-        if f in n and (not _isint(n[f]) or not 1 <= n[f] <= 3600000):
-            raise CheckError(f"neurons[{i}]: {f} must be an integer from 1 to 3600000")
+        top = 86400000 if f == "timeout" and "human" in n else 3600000  # a person may take a day (SPEC 2.4)
+        if f in n and (not _isint(n[f]) or not 1 <= n[f] <= top):
+            raise CheckError(f"neurons[{i}]: {f} must be an integer from 1 to {top}")
     if "maxHops" in n and (not _isint(n["maxHops"]) or n["maxHops"] < 0):
         raise CheckError(f"neurons[{i}]: maxHops must be an integer >= 0")
     if "env" in n:

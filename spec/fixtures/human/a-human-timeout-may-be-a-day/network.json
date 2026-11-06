@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "a-human-timeout-may-be-a-day",
+  "description": "A human neuron's timeout may be a day (SPEC 2.4, decision 0008); the question ends there.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "person",
+      "human": true,
+      "timeout": 86400000
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "person"
+    }
+  ]
+}

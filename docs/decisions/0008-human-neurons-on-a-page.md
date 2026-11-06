@@ -1,8 +1,10 @@
 # Decision record 0008: `human` neurons on a page (2026-11-05)
 
-**Status: decided; step 1 built (2026-11-05).** Kevin answered the seven questions below on 2026-11-05, each as
+**Status: decided; steps 1 and 2 built (2026-11-05).** Kevin answered the seven questions below on 2026-11-05, each as
 suggested. Step 1 of the order of work is in: `src/engine/page.ts`, the `desk` option of `runNetwork`, the day-long
-ceiling, SPEC Appendix D and `npm run demo:human`. Steps 2 to 4 are not started.
+ceiling, SPEC Appendix D and `npm run demo:human`. Step 2 is in too: the scripted person (CONFORMANCE 5.5,
+`VirtualHost.desk()`), 8 fixtures in `spec/fixtures/human/`, both engines at 201 of 201, and 3 more mutants. Steps 3
+and 4 are not started.
 
 ## The problem
 

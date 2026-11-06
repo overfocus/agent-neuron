@@ -1,0 +1,31 @@
+{
+  "version": 0,
+  "name": "an-empty-answer-is-quiet",
+  "description": "A person who answers with nothing (No) is quiet: nothing goes on (SPEC 3.4).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "person",
+      "human": true
+    },
+    {
+      "id": "log",
+      "run": [
+        "neuron-log"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "person"
+    },
+    {
+      "from": "person",
+      "to": "log"
+    }
+  ]
+}
