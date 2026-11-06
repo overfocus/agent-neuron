@@ -78,6 +78,9 @@ describe('the conformance fixtures (docs/CONFORMANCE.md)', () => {
 // Each mutant is the engine with one deliberate bug. The fixtures must catch every one: that is what shows they bite.
 const mutations: { name: string; edits: [from: string, to: string, count?: number][] }[] = [
   { name: 'a forward without cause', edits: [['cause: reply.id, ', '']] },
+  { name: 'a person\'s empty answer forwarded as an answer, not quiet (SPEC 3.4)', edits: [["typeof text === 'string' && text !== '' ? { answer: text } : { quiet: true }", "typeof text === 'string' ? { answer: text } : { quiet: true }"]] },
+  { name: 'a withdrawn question that never ends its call', edits: [["      this.desk!.withdraw(id);\n      end({ quiet: true });", "      this.desk!.withdraw(id);"]] },
+  { name: 'a human call\'s timeout set before the person is asked (the answer loses the tie, SPEC 6.2 rule 7)', edits: [['else if (node.spec.human) this.person(call, node, value, done);', 'else if (node.spec.human) { arm(); this.person(call, node, value, done); }']] },
   { name: 'drops ordered before the signal', edits: [[
     "    this.report(scope, { type: 'signal', ...this.fields(sig), ...withKey(sig.replaces), payload: this.payload(sig.payload) });\n    if (sig.replaces !== undefined) this.makeStale(`${scope.id}\\0${sig.from}\\0${sig.replaces}`);\n",
     "    if (sig.replaces !== undefined) this.makeStale(`${scope.id}\\0${sig.from}\\0${sig.replaces}`);\n    this.report(scope, { type: 'signal', ...this.fields(sig), ...withKey(sig.replaces), payload: this.payload(sig.payload) });\n"]] },

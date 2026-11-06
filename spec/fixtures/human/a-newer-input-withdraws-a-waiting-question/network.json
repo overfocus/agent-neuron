@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "a-newer-input-withdraws-a-waiting-question",
+  "description": "A newer input with the same key cuts a question still waiting for its person (SPEC 5.4); only the newer one is answered.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "person",
+      "human": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "person"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "an-answer-at-the-instant-of-the-timeout-wins",
+  "description": "A person's answer due at the instant of the timeout is processed first (SPEC 6.2 rule 7, CONFORMANCE 4.1).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "person",
+      "human": true,
+      "timeout": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "person"
+    }
+  ]
+}

@@ -846,7 +846,7 @@ export function readInjections(file: string): Injection[] {
   });
 }
 
-const VIRTUAL_LIMIT = 3_600_000; // a virtual run that is still going after an hour of virtual time is stuck (idle pings never stop)
+const VIRTUAL_LIMIT = 2 * 86_400_000; // a virtual run still going after two days of virtual time is stuck (idle pings never stop); a human timeout may be a day
 let active = 0; // runs in progress
 /** Waits for `p`; on a virtual host it also runs the clock, one wake-up at a time, letting promises settle in between. */
 async function drive<T>(p: Promise<T>): Promise<T> {
@@ -857,7 +857,7 @@ async function drive<T>(p: Promise<T>): Promise<T> {
     await new Promise((r) => setImmediate(r));
     if (settled) return p;
     if (!host.step()) throw Object.assign(new Error('virtual run stalled: nothing is due and the run is not over'), { harness: true });
-    if (host.now() > VIRTUAL_LIMIT) throw Object.assign(new Error('virtual run did not end within an hour of virtual time'), { harness: true });
+    if (host.now() > VIRTUAL_LIMIT) throw Object.assign(new Error('virtual run did not end within two days of virtual time'), { harness: true });
   }
 }
 

@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "a-human-effect-that-times-out-is-unknown",
+  "description": "A human effect call that times out is unknown, not an error: the person may have acted (SPEC 11.3).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "person",
+      "human": true,
+      "timeout": 100,
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "person"
+    }
+  ]
+}

@@ -3,7 +3,7 @@
 // fake child process whose output arrives on the clock, so the engine code above it is the code that runs for real.
 import { EventEmitter } from 'node:events';
 import { isDeepStrictEqual } from 'node:util';
-import type { Host } from './engine.js';
+import type { Desk, Host } from './engine.js';
 
 type Timer = { due: number; seq: number; fn: () => void; cancelled: boolean };
 type Reply = Record<string, unknown>;
@@ -61,6 +61,29 @@ export class VirtualHost implements Host {
   };
   killGroup = (pid: number | undefined, signal: NodeJS.Signals) => this.procs.get(pid!)?.signal(signal);
   alive = (pid: number | undefined) => { const p = this.procs.get(pid!); return !!p && (p.up || p.member); };
+
+  /**
+   * The scripted person (CONFORMANCE 5.5): the desk a virtual run gives the engine for `human` neurons. Each question takes the
+   * first unused `calls` entry of its instance path whose `when` equals the input, like a program; the reply comes `after` ms
+   * later on the virtual clock, set when the question is asked, so it goes before the call's timeout at the same instant.
+   * `{"answer": "text"}` replies with the text, `{"quiet": true}` with nothing (No), `{"hang": true}` never. A withdrawn
+   * question's pending reply is cancelled.
+   */
+  desk(): Desk {
+    const due = new Map<string, NodeJS.Timeout>();
+    return {
+      ask: (q, answer) => {
+        const e = this.take(q.path, q.payload), r = e.reply;
+        if (r.hang === true) return;
+        if (r.quiet !== true && typeof r.answer !== 'string') throw Object.assign(new Error(`a person's reply for "${q.path}" is {"answer": text}, {"quiet": true} or {"hang": true}, not ${JSON.stringify(r)}`), { harness: true });
+        due.set(q.id, this.setTimeout(() => (due.delete(q.id), answer(r.quiet === true ? '' : (r.answer as string))), e.after ?? 0));
+      },
+      withdraw: (id) => {
+        this.clearTimeout(due.get(id));
+        due.delete(id);
+      },
+    };
+  }
 
   /** The first unused entry whose `when` equals the program's input (none: matches anything). A miss is the fixture's fault. */
   take(path: string, input: unknown): Entry {

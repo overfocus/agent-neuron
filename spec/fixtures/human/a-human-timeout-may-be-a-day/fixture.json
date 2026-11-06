@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "A human neuron's timeout may be a day (SPEC 2.4, decision 0008); the question ends there.",
+  "inputs": [
+    {"at":0,"source":"s","payload":"x"}
+  ],
+  "script": {
+    "person": {"calls":[{"reply":{"hang":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["person"],"trace":"#1","hops":0,"payload":{"type":"text","text":"x"}},
+    {"type":"error","t":86400000,"id":"#1","from":"s","to":["person"],"trace":"#1","hops":0,"neuron":"person","message":"timed out after 86400000 ms","code":"timeout","payload":{"type":"text","text":"x"}}
+  ]
+}

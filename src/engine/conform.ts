@@ -51,8 +51,9 @@ const observer = (rules: Rule[]): Observer => {
  *  the consumer here keeps a copy, then scribbles on what it was given and, with `streamFails`, throws, so an engine that lets the consumer touch the run fails. */
 export async function events(engine: Engine, dir: string, f: Fixture, withObserver: boolean): Promise<Event[]> {
   const streamed: Event[] = [];
+  const host = new VirtualHost(f.script ?? {});
   const trace = await engine(join(dir, f.network ?? 'network.json'), f.inputs, {
-    host: new VirtualHost(f.script ?? {}), pingEvery: f.pingEvery ?? 10_000, ...(withObserver && f.observer && { observer: observer(f.observer) }),
+    host, desk: host.desk(), pingEvery: f.pingEvery ?? 10_000, ...(withObserver && f.observer && { observer: observer(f.observer) }),
     onEvent: (e) => {
       streamed.push(structuredClone(e));
       e.type = 'scribbled';

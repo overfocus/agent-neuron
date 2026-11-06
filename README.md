@@ -16,7 +16,7 @@ The idea as a protocol, for agent and framework developers: [docs/WHITEPAPER.md]
 | Network files: a JSON format, a closed schema, a validator and a reference engine that runs them (`npm run engine`) | Running `http` neurons from a network file; a `human` wait that survives a restart |
 | Per-trace budgets, effects that are never cut, a live event stream | A neuron reporting its own spend |
 | Composed neurons: a whole network behind one wrapper, sealed from outside | Anything that learns: today each call is its own process and nothing is kept |
-| 193 conformance fixtures any other engine must pass; recorded traces; a local page that draws a run | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
+| 201 conformance fixtures any other engine must pass; recorded traces; a local page that draws a run | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
 
 ## Try it
 
@@ -292,7 +292,7 @@ npm run demo:human    # a person approves, edits or refuses each proposed rewrit
 ### Conformance fixtures
 
 Any further engine must give the same events as this one on
-the same inputs (a Rust one was tried and stopped: [decision 0005](docs/decisions/0005-rust-engine-experiment.md)). The shared test is [`spec/fixtures/`](spec/fixtures/): 193
+the same inputs (a Rust one was tried and stopped: [decision 0005](docs/decisions/0005-rust-engine-experiment.md)). The shared test is [`spec/fixtures/`](spec/fixtures/): 201
 small fixtures, each a network file, scripted inputs, scripted neuron replies with
 latencies on a virtual clock, and the exact events expected, ids normalised. No
 process starts and no clock is read, so a run is exactly repeatable.

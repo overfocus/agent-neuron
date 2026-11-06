@@ -1,0 +1,44 @@
+{
+  "version": 0,
+  "name": "two-people-make-a-quorum",
+  "description": "Two people linked to one neuron with threshold 2: it acts once both have answered (SPEC 5.2).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "alice",
+      "human": true
+    },
+    {
+      "id": "bob",
+      "human": true
+    },
+    {
+      "id": "ship",
+      "run": [
+        "neuron-ship"
+      ],
+      "threshold": 2
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "alice"
+    },
+    {
+      "from": "s",
+      "to": "bob"
+    },
+    {
+      "from": "alice",
+      "to": "ship"
+    },
+    {
+      "from": "bob",
+      "to": "ship"
+    }
+  ]
+}

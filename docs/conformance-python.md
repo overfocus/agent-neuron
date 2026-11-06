@@ -7,7 +7,12 @@ A second engine, [`py/agent_neuron/`](../py/agent_neuron/), written from [SPEC.m
 
 ## Result
 
-**193 passed, 0 failed, 0 pending** on `spec/fixtures`, identical on repeated runs. Also 10 of 10 on
+**193 passed, 0 failed, 0 pending** on `spec/fixtures`, identical on repeated runs.
+
+**Update, 2026-11-05: 201 of 201.** Decision 0008 added `human` neurons and 8 fixtures (`spec/fixtures/human/`) with a
+scripted person (CONFORMANCE 5.5). This engine gained the person (`start_human` in `engine.py`, about 20 lines) and the
+day-long `timeout` ceiling in `check.py`, written from CONFORMANCE 5.5 and SPEC 2.4 in the same session that built the
+TypeScript side, so that part is less independent than the rest of this engine. It passes the 8 at the first run. Also 10 of 10 on
 [`py/probes/`](../py/probes/) (extra fixtures written while probing, below), which the TypeScript engine
 passes too.
 

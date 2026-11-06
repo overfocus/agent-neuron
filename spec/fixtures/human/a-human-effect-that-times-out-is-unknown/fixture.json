@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "A human effect call that times out is unknown, not an error: the person may have acted (SPEC 11.3).",
+  "inputs": [
+    {"at":0,"source":"s","payload":"x"}
+  ],
+  "script": {
+    "person": {"calls":[{"reply":{"hang":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["person"],"trace":"#1","hops":0,"payload":{"type":"text","text":"x"}},
+    {"type":"unknown","t":100,"id":"#1","from":"s","to":["person"],"trace":"#1","hops":0,"neuron":"person","message":"timed out after 100 ms","code":"timeout","payload":{"type":"text","text":"x"}}
+  ]
+}

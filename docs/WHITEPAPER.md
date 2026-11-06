@@ -14,7 +14,7 @@ its work is stale, how much it may spend, and what to record when an effect's ou
 code, where it is tied to that code's language and can only be tested through it. agent-neuron moves it onto each
 component's wrapper: a network file declares per neuron how many distinct senders must agree, how long an
 input may wait, what makes work stale, what a call may cost and whether it has an effect, and an engine
-enforces that around any program that reads and writes JSON on stdin and stdout. The specification is a draft at version 0.1, with 193 conformance fixtures that
+enforces that around any program that reads and writes JSON on stdin and stdout. The specification is a draft at version 0.1, with 201 conformance fixtures that
 compare exact event lists on a virtual clock, a TypeScript reference engine, and a Python engine written
 from the text that passes the fixtures and found where the text says less than they do. I present it as
 a small, checkable protocol for the agent and developer community to test, break and implement again.

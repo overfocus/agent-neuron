@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "A person who answers with nothing (No) is quiet: nothing goes on (SPEC 3.4).",
+  "inputs": [
+    {"at":0,"source":"s","payload":"publish?"}
+  ],
+  "script": {
+    "person": {"calls":[{"after":20,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["person"],"trace":"#1","hops":0,"payload":{"type":"text","text":"publish?"}},
+    {"type":"quiet","t":20,"id":"#2","from":"person","to":["s"],"trace":"#1","replyTo":"#1","hops":1}
+  ]
+}

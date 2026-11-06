@@ -232,6 +232,25 @@ engine's notes about the group are those of SPEC 6.3: `term` only if the group s
 member when SIGTERM was sent, `kill` only if it had when SIGKILL was sent (after the 2000 ms
 grace, or at once for level 0 output over 1 MiB), each after the event that reports the call.
 
+### 5.5 People (`human` neurons)
+
+A `human` neuron's person is scripted like a program: `script` maps its instance path to `{"calls": [...]}`, each
+call entry with `when` and `after` as in 5.1 (the first unused entry whose `when` equals the input; a question no
+entry matches is a harness failure). The engine asks the person when the call starts; the reply comes `after` ms
+later, a wake-up set when the call starts and before the call's timeout, so a reply due at the instant of the timeout
+is processed first (SPEC 6.2 rule 7), as for a level 0 program. The replies a person can give:
+
+| `reply` | The person |
+|---|---|
+| `{"answer": "text"}` | answers with the text: a text payload (SPEC 3.4) |
+| `{"quiet": true}` | answers with nothing: quiet |
+| `{"hang": true}` | never answers (a `timeout`, a stale input or the end of the run ends the call) |
+
+Any other reply, an `answer` that is not a string included, is a harness failure: a person replies with text. A call
+that ends without an answer (stale, timed out) cancels its pending reply. The other fields of 5.1 (`ignoreTerm`,
+`leaves`, `onCancel`) have no meaning for a person and are ignored. A `human` neuron's `timeout` may be up to a day
+(SPEC 2.4), so a virtual run may last that long.
+
 ## 6. Observers
 
 `observer` is a list of rules. A rule is `{"when": {...}, "inject": {"after": ms, "source": id,

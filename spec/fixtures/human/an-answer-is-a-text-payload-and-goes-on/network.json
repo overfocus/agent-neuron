@@ -1,0 +1,31 @@
+{
+  "version": 0,
+  "name": "an-answer-is-a-text-payload-and-goes-on",
+  "description": "A person's answer (CONFORMANCE 5.5) is the human neuron's reply, a text payload, forwarded along its links (SPEC 3.4).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "person",
+      "human": true
+    },
+    {
+      "id": "log",
+      "run": [
+        "neuron-log"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "person"
+    },
+    {
+      "from": "person",
+      "to": "log"
+    }
+  ]
+}
