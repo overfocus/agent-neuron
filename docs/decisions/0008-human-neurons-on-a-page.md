@@ -1,11 +1,11 @@
 # Decision record 0008: `human` neurons on a page (2026-11-05)
 
-**Status: decided; steps 1 and 2 built, step 3 built and tried on two passages (2026-11-05).** Kevin answered the seven questions below on 2026-11-05, each as
+**Status: decided; steps 1 to 3 done, step 4 decided as a middle path and built (2026-11-05).** Kevin answered the seven questions below on 2026-11-05, each as
 suggested. Step 1 of the order of work is in: `src/engine/page.ts`, the `desk` option of `runNetwork`, the day-long
 ceiling, SPEC Appendix D and `npm run demo:human`. Step 2 is in too: the scripted person (CONFORMANCE 5.5,
-`VirtualHost.desk()`), 8 fixtures in `spec/fixtures/human/`, both engines at 201 of 201, and 3 more mutants. Step 3's network is
-built in the kit and has run on two real passages; the side-by-side run on a whole real proposal waits on Kevin ("What
-step 3 found", below). Step 4 is not started.
+`VirtualHost.desk()`), 8 fixtures in `spec/fixtures/human/`, both engines at 201 of 201, and 3 more mutants. Step 3 ran the network
+beside the hand-built pipeline on a real file of 37 passages ("The side-by-side", below). Step 4 is not to retire the
+hand-built review yet but to batch the network's agents ("Step 4: the middle path").
 
 ## The problem
 
@@ -161,3 +161,28 @@ On two passages of a real draft it worked end to end: each reached the page with
 4. **Cost.** One agent call per passage per step, about 1.2 dollars a passage for one round (the CLI's figure), where
    the skill makes one call per step for the whole file. A file of 37 passages is roughly 45 to 55 dollars with
    retries. The page's gain (answering each passage as it clears) is paid for there.
+
+## The side-by-side (2026-11-05)
+
+Both on the same draft, 37 passages, each with its own writer (so only one rewrite matched, a passage that is a lone
+template token). Kevin answered the network's page: 35 approved; 2 never reached it (a slot race in the kit's neuron
+code, since fixed). The hand-built review's proposal is unmarked.
+
+| | Hand-built | Network, one agent call per passage |
+|---|---|---|
+| ready / look / flagged | 13 / 22 / 2 | 0 / 33 / 4 |
+| retried after review | 15 | 5 |
+| agent calls | 7 | 124, 46 dollars as the CLI reports it |
+
+Their flags did not overlap. The reviewers, shown one passage at a time, left a note on every pass (none came out
+"ready") and were lenient on rule 15 (a rewrite that changed too little), which the batched reviewer had failed 12
+times. The page worked: Kevin answered as passages arrived.
+
+## Step 4: the middle path (Kevin, 2026-11-05)
+
+Not retire the hand-built review, and not keep one agent call per passage, but batch. SPEC 3.2 gives a call one answer,
+so a batch call cannot fan out into page items; instead the writer and the reviewers are level-1 neurons that gather
+the calls arriving together and give them to one agent call, then answer each call on its own. Each passage stays its
+own trace, key, join and page item; a file costs about one agent call per step, as the hand-built review does. On three
+real passages it reached the page after one call per step. Whether it replaces the hand-built review is the next real
+file's question: a batched run of a whole file, answered on the page, compared as above.
