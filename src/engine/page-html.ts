@@ -25,6 +25,8 @@ h1{font:700 20px/1.2 var(--pixel);margin:0;color:var(--acc);text-transform:upper
 .col h3{font:600 14px/1.2 var(--pixel);letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin:0 0 6px}
 .txt{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:12px;border-radius:10px;background:var(--bg);border:1px solid var(--line)}
 .txt.json{font:14px/1.5 var(--mono)}
+.qtitle{font:600 17px/1.3 var(--mono);margin:8px 0 0;overflow-wrap:anywhere}
+.notes{margin:12px 0 0;padding-left:20px;color:var(--mute);font-size:15px}.notes li{margin:4px 0;overflow-wrap:anywhere}
 del+ins{margin-left:3px}del{color:var(--bad);background:var(--badbg);text-decoration:line-through}ins{color:var(--acc);background:var(--accbg);text-decoration:none}
 .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 button{font:600 15px/1 var(--body);min-height:44px;padding:8px 16px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
@@ -89,14 +91,17 @@ function count() {
 function draw(it) {
   known.set(it.id, it);
   const label = it.state === "answered" ? it.kind : it.state;
-  const known = cards.get(it.id);
-  if (known && known.state === label) return;
+  const shown = cards.get(it.id);
+  if (shown && shown.state === label) return;
   const card = el("section", "card " + (it.state === "answered" ? "answered" + (it.kind === "no" ? " no" : "") : it.state));
   card.setAttribute("aria-label", it.neuron + ": " + STATE[label]);
   const top = el("div", "top"); top.append(el("span", "neuron", it.neuron), el("span", "tag", STATE[label]));
   card.append(top);
+  if (isPair(it.payload) && typeof it.payload.title === "string") card.append(el("p", "qtitle", it.payload.title));
   if (it.description) card.append(el("p", "desc", it.description));
   card.append(body(it));
+  const notes = isPair(it.payload) && Array.isArray(it.payload.notes) ? it.payload.notes.filter((n) => typeof n === "string") : [];
+  if (notes.length) { const ul = el("ul", "notes"); for (const n of notes) ul.append(el("li", "", n)); card.append(ul); }
   if (it.state === "waiting") {
     const acts = el("div", "acts"), ok = el("button", "go", "Approve"), ed = el("button", "", "Edit"), no = el("button", "no", "No");
     ok.type = ed.type = no.type = "button";
@@ -120,7 +125,7 @@ function draw(it) {
     if (it.kind === "edit") { const t = el("p", "txt"); t.textContent = it.answer; card.append(t); }
   }
   card.append(el("p", "state err"));
-  if (known) known.el.replaceWith(card); else { const e = list.querySelector(".empty"); if (e) e.remove(); list.append(card); }
+  if (shown) shown.el.replaceWith(card); else { const e = list.querySelector(".empty"); if (e) e.remove(); list.append(card); }
   cards.set(it.id, { el: card, state: label });
 }
 let gone = 0;

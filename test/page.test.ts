@@ -1,6 +1,6 @@
 // The people page (decision 0008): the desk `engine run` gives `human` neurons. Its three answers, its gate, and what it serves.
 import http from 'node:http';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import type { Question } from '../src/engine/index.js';
 import { approval, openPage } from '../src/engine/page.js';
 
@@ -111,5 +111,33 @@ describe('the gate', () => {
     expect((await request(p.port, { path: '/fonts/pixelify.ttf' })).status).toBe(403);
     expect((await request(p.port, { path: `/fonts/..%2Fpage.ts?t=${p.token}` })).status).toBe(404);
     expect((await request(p.port, { path: `/fonts/README.md?t=${p.token}` })).status).toBe(404);
+  });
+});
+
+// The page itself, in headless Chrome (skipped where Chrome is not installed): it draws each question, with the
+// Appendix D title and notes, keeps the counts, and its Approve sends the proposal. A script error that stops the page
+// drawing anything (as a name used before its declaration in `draw` once did) fails here, not in a person's browser.
+describe('the page in a browser', async () => {
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ channel: 'chrome' }).catch(() => undefined);
+  afterAll(async () => { await browser?.close(); });
+
+  it.skipIf(!browser)('draws each question with its title and notes, and Approve answers it', async () => {
+    const p = await page();
+    p.ask('a', { title: 'part#0 · look', draft: 'The tool reads files.', proposal: 'rigswig reads every settings file.', notes: ['Invariants: pass', 'Voice reviewer: pass'] });
+    p.ask('b', 'Publish the release notes?');
+    const tab = await browser!.newPage();
+    const errors: string[] = [];
+    tab.on('pageerror', (e) => errors.push(e.message));
+    await tab.goto(p.url);
+    await tab.waitForSelector('.card >> nth=1');
+    expect(errors).toEqual([]);
+    expect(await tab.locator('.card').count()).toBe(2);
+    expect(await tab.locator('.qtitle').allTextContents()).toEqual(['part#0 · look']);
+    expect(await tab.locator('.notes li').allTextContents()).toEqual(['Invariants: pass', 'Voice reviewer: pass']);
+    await tab.locator('.card').first().getByRole('button', { name: 'Approve' }).click();
+    await tab.waitForSelector('.card.answered');
+    expect(p.answers).toEqual({ a: 'rigswig reads every settings file.' });
+    await tab.close();
   });
 });

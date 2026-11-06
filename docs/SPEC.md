@@ -1132,8 +1132,8 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
 
 - **Neuron kinds**: `source`, `run`, `serve`, `network` and `human`. `human` needs a desk: the command line's `run`
   serves the page of Appendix D, and the library's `runNetwork` takes a `desk` option and refuses a `human` neuron
-  without one. `http` is reported by `check` as a warning and refused by `run`. The conformance runner has no scripted
-  person yet, so no fixture has a `human` neuron.
+  without one. `http` is reported by `check` as a warning and refused by `run`. The conformance runner scripts a
+  person (CONFORMANCE 5.5), and `spec/fixtures/human/` holds its fixtures.
 - **Fixtures** (section 8): `npm run engine -- conform spec/fixtures` runs them on a
   virtual clock with scripted programs (`src/engine/virtual.ts`, a `Host` the engine takes in
   place of real time and processes). Its other tests run real processes (`sh`, `cat`) for what
@@ -1215,6 +1215,10 @@ interface to the engine.
 - **The `draft`/`proposal` convention.** An input that is an object with string fields `draft` and `proposal` is shown
   as the draft beside a word diff of the proposal against it. Any other input is shown as text or as JSON. A neuron
   that sends something else is not wrong; it is just shown plainly.
+- **`title` and `notes`.** With the pair, a string field `title` heads the item (what the question is about, such as
+  a passage's id) and `notes`, an array of strings, is listed under the diff (what the person should know before
+  answering, such as the checks the proposal passed). They are shown, never sent: Approve still sends `proposal`.
+  Other fields are not shown.
 - **Withdrawn.** A call cancelled by staleness (5.4), `timeout` or the end of the run takes its item down: the page
   says it is no longer waiting, and an answer to it is refused.
 - **Nothing is fetched from elsewhere.** The page loads its fonts from its own origin and runs one inline script under
