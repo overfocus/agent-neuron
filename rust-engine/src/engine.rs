@@ -192,7 +192,6 @@ struct Proc {
 }
 
 struct Serve {
-    node: usize,
     timeout: u64,
     procs: usize,
     down: bool,
@@ -261,9 +260,16 @@ struct INode {
 /// resolved to node indexes.
 #[derive(Debug, Clone)]
 enum Outcome {
-    Answer { payload: PVal, to: Option<Vec<usize>>, replaces: KeyThree },
+    Answer {
+        payload: PVal,
+        to: Option<Vec<usize>>,
+        replaces: KeyThree,
+    },
     Quiet,
-    Fail { code: &'static str, msg: String },
+    Fail {
+        code: &'static str,
+        msg: String,
+    },
 }
 
 /// A `replaces` key in a reply: absent inherits the incoming signal's key,
@@ -508,13 +514,11 @@ impl Engine {
                 prog: format!("{}{}", prefix, n.id),
             });
         }
-        for (_, n) in net.nodes.iter().enumerate() {
+        for n in net.nodes.iter() {
             if let Kind::Network(p) = &n.kind {
                 let node = local[&n.id];
                 let inner_inst = self.inner_inst_of[&node];
-                let inner = files
-                    .get(p)
-                    .ok_or_else(|| format!("the composed file '{}' is not loaded", p))?;
+                let inner = files.get(p).ok_or_else(|| format!("the composed file '{}' is not loaded", p))?;
                 self.plant_net(
                     inner,
                     files,
@@ -557,7 +561,9 @@ impl Engine {
             }
         }
         while self.any_serve_unready() {
-            let Some(Reverse((t, _, _))) = self.heap.peek().copied() else { break };
+            let Some(Reverse((t, _, _))) = self.heap.peek().copied() else {
+                break;
+            };
             self.now = t;
             let Some(w) = self.pop() else { break };
             self.fire(w);
@@ -583,9 +589,9 @@ impl Engine {
     }
 
     fn any_serve_unready(&self) -> bool {
-        self.serves.iter().any(|(_, s)| {
-            !s.failed && (s.cur.is_none() || !s.cur.as_ref().expect("cur").ready)
-        })
+        self.serves
+            .iter()
+            .any(|(_, s)| !s.failed && (s.cur.is_none() || !s.cur.as_ref().expect("cur").ready))
     }
 
     // -----------------------------------------------------------------------
@@ -597,14 +603,12 @@ impl Engine {
         // the run before it starts.
         for inp in &self.inputs {
             if inp.replaces.as_ref().map(|k| k.len() > 256).unwrap_or(false) {
-                self.refused =
-                    Some("an injection carries a replaces key longer than 256 bytes".into());
+                self.refused = Some("an injection carries a replaces key longer than 256 bytes".into());
                 break;
             }
             if let Some(units) = &inp.budget {
                 if let Err(why) = self.injection_budget_ok(units) {
-                    self.refused =
-                        Some(format!("an injection was refused to the producer: {}", why));
+                    self.refused = Some(format!("an injection was refused to the producer: {}", why));
                     break;
                 }
             }
@@ -621,18 +625,16 @@ impl Engine {
         // they go before every wake-up the run sets itself. The run's own arms
         // start at 1_000_000.
         for (i, inp) in self.inputs.iter().enumerate() {
-            self.heap.push(Reverse((
-                self.t_zero + inp.at,
-                i as u64,
-                Wake::Inject(i),
-            )));
+            self.heap.push(Reverse((self.t_zero + inp.at, i as u64, Wake::Inject(i))));
             self.injections += 1;
         }
         while self.harness.is_none() {
             if self.run_over() {
                 break;
             }
-            let Some(Reverse((t, _, w))) = self.heap.peek().copied() else { break };
+            let Some(Reverse((t, _, w))) = self.heap.peek().copied() else {
+                break;
+            };
             self.now = t;
             self.pop();
             self.fire(w);
@@ -720,7 +722,13 @@ impl Engine {
         if let Some(pool) = self.outer_pool() {
             self.pools.insert(id, self.lowered(pool, inp.budget.as_ref()));
         }
-        self.traces.push((id, TraceInfo { exhausted: false, finished: false }));
+        self.traces.push((
+            id,
+            TraceInfo {
+                exhausted: false,
+                finished: false,
+            },
+        ));
         // The producer's injections are both runs' common part: only the
         // observer's injections are the "traces that start at an injection"
         // of the two-run rule (CONFORMANCE 6).
@@ -731,7 +739,13 @@ impl Engine {
     /// injected signal, with the trigger of the event that fired the rule.
     fn fire_obs_inject(&mut self, j: usize) {
         self.obs_pending -= 1;
-        let ObsInject { source, payload, replaces, trigger, .. } = self.pending_obs[j].clone();
+        let ObsInject {
+            source,
+            payload,
+            replaces,
+            trigger,
+            ..
+        } = self.pending_obs[j].clone();
         let Some(src) = self.find_source(&source) else {
             self.harness_failure(format!("the observer injects into unknown source '{}'", source));
         };
@@ -746,22 +760,17 @@ impl Engine {
                 .build(),
         );
         let to: Vec<usize> = self.nodes[src].out.clone();
-        let id = self.new_signal(
-            src,
-            to,
-            payload_of(payload),
-            0,
-            None,
-            None,
-            replaces,
-            None,
-            0,
-            None,
-        );
+        let id = self.new_signal(src, to, payload_of(payload), 0, None, None, replaces, None, 0, None);
         if let Some(pool) = self.outer_pool() {
             self.pools.insert(id, pool);
         }
-        self.traces.push((id, TraceInfo { exhausted: false, finished: false }));
+        self.traces.push((
+            id,
+            TraceInfo {
+                exhausted: false,
+                finished: false,
+            },
+        ));
         self.injected_roots.push(id);
         self.deliver_signal(id);
     }
@@ -780,11 +789,7 @@ impl Engine {
         if !running || cut {
             return;
         }
-        let reply = self.works[work]
-            .entry
-            .as_ref()
-            .map(|e| e.reply.clone())
-            .unwrap_or(Value::Null);
+        let reply = self.works[work].entry.as_ref().map(|e| e.reply.clone()).unwrap_or(Value::Null);
         match kind {
             WKind::Human => self.person_replied(work, &reply),
             WKind::Run => self.l0_replied(work, &reply),
@@ -832,12 +837,16 @@ impl Engine {
             return;
         } else if let Some(p) = get("answer") {
             let payload = payload_of(p.clone());
-            self.call_replied(work, Outcome::Answer { payload, to: None, replaces: None });
+            self.call_replied(
+                work,
+                Outcome::Answer {
+                    payload,
+                    to: None,
+                    replaces: None,
+                },
+            );
         } else {
-            self.harness_failure(format!(
-                "the reply of the level 0 call {} is not an outcome",
-                work
-            ));
+            self.harness_failure(format!("the reply of the level 0 call {} is not an outcome", work));
         }
         // The program is over (its output and exit arrived); with `leaves` a
         // member of the group survives, until the engine stops it silently at
@@ -851,24 +860,26 @@ impl Engine {
     }
 
     fn person_replied(&mut self, work: usize, reply: &Value) {
-        let get = |k: &str| {
-            match reply {
-                Value::Obj(fields) => fields.iter().find(|(f, _)| f == k).map(|(_, v)| v),
-                _ => None,
-            }
+        let get = |k: &str| match reply {
+            Value::Obj(fields) => fields.iter().find(|(f, _)| f == k).map(|(_, v)| v),
+            _ => None,
         };
         if get("quiet").map(|v| v == &Value::Bool(true)).unwrap_or(false) {
             self.call_replied(work, Outcome::Quiet);
         } else if let Some(Value::Str(text)) = get("answer") {
             let payload = PVal::Text(text.clone());
-            self.call_replied(work, Outcome::Answer { payload, to: None, replaces: None });
+            self.call_replied(
+                work,
+                Outcome::Answer {
+                    payload,
+                    to: None,
+                    replaces: None,
+                },
+            );
         } else if get("hang").map(|v| v == &Value::Bool(true)).unwrap_or(false) {
             // The person never answers; the timeout or staleness ends the call.
         } else {
-            self.harness_failure(format!(
-                "the person of work {} answers something that is not text",
-                work
-            ));
+            self.harness_failure(format!("the person of work {} answers something that is not text", work));
         }
         self.works[work].done = true;
     }
@@ -914,10 +925,7 @@ impl Engine {
                     }
                 }
                 let re = self.works[work].re;
-                self.arm(
-                    self.now + self.nodes[node].timeout,
-                    Wake::SlotDeadline { server: node, re },
-                );
+                self.arm(self.now + self.nodes[node].timeout, Wake::SlotDeadline { server: node, re });
             }
             WKind::Composed => {
                 self.emit(0, self.node_note(node, "cancel"));
@@ -1055,10 +1063,7 @@ impl Engine {
             .int("t", self.now_t())
             .str("id", sig.to_string())
             .str("from", self.disp(rec.from))
-            .set(
-                "to",
-                Value::Arr(rec.to.iter().map(|&t| Value::Str(self.disp(t))).collect()),
-            )
+            .set("to", Value::Arr(rec.to.iter().map(|&t| Value::Str(self.disp(t))).collect()))
             .str("trace", rec.trace.to_string());
         if let Some(rt) = rec.reply_to {
             o = o.str("replyTo", rt.to_string());
@@ -1071,10 +1076,7 @@ impl Engine {
 
     fn emit_signal_event(&mut self, sig: u64) {
         let rec = self.sigs[&sig].clone();
-        let mut ev = self
-            .sig_event(sig, "signal")
-            .set("payload", rec.payload.shaped())
-            .build();
+        let mut ev = self.sig_event(sig, "signal").set("payload", rec.payload.shaped()).build();
         if let Some(key) = &rec.replaces {
             if let Value::Obj(fields) = &mut ev {
                 fields.push(("replaces".into(), Value::Str(key.clone())));
@@ -1148,14 +1150,9 @@ impl Engine {
         };
         for (u, amt) in units {
             match ceiling.iter().find(|(bu, _)| bu == u) {
-                None => {
-                    return Err(format!("the injection names the unit '{}' which the file lacks", u))
-                }
+                None => return Err(format!("the injection names the unit '{}' which the file lacks", u)),
                 Some((_, cap)) if *amt > *cap => {
-                    return Err(format!(
-                        "the injection raises '{}' above the ceiling of the file's budget",
-                        u
-                    ))
+                    return Err(format!("the injection raises '{}' above the ceiling of the file's budget", u))
                 }
                 Some(_) => {}
             }
@@ -1204,9 +1201,11 @@ impl Engine {
         if let Some(key) = &replaces {
             let sender = self.disp(from);
             let list = self.stale.entry((scope, sender, key.clone())).or_default();
-            let doomed: Vec<usize> =
-                list.iter().flat_map(|e| e.works.clone()).collect();
-            list.push(StaleEnt { sig: id, works: Vec::new() });
+            let doomed: Vec<usize> = list.iter().flat_map(|e| e.works.clone()).collect();
+            list.push(StaleEnt {
+                sig: id,
+                works: Vec::new(),
+            });
             for work in doomed {
                 self.cut_work(work);
             }
@@ -1225,7 +1224,9 @@ impl Engine {
     /// signal made stale, in the order that work was created. Called after the
     /// signal's own entry was appended.
     fn stale_and_cut(&mut self, sig: u64) {
-        let Some((scope, sender, key)) = self.stale_key_of(sig) else { return };
+        let Some((scope, sender, key)) = self.stale_key_of(sig) else {
+            return;
+        };
         let doomed: Vec<usize> = match self.stale.get(&(scope, sender, key)) {
             Some(list) => {
                 let cut_len = list.len() - 1;
@@ -1314,7 +1315,6 @@ impl Engine {
                                 }
                             }
                             let timeout = self.nodes[node].timeout;
-                            let re = re;
                             self.arm(self.now + timeout, Wake::SlotDeadline { server: node, re });
                         }
                         // The cancel line is answered as the entry's
@@ -1435,7 +1435,11 @@ impl Engine {
     /// A call work: registered under its input's (sender, key) entry.
     fn make_call(&mut self, node: usize, sig: u64, st: WSt) -> usize {
         let rec = self.sigs[&sig].clone();
-        let pool = if self.pools.contains_key(&rec.trace) { Some(rec.trace) } else { None };
+        let pool = if self.pools.contains_key(&rec.trace) {
+            Some(rec.trace)
+        } else {
+            None
+        };
         let work = Work {
             node,
             sig,
@@ -1515,7 +1519,6 @@ impl Engine {
 
     fn new_serve(&mut self, node: usize) -> Serve {
         Serve {
-            node,
             timeout: self.nodes[node].timeout,
             procs: 0,
             down: true,
@@ -1632,9 +1635,7 @@ impl Engine {
         self.works[work].st = WSt::Running;
         // A program that cannot be started (spawnFails) fails at once (5.2).
         if let Some(spawn) = match &entry.reply {
-            Value::Obj(fields) => {
-                fields.iter().find(|(f, _)| f == "spawnFails").map(|(_, v)| v.clone())
-            }
+            Value::Obj(fields) => fields.iter().find(|(f, _)| f == "spawnFails").map(|(_, v)| v.clone()),
             _ => None,
         } {
             let _ = spawn;
@@ -1747,10 +1748,7 @@ impl Engine {
             Outcome::Answer { payload, to, replaces } => {
                 let marked = self.works[work].stale_marked;
                 let reply = self.reply_signal(work, sig);
-                let mut ev = self
-                    .sig_event(reply, "answer")
-                    .set("payload", payload.shaped())
-                    .build();
+                let mut ev = self.sig_event(reply, "answer").set("payload", payload.shaped()).build();
                 if marked {
                     if let Value::Obj(entries) = &mut ev {
                         entries.push(("forwarded".into(), Value::Bool(false)));
@@ -1803,14 +1801,7 @@ impl Engine {
     /// The forward: right after an answer that is not stale (4.4), the answer's
     /// key or the input's, along the outgoing links in declaration order (or
     /// the subset the reply names).
-    fn forward_answer(
-        &mut self,
-        work: usize,
-        reply: u64,
-        to: &Option<Vec<usize>>,
-        replaces: &KeyThree,
-        payload: PVal,
-    ) {
+    fn forward_answer(&mut self, work: usize, reply: u64, to: &Option<Vec<usize>>, replaces: &KeyThree, payload: PVal) {
         let node = self.works[work].node;
         let incoming = &self.sigs[&self.works[work].sig];
         let rec = self.sigs[&reply].clone();
@@ -1899,10 +1890,7 @@ fn script_lines(reply: &Value, re: u64) -> (Vec<Line>, bool, bool) {
         lines.push(Line::Obj(merge_obj(obj.clone(), re)));
     }
     if let Some(p) = get("answer") {
-        let mut line = Obj::new()
-            .str("type", "answer")
-            .int("re", re as i64)
-            .set("payload", p.clone());
+        let mut line = Obj::new().str("type", "answer").int("re", re as i64).set("payload", p.clone());
         if let Some(rv) = get("replaces") {
             // `false` scripts an explicit `null`; anything else is written as
             // given, so a bad shape is the protocol error of 3.2.
@@ -1921,7 +1909,13 @@ fn script_lines(reply: &Value, re: u64) -> (Vec<Line>, bool, bool) {
         lines.push(Line::Obj(Obj::new().str("type", "quiet").int("re", re as i64).build()));
     }
     if let Some(Value::Str(msg)) = get("error") {
-        lines.push(Line::Obj(Obj::new().str("type", "error").int("re", re as i64).str("message", msg.clone()).build()));
+        lines.push(Line::Obj(
+            Obj::new()
+                .str("type", "error")
+                .int("re", re as i64)
+                .str("message", msg.clone())
+                .build(),
+        ));
     }
     if get("crash").is_some() {
         crash = true;
@@ -1957,7 +1951,7 @@ fn json_text(v: &Value) -> String {
 }
 
 /// A payload as the engine carries it: a JSON string is a text payload.
-pub fn payload_of(v: Value) -> PVal {
+fn payload_of(v: Value) -> PVal {
     match v {
         Value::Str(s) => PVal::Text(s),
         other => PVal::Json(other),
@@ -2053,12 +2047,16 @@ impl Engine {
         self.works[work].entry = Some(entry.clone());
         self.reserve_call(work);
         self.works[work].st = WSt::Running;
-        let re = loop {
+        let re = {
             let p = self.proc_of(node).expect("the process is up");
             let re = p.next_re;
             p.next_re += 1;
-            p.slots.push(Slot { re, work, cancelled: false });
-            break re;
+            p.slots.push(Slot {
+                re,
+                work,
+                cancelled: false,
+            });
+            re
         };
         self.works[work].re = re;
         let after = entry.after;
@@ -2151,11 +2149,9 @@ impl Engine {
         match line {
             Line::Text(t) => {
                 self.junk_line(node, line_no, t);
-                return;
             }
             Line::Overlong => {
                 self.overlong_line(node);
-                return;
             }
             Line::Obj(v) => {
                 if !is_protocol_object(&v) {
@@ -2177,17 +2173,17 @@ impl Engine {
         let inst = self.nodes[node].inst;
         self.emit(
             inst,
-            self.note_ev_extra(
-                node,
-                "junk",
-                Some(line_no),
-                Some(text.chars().take(2000).collect()),
-            ),
+            self.note_ev_extra(node, "junk", Some(line_no), Some(text.chars().take(2000).collect())),
         );
         // "Running" counts every call that holds a slot, a cancelled one
         // included; a cancelled call is never failed. The failure's message
         // carries the line's first characters (probe p4).
-        let running = self.serves.get(&node).and_then(|s| s.cur.as_ref()).map(|p| p.slots.len()).unwrap_or(0);
+        let running = self
+            .serves
+            .get(&node)
+            .and_then(|s| s.cur.as_ref())
+            .map(|p| p.slots.len())
+            .unwrap_or(0);
         if running == 1 {
             let work = self
                 .serves
@@ -2196,16 +2192,9 @@ impl Engine {
                 .and_then(|p| p.slots.first())
                 .map(|s| s.work)
                 .expect("one slot");
-            if !self.slot_cancelled(node, work)
-                && self.works[work].running()
-                && !self.works[work].cut
-            {
+            if !self.slot_cancelled(node, work) && self.works[work].running() && !self.works[work].cut {
                 self.commit_call(work);
-                self.emit_fail(
-                    work,
-                    "junk",
-                    &format!("junk on stdout: {}", trim_2000(&text)),
-                );
+                self.emit_fail(work, "junk", &format!("junk on stdout: {}", trim_2000(&text)));
                 let node = self.works[work].node;
                 self.free_slot(work);
                 self.drain_serve(node);
@@ -2260,19 +2249,17 @@ impl Engine {
     /// An `answer`, `quiet` or `error` line: the reply for its `re`, a
     /// protocol error (6.1), or a crash when an `error` has no `re`.
     fn reply_line(&mut self, node: usize, value: Value) {
-        if value.get("type").and_then(|v| v.as_str()) != Some("error")
-            && value.get("re").and_then(|v| v.as_u64()).is_none()
-        {
+        if value.get("type").and_then(|v| v.as_str()) != Some("error") && value.get("re").and_then(|v| v.as_u64()).is_none() {
             return; // an answer or quiet without a usable re: discarded
         }
-        if value.get("type").and_then(|v| v.as_str()) == Some("error")
-            && value.get("re").is_none()
-        {
+        if value.get("type").and_then(|v| v.as_str()) == Some("error") && value.get("re").is_none() {
             // Error without re: the process itself failed (crash).
             self.process_down(node, true, false);
             return;
         }
-        let Some(re) = value.get("re").and_then(|v| v.as_u64()) else { return };
+        let Some(re) = value.get("re").and_then(|v| v.as_u64()) else {
+            return;
+        };
         let slot = self
             .serves
             .get(&node)
@@ -2302,9 +2289,13 @@ impl Engine {
             },
             "quiet" => self.call_replied(work, Outcome::Quiet),
             "error" => match value.get("message").and_then(|v| v.as_str()) {
-                Some(msg) => {
-                    self.call_replied(work, Outcome::Fail { code: "neuron", msg: msg.to_string() })
-                }
+                Some(msg) => self.call_replied(
+                    work,
+                    Outcome::Fail {
+                        code: "neuron",
+                        msg: msg.to_string(),
+                    },
+                ),
                 None => self.protocol_error(work, "the error has no message"),
             },
             _ => {}
@@ -2325,11 +2316,7 @@ impl Engine {
     /// null of at most 256 bytes, `to` naming only outgoing links (3.2).
     /// The result's three states (5.2): absent inherits, `null` clears, and a
     /// string sets.
-    fn validate_reply(
-        &self,
-        value: &Value,
-        node: usize,
-    ) -> Result<(Value, Option<Vec<usize>>, KeyThree), String> {
+    fn validate_reply(&self, value: &Value, node: usize) -> Result<(Value, Option<Vec<usize>>, KeyThree), String> {
         let Some(payload) = value.get("payload") else {
             return Err("the answer has no payload".into());
         };
@@ -2350,27 +2337,14 @@ impl Engine {
                 let mut named: Vec<usize> = Vec::new();
                 for item in items {
                     match item.as_str() {
-                        Some(id) => {
-                            match self
-                                .nodes[node]
-                                .out
-                                .iter()
-                                .copied()
-                                .find(|&t| self.nodes[t].display == id)
-                            {
-                                Some(target) => {
-                                    if !named.contains(&target) {
-                                        named.push(target);
-                                    }
-                                }
-                                None => {
-                                    return Err(format!(
-                                        "to names '{}', which is not an outgoing link",
-                                        id
-                                    ))
+                        Some(id) => match self.nodes[node].out.iter().copied().find(|&t| self.nodes[t].display == id) {
+                            Some(target) => {
+                                if !named.contains(&target) {
+                                    named.push(target);
                                 }
                             }
-                        }
+                            None => return Err(format!("to names '{}', which is not an outgoing link", id)),
+                        },
                         None => return Err("to is an array of neuron ids".into()),
                     }
                 }
@@ -2449,15 +2423,13 @@ impl Engine {
             .serves
             .get(&server)
             .and_then(|s| s.cur.as_ref().map(|p| (p.gen, p.ready, p.alive, p.spec.ignore_term, p.spec.leaves)));
-        let Some((pgen, ready, alive, ignore_term, survivor)) = state else { return };
+        let Some((pgen, ready, alive, ignore_term, survivor)) = state else {
+            return;
+        };
         if pgen != gen || ready {
             return;
         }
-        let (procs, timeout) = self
-            .serves
-            .get(&server)
-            .map(|s| (s.procs, s.timeout))
-            .unwrap_or((0, 0));
+        let (procs, timeout) = self.serves.get(&server).map(|s| (s.procs, s.timeout)).unwrap_or((0, 0));
         if procs == 1 {
             self.refused = Some(format!(
                 "the serve program of '{}' failed its first start: no ready within {} ms",
@@ -2465,7 +2437,9 @@ impl Engine {
             ));
             return;
         }
-        self.serves.get_mut(&server).map(|s| s.f += 1);
+        if let Some(s) = self.serves.get_mut(&server) {
+            s.f += 1;
+        }
         // The engine kills what remains of the group; the engine does not
         // restart a refused first start.
         if alive || survivor {
@@ -2560,7 +2534,9 @@ impl Engine {
             .and_then(|s| s.cur.as_ref())
             .map(|p| (p.alive, p.spec.ignore_term, p.spec.leaves))
             .unwrap_or((false, false, false));
-        self.serves.get_mut(&server).map(|s| s.f += 1);
+        if let Some(s) = self.serves.get_mut(&server) {
+            s.f += 1;
+        }
         if alive || survivor {
             self.emit_node_note(server, "term");
         }
@@ -2583,13 +2559,11 @@ impl Engine {
     /// the termination. The state lives on the server: the process record is
     /// already gone when the grace fires.
     fn arm_terminate_grace(&mut self, server: usize, gen: usize, survivor: bool) {
-        self.serves
-            .get_mut(&server)
-            .map(|s| {
-                s.grace = true;
-                s.grace_gen = gen;
-                s.grace_survivor = survivor;
-            });
+        if let Some(s) = self.serves.get_mut(&server) {
+            s.grace = true;
+            s.grace_gen = gen;
+            s.grace_survivor = survivor;
+        }
         self.arm(self.now + 2000, Wake::ServeGrace { server, gen });
     }
 
@@ -2616,7 +2590,8 @@ impl Engine {
     /// leader alive, `error` with the leader alive. All three are crashes.
     fn fire_end_at(&mut self, server: usize, gen: usize) {
         let state = self.serves.get(&server).and_then(|s| {
-            s.cur.as_ref()
+            s.cur
+                .as_ref()
                 .filter(|p| p.gen == gen)
                 .map(|p| (p.ready, p.alive, p.spec.end.as_ref().map(|(_, h)| h.clone())))
         });
@@ -2657,7 +2632,9 @@ impl Engine {
         if slots.is_empty() && !leader_alive && !leaves {
             // Nothing was running; the process still crashed.
         }
-        let Some((crash_msg, _)) = Some((self.crash_msg(server), ())) else { return };
+        let Some((crash_msg, _)) = Some((self.crash_msg(server), ())) else {
+            return;
+        };
         // Every running call fails; the crashed call's program is over now.
         for slot in &slots {
             if !slot.cancelled {
@@ -2707,7 +2684,7 @@ impl Engine {
             s.failed = true;
             // A failed neuron answers its queued waiting calls at once with
             // `start` (6.1): no restart will free their slot.
-            let queued_works: Vec<usize> = s.queue.drain(..).collect();
+            let queued_works: Vec<usize> = std::mem::take(&mut s.queue);
             for queued in queued_works {
                 let st = self.works[queued].st;
                 if self.works[queued].done || st != WSt::Queued {
@@ -2727,11 +2704,7 @@ impl Engine {
     /// The restart is due: spawn the new process — unless nothing but a kill
     /// grace keeps the run open, in which case it is skipped silently.
     fn fire_restart_due(&mut self, server: usize) {
-        let (failed, down) = self
-            .serves
-            .get(&server)
-            .map(|s| (s.failed, s.down))
-            .unwrap_or((true, true));
+        let (failed, down) = self.serves.get(&server).map(|s| (s.failed, s.down)).unwrap_or((true, true));
         if failed || !down {
             return;
         }
@@ -2792,9 +2765,7 @@ impl Engine {
         let matches = self
             .serves
             .get(&server)
-            .and_then(|s| {
-                s.cur.as_ref().map(|p| p.gen == gen && s.ping_open == Some(n))
-            })
+            .and_then(|s| s.cur.as_ref().map(|p| p.gen == gen && s.ping_open == Some(n)))
             .unwrap_or(false);
         if !matches {
             return;
@@ -2941,7 +2912,11 @@ impl Engine {
                 let _ = to;
                 self.call_replied(
                     cw,
-                    Outcome::Answer { payload, to: None, replaces },
+                    Outcome::Answer {
+                        payload,
+                        to: None,
+                        replaces,
+                    },
                 );
             }
         }
@@ -2997,14 +2972,8 @@ impl Engine {
             .collect();
         for cw in calls {
             let Some(root) = self.works[cw].inner_root else { continue };
-            let inner_open = self
-                .works
-                .iter()
-                .any(|w| w.trace == root && w.open())
-                || self
-                    .groups
-                    .iter()
-                    .any(|((_, t), list)| *t == root && !list.is_empty());
+            let inner_open = self.works.iter().any(|w| w.trace == root && w.open())
+                || self.groups.iter().any(|((_, t), list)| *t == root && !list.is_empty());
             if inner_open {
                 continue;
             }
@@ -3014,7 +2983,13 @@ impl Engine {
                 .enumerate()
                 .map(|(ix, w)| format!("{}:[tr={} done={} kind={:?} st={:?}]", ix, w.trace, w.done, w.kind, w.st))
                 .collect();
-            eprintln!("DBG wake cw={} root={} works={} groups={:?}", cw, root, works_dbg.join(" "), self.groups.keys().map(|(n,t)| format!("({},{})",n,t)).collect::<Vec<_>>());
+            eprintln!(
+                "DBG wake cw={} root={} works={} groups={:?}",
+                cw,
+                root,
+                works_dbg.join(" "),
+                self.groups.keys().map(|(n, t)| format!("({},{})", n, t)).collect::<Vec<_>>()
+            );
             self.works[cw].exit_replied = true;
             if self.works[cw].fail_inner {
                 self.call_replied(
@@ -3056,10 +3031,7 @@ impl Engine {
                     .collect()
             };
             let payload = self.sigs[&crossing].payload.as_json_raw();
-            return Value::Obj(vec![
-                ("payload".into(), payload),
-                ("inputs".into(), Value::Arr(inputs)),
-            ]);
+            return Value::Obj(vec![("payload".into(), payload), ("inputs".into(), Value::Arr(inputs))]);
         }
         self.sigs[&w.sig].payload.as_json_raw()
     }
@@ -3068,11 +3040,7 @@ impl Engine {
     /// (CONFORMANCE 5.1); a call no entry matches is a harness failure.
     fn match_call_entry(&mut self, prog: &str, work: usize, person: bool) -> CallEntry {
         let value = self.input_value_of(work);
-        let program = if person {
-            self.person.get(prog)
-        } else {
-            self.script.get(prog)
-        };
+        let program = if person { self.person.get(prog) } else { self.script.get(prog) };
         let Some(program) = program else {
             let who = if person { "person" } else { "program" };
             self.harness_failure(format!("the script has no {} for '{}'", who, prog));

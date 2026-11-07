@@ -74,12 +74,9 @@ impl Network {
 /// contain a `source` or a neuron with `effect`, and `exit` MUST NOT have
 /// outgoing links.
 pub fn load(path: &str, used_as_composed: bool) -> Result<Network, Vec<String>> {
-    let text =
-        std::fs::read_to_string(path).map_err(|e| vec![format!("{}: cannot read ({})", path, e)])?;
+    let text = std::fs::read_to_string(path).map_err(|e| vec![format!("{}: cannot read ({})", path, e)])?;
     let v = parse(&text).map_err(|e| vec![format!("{}: not JSON ({})", path, e)])?;
-    check(&v, used_as_composed).map_err(|errs| {
-        errs.into_iter().map(|e| format!("{}: {}", path, e)).collect::<Vec<String>>()
-    })
+    check(&v, used_as_composed).map_err(|errs| errs.into_iter().map(|e| format!("{}: {}", path, e)).collect::<Vec<String>>())
 }
 
 pub fn check(v: &Value, used_as_composed: bool) -> Result<Network, Vec<String>> {
@@ -100,7 +97,7 @@ pub fn check(v: &Value, used_as_composed: bool) -> Result<Network, Vec<String>> 
 
 fn whole_number(v: &Value) -> bool {
     match v.as_i64() {
-        Some(i) => i >= 0 && i <= MAX_I,
+        Some(i) => (0..=MAX_I).contains(&i),
         None => false,
     }
 }
@@ -160,12 +157,7 @@ fn units(v: &Value, errs: &mut Vec<String>, what: &str) -> Option<Units> {
         }
         match amt {
             _ if whole_number(amt) => {}
-            _ => {
-                errs.push(format!(
-                    "{}: '{}' is not a whole number from 0 to 2^53 - 1",
-                    what, u
-                ))
-            }
+            _ => errs.push(format!("{}: '{}' is not a whole number from 0 to 2^53 - 1", what, u)),
         }
         out.push((u.clone(), amt.as_i64().unwrap_or(0)));
     }
@@ -192,8 +184,7 @@ fn from_json(v: &Value, errs: &mut Vec<String>) -> Network {
     for k in v.keys() {
         if !matches!(
             k,
-            "$schema" | "version" | "name" | "description" | "entry" | "exit" | "neurons"
-                | "links" | "budget"
+            "$schema" | "version" | "name" | "description" | "entry" | "exit" | "neurons" | "links" | "budget"
         ) {
             errs.push(format!("unknown top-level field '{}'", k));
         }
@@ -265,13 +256,24 @@ fn from_json(v: &Value, errs: &mut Vec<String>) -> Network {
             None => errs.push("links is an array".into()),
         }
     }
-    Network { name, description, budget, entry, exit, nodes, links }
+    Network {
+        name,
+        description,
+        budget,
+        entry,
+        exit,
+        nodes,
+        links,
+    }
 }
 
 fn link(lv: &Value, i: usize, errs: &mut Vec<String>) -> Link {
     if !lv.is_obj() {
         errs.push(format!("links[{}] is not an object", i));
-        return Link { from: String::new(), to: String::new() };
+        return Link {
+            from: String::new(),
+            to: String::new(),
+        };
     }
     for k in lv.keys() {
         if k != "from" && k != "to" {
@@ -310,9 +312,7 @@ fn neuron(nv: &Value, i: usize, errs: &mut Vec<String>) -> Node {
     };
     let what = format!("neurons[{}] ({})", i, id);
     let desc = match nv.get("description") {
-        None | Some(Value::Str(_)) => {
-            nv.get("description").and_then(|d| d.as_str()).unwrap_or("").to_string()
-        }
+        None | Some(Value::Str(_)) => nv.get("description").and_then(|d| d.as_str()).unwrap_or("").to_string(),
         Some(_) => {
             errs.push(format!("{}: description must be a string", what));
             String::new()
@@ -348,13 +348,17 @@ fn neuron(nv: &Value, i: usize, errs: &mut Vec<String>) -> Node {
                 errs.push(format!("{}: option '{}' is not allowed on a source", what, k));
             }
         }
-        return Node { id, desc, kind, opts: Opts::default() };
+        return Node {
+            id,
+            desc,
+            kind,
+            opts: Opts::default(),
+        };
     }
     let is_network = matches!(kind, Kind::Network(_));
     let is_command = matches!(kind, Kind::Run(_) | Kind::Serve(_));
     for k in nv.keys() {
-        if matches!(k, "id" | "description" | "source" | "run" | "serve" | "http" | "human" | "network")
-        {
+        if matches!(k, "id" | "description" | "source" | "run" | "serve" | "http" | "human" | "network") {
             continue;
         }
         let allowed = match k {
@@ -378,20 +382,14 @@ fn neuron(nv: &Value, i: usize, errs: &mut Vec<String>) -> Node {
                         _ => opts.max_hops = Some(n),
                     };
                 }
-                _ => errs.push(format!(
-                    "{}: {} is an integer at least {}",
-                    what, key, min
-                )),
+                _ => errs.push(format!("{}: {} is an integer at least {}", what, key, min)),
             }
         }
     }
     if let Some(x) = nv.get("within") {
         match x.as_u64() {
             Some(n) if (1..=3_600_000).contains(&n) => opts.within = Some(n),
-            _ => errs.push(format!(
-                "{}: within is an integer ms from 1 to 3600000",
-                what
-            )),
+            _ => errs.push(format!("{}: within is an integer ms from 1 to 3600000", what)),
         }
         if opts.threshold.is_none() {
             errs.push(format!("{}: within is allowed only with threshold", what));
@@ -407,10 +405,7 @@ fn neuron(nv: &Value, i: usize, errs: &mut Vec<String>) -> Node {
                 } else {
                     "at most 3600000 (an hour)"
                 };
-                errs.push(format!(
-                    "{}: timeout is an integer ms at least 1 and {}",
-                    what, cap_label
-                ))
+                errs.push(format!("{}: timeout is an integer ms at least 1 and {}", what, cap_label))
             }
         }
     }
@@ -457,7 +452,12 @@ fn neuron(nv: &Value, i: usize, errs: &mut Vec<String>) -> Node {
 }
 
 fn empty_node(kind: Kind) -> Node {
-    Node { id: String::new(), desc: String::new(), kind, opts: Opts::default() }
+    Node {
+        id: String::new(),
+        desc: String::new(),
+        kind,
+        opts: Opts::default(),
+    }
 }
 
 fn kind_value(nv: &Value, field: &str, placeholder: Kind, what: &str, errs: &mut Vec<String>) -> Kind {
@@ -467,11 +467,7 @@ fn kind_value(nv: &Value, field: &str, placeholder: Kind, what: &str, errs: &mut
         ("human", Value::Bool(true)) => Kind::Human,
         ("run", _) => Kind::Run(command(v, errs, what)),
         ("serve", _) => Kind::Serve(command(v, errs, what)),
-        ("http", Value::Str(s))
-            if is_literal(s) && (s.starts_with("http://") || s.starts_with("https://")) =>
-        {
-            Kind::Http(s.clone())
-        }
+        ("http", Value::Str(s)) if is_literal(s) && (s.starts_with("http://") || s.starts_with("https://")) => Kind::Http(s.clone()),
         ("network", Value::Str(s)) if is_literal(s) => Kind::Network(s.clone()),
         _ => {
             errs.push(format!("{}: bad {} value", what, field));
@@ -547,10 +543,7 @@ fn check_cycles(net: &Network, errs: &mut Vec<String>) {
     if !has_cycle(&keep, net) {
         return;
     }
-    errs.push(
-        "a cycle in which no neuron has maxHops (every cycle must pass a neuron with maxHops)"
-            .into(),
-    );
+    errs.push("a cycle in which no neuron has maxHops (every cycle must pass a neuron with maxHops)".into());
 }
 
 fn has_cycle(keep: &HashSet<&str>, net: &Network) -> bool {
@@ -561,11 +554,7 @@ fn has_cycle(keep: &HashSet<&str>, net: &Network) -> bool {
         }
     }
     let mut colour: HashMap<&str, u8> = HashMap::new(); // keyed by the node's name; 1 visiting, 2 done
-    fn dfs<'a>(
-        u: &'a str,
-        adj: &HashMap<&'a str, Vec<&'a str>>,
-        colour: &mut HashMap<&'a str, u8>,
-    ) -> bool {
+    fn dfs<'a>(u: &'a str, adj: &HashMap<&'a str, Vec<&'a str>>, colour: &mut HashMap<&'a str, u8>) -> bool {
         if colour.get(u) == Some(&1) {
             return true;
         }

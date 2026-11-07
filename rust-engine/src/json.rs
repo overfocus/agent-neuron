@@ -72,18 +72,12 @@ impl Value {
             (Value::Null, Value::Null) => true,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Int(a), Value::Int(b)) => a == b,
-            (Value::Int(a), Value::Float(b)) | (Value::Float(b), Value::Int(a)) => {
-                *b == *a as f64
-            }
+            (Value::Int(a), Value::Float(b)) | (Value::Float(b), Value::Int(a)) => *b == *a as f64,
             (Value::Float(a), Value::Float(b)) => a == b,
             (Value::Str(a), Value::Str(b)) => a == b,
-            (Value::Arr(a), Value::Arr(b)) => {
-                a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.deep_eq(y))
-            }
+            (Value::Arr(a), Value::Arr(b)) => a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.deep_eq(y)),
             (Value::Obj(a), Value::Obj(b)) => {
-                a.len() == b.len()
-                    && a.iter()
-                        .all(|(k, v)| b.iter().any(|(k2, v2)| k == k2 && v.deep_eq(v2)))
+                a.len() == b.len() && a.iter().all(|(k, v)| b.iter().any(|(k2, v2)| k == k2 && v.deep_eq(v2)))
             }
             _ => false,
         }
@@ -92,16 +86,17 @@ impl Value {
     /// Does `self` (an event) carry every field of `subset` with an equal value?
     pub fn covers(&self, subset: &Value) -> bool {
         match (self, subset) {
-            (Value::Obj(a), Value::Obj(b)) => b.iter().all(|(k, v)| {
-                a.iter().any(|(k2, v2)| k == k2 && v2.deep_eq(v))
-            }),
+            (Value::Obj(a), Value::Obj(b)) => b.iter().all(|(k, v)| a.iter().any(|(k2, v2)| k == k2 && v2.deep_eq(v))),
             _ => self.deep_eq(subset),
         }
     }
 }
 
 pub fn parse(text: &str) -> Result<Value, String> {
-    let mut p = Parser { bytes: text.as_bytes(), pos: 0 };
+    let mut p = Parser {
+        bytes: text.as_bytes(),
+        pos: 0,
+    };
     p.skip_ws();
     let v = p.value()?;
     p.skip_ws();
@@ -209,16 +204,12 @@ impl<'a> Parser<'a> {
         self.eat(b'"')?;
         let mut out = String::new();
         loop {
-            let c = self
-                .peek()
-                .ok_or_else(|| "unterminated string".to_string())?;
+            let c = self.peek().ok_or_else(|| "unterminated string".to_string())?;
             self.pos += 1;
             match c {
                 b'"' => return Ok(out),
                 b'\\' => {
-                    let e = self
-                        .peek()
-                        .ok_or_else(|| "unterminated escape".to_string())?;
+                    let e = self.peek().ok_or_else(|| "unterminated escape".to_string())?;
                     self.pos += 1;
                     match e {
                         b'"' => out.push('"'),
@@ -262,8 +253,7 @@ impl<'a> Parser<'a> {
                     if self.pos > self.bytes.len() {
                         return Err("truncated UTF-8".into());
                     }
-                    let piece = std::str::from_utf8(&self.bytes[start..self.pos])
-                        .map_err(|_| "bad UTF-8".to_string())?;
+                    let piece = std::str::from_utf8(&self.bytes[start..self.pos]).map_err(|_| "bad UTF-8".to_string())?;
                     out.push_str(piece);
                 }
             }
@@ -273,8 +263,7 @@ impl<'a> Parser<'a> {
         if self.pos + 4 > self.bytes.len() {
             return Err("short \\u escape".into());
         }
-        let s = std::str::from_utf8(&self.bytes[self.pos..self.pos + 4])
-            .map_err(|_| "bad \\u".to_string())?;
+        let s = std::str::from_utf8(&self.bytes[self.pos..self.pos + 4]).map_err(|_| "bad \\u".to_string())?;
         let v = u32::from_str_radix(s, 16).map_err(|_| "bad \\u".to_string())?;
         self.pos += 4;
         Ok(v)
@@ -305,16 +294,13 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
             }
         }
-        let text = std::str::from_utf8(&self.bytes[start..self.pos])
-            .map_err(|_| "bad number".to_string())?;
+        let text = std::str::from_utf8(&self.bytes[start..self.pos]).map_err(|_| "bad number".to_string())?;
         if !is_float {
             if let Ok(i) = text.parse::<i64>() {
                 return Ok(Value::Int(i));
             }
         }
-        text.parse::<f64>()
-            .map(Value::Float)
-            .map_err(|_| format!("bad number {}", text))
+        text.parse::<f64>().map(Value::Float).map_err(|_| format!("bad number {}", text))
     }
 }
 
@@ -419,5 +405,11 @@ impl Obj {
     }
     pub fn build(self) -> Value {
         Value::Obj(self.0)
+    }
+}
+
+impl Default for Obj {
+    fn default() -> Self {
+        Self::new()
     }
 }

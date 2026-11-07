@@ -4,8 +4,8 @@
 // exists, in path order (CONFORMANCE 1 and 8). Prints one line per fixture and
 // a last summary line; exits 0 when nothing failed, 1 when one did (a harness
 // failure counts), 2 for a usage error or when <dir> holds no fixture.
-use std::path::Path;
 use rust_engine::runner;
+use std::path::Path;
 
 fn usage() -> ! {
     eprintln!("usage: neuron-engine conform <dir> [--only <text>]");

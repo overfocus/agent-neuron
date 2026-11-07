@@ -15,8 +15,12 @@ use std::path::{Path, PathBuf};
 
 pub enum Result {
     /// The first difference, as lines (printed indented by two spaces).
-    Failed { diff: String },
-    Pending { reason: String },
+    Failed {
+        diff: String,
+    },
+    Pending {
+        reason: String,
+    },
 }
 
 pub struct Discovered {
@@ -42,12 +46,11 @@ fn walk(base: &Path, dir: &Path, out: &mut Vec<Discovered>) -> std::io::Result<(
         }
     }
     if dir.join("fixture.json").exists() {
-        let name = dir
-            .strip_prefix(base)
-            .unwrap_or(dir)
-            .to_string_lossy()
-            .replace('\\', "/");
-        out.push(Discovered { name, dir: dir.to_path_buf() });
+        let name = dir.strip_prefix(base).unwrap_or(dir).to_string_lossy().replace('\\', "/");
+        out.push(Discovered {
+            name,
+            dir: dir.to_path_buf(),
+        });
     }
     Ok(())
 }
@@ -64,10 +67,7 @@ fn load_networks(dir: &Path, fx: &Fixture) -> std::result::Result<(Network, Hash
         .into_iter()
         .map(|p| {
             // Composed paths are relative to the declaring file's directory.
-            (
-                root_path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(".")),
-                p,
-            )
+            (root_path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(".")), p)
         })
         .collect();
     while let Some((base, declared)) = queue.first().cloned() {
@@ -112,11 +112,7 @@ enum RunFail {
 /// One scripted run: the engine with the fixture's inputs, script and observer
 /// (or no observer), the start-up phase, the run. A harness failure (a call no
 /// script entry matches) is carried out as the panic payload of the engine.
-fn one_run(
-    fx: &Fixture,
-    networks: &(Network, HashMap<String, Network>),
-    with_observer: bool,
-) -> std::result::Result<RunOutcome, RunFail> {
+fn one_run(fx: &Fixture, networks: &(Network, HashMap<String, Network>), with_observer: bool) -> std::result::Result<RunOutcome, RunFail> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut eng = Engine::new(
             fx.inputs.clone(),
@@ -125,8 +121,7 @@ fn one_run(
             fx.ping_every,
             if with_observer { fx.observer.clone() } else { Vec::new() },
         );
-        eng.plant(&networks.0, &networks.1)
-            .map_err(RunFail::Refused)?;
+        eng.plant(&networks.0, &networks.1).map_err(RunFail::Refused)?;
         if let Some(why) = eng.start_serves_err() {
             // A serve program that never becomes ready or fails its first
             // start is a refusal of the whole run (SPEC 3.2, 5.3).
@@ -175,26 +170,32 @@ pub fn run_fixture(_root: &Path, found: &Discovered) -> std::result::Result<(), 
             return if fx.refuses {
                 Ok(())
             } else {
-                Err(Result::Failed { diff: format!("the engine refused the run: {}", why) })
+                Err(Result::Failed {
+                    diff: format!("the engine refused the run: {}", why),
+                })
             };
         }
         Err(RunFail::Harness(why)) => {
-            return Err(Result::Failed { diff: format!("harness failure: {}", why) });
+            return Err(Result::Failed {
+                diff: format!("harness failure: {}", why),
+            });
         }
     };
     if let Some(why) = &first.refused {
         if fx.refuses {
             return Ok(()); // the engine refused: the fixture passes (4.3)
         }
-        return Err(Result::Failed { diff: format!("the engine refused the run: {}", why) });
+        return Err(Result::Failed {
+            diff: format!("the engine refused the run: {}", why),
+        });
     }
     if fx.refuses {
         return Err(Result::Failed {
             diff: "the fixture expects a refusal, but the engine started the run".into(),
         });
     }
-    check_stream(&first.events, fx.stream_fails).map_err(|e| {
-        Result::Failed { diff: format!("the live stream is not the run's events, in order: {}", e) }
+    check_stream(&first.events, fx.stream_fails).map_err(|e| Result::Failed {
+        diff: format!("the live stream is not the run's events, in order: {}", e),
     })?;
     let mut actual = first.events.clone();
     filter_flagged(&mut actual, fx.notes, fx.finished);
@@ -218,8 +219,8 @@ pub fn run_fixture(_root: &Path, found: &Discovered) -> std::result::Result<(), 
                 });
             }
         };
-        check_stream(&second.events, fx.stream_fails).map_err(|e| {
-            Result::Failed { diff: format!("the second run's live stream is not its events: {}", e) }
+        check_stream(&second.events, fx.stream_fails).map_err(|e| Result::Failed {
+            diff: format!("the second run's live stream is not its events: {}", e),
         })?;
         // Which list belongs to which run (CONFORMANCE 6 rule 2): always
         // `expectWithout` when the fixture has one; `expect` stands in for the
@@ -232,13 +233,12 @@ pub fn run_fixture(_root: &Path, found: &Discovered) -> std::result::Result<(), 
             filter_flagged(&mut actual, fx.notes, fx.finished);
             let mut expected = target.clone();
             filter_flagged(&mut expected, fx.notes, fx.finished);
-            compare(&actual, &expected).map_err(|e| {
-                Result::Failed { diff: format!("the run without the observer: {}", e) }
+            compare(&actual, &expected).map_err(|e| Result::Failed {
+                diff: format!("the run without the observer: {}", e),
             })?;
         }
         if !fx.observer.is_empty() {
-            check_observer(&fx, &first.events, &second.events, &first.injected_traces)
-                .map_err(|e| Result::Failed { diff: e })?;
+            check_observer(&fx, &first.events, &second.events, &first.injected_traces).map_err(|e| Result::Failed { diff: e })?;
         }
     }
     Ok(())
@@ -287,12 +287,7 @@ fn check_stream(events: &[Value], stream_fails: bool) -> std::result::Result<(),
 /// traces that start at an injection from the run with the observer leaves
 /// exactly the events of the run without it. Notes take no part: a note names
 /// a neuron, not a trace.
-fn check_observer(
-    fx: &Fixture,
-    with: &[Value],
-    without: &[Value],
-    injected: &[u64],
-) -> std::result::Result<(), String> {
+fn check_observer(fx: &Fixture, with: &[Value], without: &[Value], injected: &[u64]) -> std::result::Result<(), String> {
     let split = with
         .iter()
         .position(|e| e.get("what").and_then(|v| v.as_str()) == Some("inject"))
@@ -416,7 +411,7 @@ fn compare(actual: &[Value], expected: &[Value]) -> std::result::Result<(), Stri
     if actual_norm.len() != expected_norm.len() {
         let first_exp = expected_norm
             .get(actual_norm.len())
-            .map(|e| json::write(e))
+            .map(json::write)
             .unwrap_or_else(|| "(none)".to_string());
         return Err(format!(
             "expected {} events, got {}: the first event the actual list is missing is {}",
@@ -507,15 +502,24 @@ pub fn run_for_debug(
     networks: &(Network, HashMap<String, Network>),
 ) -> std::result::Result<RunOutcome, String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut eng = Engine::new(fx.inputs.clone(), fx.script.clone(), fx.script.clone(), fx.ping_every, fx.observer.clone());
-        eng.plant(&networks.0, &networks.1).map_err(|e| format!("the engine did not start: {}", e))?;
+        let mut eng = Engine::new(
+            fx.inputs.clone(),
+            fx.script.clone(),
+            fx.script.clone(),
+            fx.ping_every,
+            fx.observer.clone(),
+        );
+        eng.plant(&networks.0, &networks.1)
+            .map_err(|e| format!("the engine did not start: {}", e))?;
         if let Some(why) = eng.start_serves_err() {
             return Err(why);
         }
         Ok(eng.run())
     }))
     .map_err(|payload| {
-        payload.downcast_ref::<String>().cloned()
+        payload
+            .downcast_ref::<String>()
+            .cloned()
             .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
             .unwrap_or_else(|| "the engine panicked".to_string())
     })

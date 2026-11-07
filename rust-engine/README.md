@@ -6,8 +6,8 @@ written from [SPEC.md](../docs/SPEC.md), [CONFORMANCE.md](../docs/CONFORMANCE.md
 [spec/network.schema.json](../spec/network.schema.json), the fixtures themselves
 and [conformance-python.md](../docs/conformance-python.md) (an engine's
 documentation, not engine source). The TypeScript and Python engines were used
-only as black boxes: `node dist/engine/cli.js conform <dir>` with probe fixtures
-of my own (three are still in the agent's scratch directory, referenced below).
+only as black boxes: `node dist/engine/cli.js conform <dir>` with probe
+fixtures of my own, written into a scratch directory outside the repository.
 
 ## M0 scope
 
@@ -35,7 +35,10 @@ of my own (three are still in the agent's scratch directory, referenced below).
 4. No golf: readable code, real names, wc per file in the table below.
 5. This README documents the scope, the criteria above, and what is not in M0.
 
-Results when M0 closed (re-run the commands above to check): see the table.
+Results when M0 closed, measured on this machine (re-run the commands above to
+check): `spec/fixtures` 201 passed, 0 failed, 0 pending, identical over 5
+consecutive runs; `py/probes` 10 passed, 0 failed; `cargo fmt --check` clean at
+`max_width = 140`; `cargo clippy --all-targets -- -D warnings` clean.
 
 ## What is deliberately NOT in M0
 
@@ -99,11 +102,25 @@ from fixtures):
 
 ## Size
 
+Lines as committed (`wc -l`), formatted at `max_width = 140`:
+
 | File | Lines |
 |---|---|
-| `src/json.rs` | 423 |
-| `src/net.rs` | (see below) |
-| `src/fixture.rs` | (see below) |
-| `src/engine.rs` | (see below) |
-| `src/runner.rs` | (see below) |
-| `src/main.rs` | (see below) |
+| `src/json.rs` | 415 |
+| `src/net.rs` | 633 |
+| `src/fixture.rs` | 394 |
+| `src/engine.rs` | 3068 |
+| `src/runner.rs` | 527 |
+| `src/main.rs` | 73 |
+| `src/lib.rs` | 6 |
+| total | 5116 |
+
+For scale: the TypeScript reference engine (`src/engine/`) is 1353 by
+`wc -l` (decision 0005's table). This crate is larger for two honest reasons:
+the std-only JSON layer (`json.rs`, 415 lines — what `serde_json` would have
+been, and the price of a dependency-free build), and a runner (`runner.rs`,
+527 lines) that is part of the conformance contract a new engine must write.
+The engine itself, without JSON, is 2578 lines; the 0005 experiment, golfed,
+came to 1292 (about 2200-2500 at rustfmt's shape) with its process layer
+unfinished. None of this is golf.
+

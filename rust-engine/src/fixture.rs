@@ -66,8 +66,7 @@ pub struct Fixture {
 }
 
 pub fn load(path: &str) -> Result<Fixture, Vec<String>> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| vec![format!("{}: cannot read ({})", path, e)])?;
+    let text = std::fs::read_to_string(path).map_err(|e| vec![format!("{}: cannot read ({})", path, e)])?;
     let v = crate::json::parse(&text).map_err(|e| vec![format!("{}: not JSON ({})", path, e)])?;
     from_json(&v).map_err(|e| vec![format!("{}: {}", path, e.concat())])
 }
@@ -80,9 +79,21 @@ fn from_json(v: &Value) -> Result<Fixture, Vec<String>> {
     for k in v.keys() {
         if !matches!(
             k,
-            "fixture" | "description" | "network" | "notes" | "finished" | "streamFails"
-                | "pending" | "pingEvery" | "refuses" | "inputs" | "script" | "observer"
-                | "expect" | "expectWithout" | "independent"
+            "fixture"
+                | "description"
+                | "network"
+                | "notes"
+                | "finished"
+                | "streamFails"
+                | "pending"
+                | "pingEvery"
+                | "refuses"
+                | "inputs"
+                | "script"
+                | "observer"
+                | "expect"
+                | "expectWithout"
+                | "independent"
         ) {
             errs.push(format!("unknown top-level field '{}'", k));
         }
@@ -201,7 +212,13 @@ fn from_json(v: &Value) -> Result<Fixture, Vec<String>> {
 fn input(iv: &Value, i: usize, errs: &mut Vec<String>) -> Input {
     if !iv.is_obj() {
         errs.push(format!("inputs[{}] is not an object", i));
-        return Input { at: 0, source: String::new(), payload: Value::Null, replaces: None, budget: None };
+        return Input {
+            at: 0,
+            source: String::new(),
+            payload: Value::Null,
+            replaces: None,
+            budget: None,
+        };
     }
     for k in iv.keys() {
         if !matches!(k, "at" | "source" | "payload" | "replaces" | "budget") {
@@ -235,7 +252,13 @@ fn input(iv: &Value, i: usize, errs: &mut Vec<String>) -> Input {
         None => None,
         Some(b) => units_of(b, &format!("inputs[{}]: budget", i), errs),
     };
-    Input { at, source, payload, replaces, budget }
+    Input {
+        at,
+        source,
+        payload,
+        replaces,
+        budget,
+    }
 }
 
 /// Units of a budget-like object, in declared order.
@@ -335,7 +358,14 @@ fn call_entry(cv: &Value, path: &str, i: usize, errs: &mut Vec<String>) -> CallE
             None
         }
     };
-    CallEntry { when, after, reply, ignore_term, leaves, on_cancel }
+    CallEntry {
+        when,
+        after,
+        reply,
+        ignore_term,
+        leaves,
+        on_cancel,
+    }
 }
 
 fn rule(rv: &Value, i: usize, errs: &mut Vec<String>) -> Rule {
@@ -343,7 +373,12 @@ fn rule(rv: &Value, i: usize, errs: &mut Vec<String>) -> Rule {
         errs.push(format!("observer[{}] is not an object", i));
         return Rule {
             when: Value::Null,
-            inject: Inject { after: 0, source: String::new(), payload: Value::Null, replaces: None },
+            inject: Inject {
+                after: 0,
+                source: String::new(),
+                payload: Value::Null,
+                replaces: None,
+            },
         };
     }
     let when = rv.get("when").cloned().unwrap_or(Value::Null);
