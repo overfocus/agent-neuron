@@ -54,7 +54,10 @@ pub enum Kind {
 /// What the engine registers when a human call starts (Appendix D: the
 /// payload's `title` and `notes` are shown, never sent; the `draft`/`proposal`
 /// pair is the diff convention; any other input is shown as its text or its
-/// JSON, which the engine shapes into `text`).
+/// JSON, which the engine shapes into `text`). A host reading `/state` needs
+/// more than the page does, so the item carries the whole ask too: its
+/// `payload` (the input value as the engine received it) and `t` (the run's
+/// millisecond at the ask).
 pub struct NewItem {
     pub neuron: String,
     pub title: Option<String>,
@@ -62,6 +65,18 @@ pub struct NewItem {
     pub draft: Option<String>,
     pub proposal: Option<String>,
     pub text: Option<String>,
+    pub payload: Value,
+    pub t: u64,
+}
+
+impl Kind {
+    fn name(self) -> &'static str {
+        match self {
+            Kind::Approve => "approve",
+            Kind::Edit => "edit",
+            Kind::No => "no",
+        }
+    }
 }
 
 /// One answer the desk accepted and the engine has not settled yet.
@@ -80,6 +95,10 @@ struct Item {
     draft: Option<String>,
     proposal: Option<String>,
     text: Option<String>,
+    /// The ask, whole (the input payload as the engine received it), and the
+    /// run's millisecond at the ask: what a host records a question from.
+    payload: Value,
+    t: u64,
     status: Status,
 }
 
@@ -107,6 +126,8 @@ impl Book {
             draft: item.draft,
             proposal: item.proposal,
             text: item.text,
+            payload: item.payload,
+            t: item.t,
             status: Status::Waiting,
         });
         id
@@ -139,6 +160,8 @@ impl Book {
                     .set_if("draft", i.draft.as_ref().map(|d| Value::Str(d.clone())))
                     .set_if("proposal", i.proposal.as_ref().map(|p| Value::Str(p.clone())))
                     .set_if("text", i.text.as_ref().map(|t| Value::Str(t.clone())))
+                    .set("payload", i.payload.clone())
+                    .int("t", i.t as i64)
                     .str("status", i.status.name())
                     .build()
             })
@@ -252,6 +275,21 @@ impl Desk {
     }
 }
 
+/// What an Approve sends (Appendix D): the input's `proposal` field if it is
+/// a string, else the input itself if it is a string, else the input as JSON
+/// text. Shared by the desk (recording the accepted answer against the item's
+/// stored `payload`) and the engine (settling the call), so both read the
+/// same rule.
+pub(crate) fn approve_text_of(input: &Value) -> String {
+    if let Some(Value::Str(p)) = input.get("proposal") {
+        return p.clone();
+    }
+    if let Value::Str(s) = input {
+        return s.clone();
+    }
+    json::write(input)
+}
+
 // One connection: parse what arrived, check the Host, the Origin and the
 // token, and serve one of three routes (or refuse). One request per
 // connection; every response says `Connection: close`.
@@ -343,6 +381,28 @@ fn serve(mut stream: TcpStream, shared: Arc<Shared>, wake: impl Fn() + Send + Sy
                 let mut book = shared.book();
                 match book.items.iter().find(|i| i.id == id).map(|i| i.status) {
                     Some(Status::Waiting) => {
+                        // What the run will carry (an approve sends the
+                        // proposal, else the input; an edit the person's
+                        // text; a no empty), and the host's own channel for
+                        // it: the run can end the moment this settles and
+                        // the desk closes with it, so the answer goes out as
+                        // one `desk answer:` line in the same breath. The
+                        // item's `payload` holds the input value whole, the
+                        // same rule the engine's settle reads.
+                        let accepted = {
+                            let item = book.items.iter().find(|i| i.id == id).expect("the waiting item");
+                            match kind {
+                                Kind::Approve => approve_text_of(&item.payload),
+                                Kind::Edit => text.clone(),
+                                Kind::No => String::new(),
+                            }
+                        };
+                        let note = json::Obj::new()
+                            .str("item", &id)
+                            .str("kind", kind.name())
+                            .str("text", accepted)
+                            .build();
+                        eprintln!("desk answer: {}", json::write(&note));
                         book.replies.push(Reply {
                             item: id.clone(),
                             kind,

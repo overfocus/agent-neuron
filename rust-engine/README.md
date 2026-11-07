@@ -152,16 +152,27 @@ end-to-end one.
   `answered` — and the run's `over`), `POST /answer` (`approve` sends
   `proposal`, else a string input, else the input as JSON text; `edit`
   sends the person's text, an empty one refused 400; `no` sends quiet).
+- What a *host* recording a run needs, which the page itself never reads:
+  the ask, whole — the state's item carries the `payload` (the input value
+  as the engine received it) and its `t`, the run's millisecond at the ask —
+  and the answers: the desk closes with the run, so a last answer can only
+  be read live, and every accepted answer lands as one `desk answer: {item,
+  kind, text}` line on the run's stderr at the moment of its POST, as the
+  run will carry it (an approve's text is the proposal the engine computed,
+  an edit's the person's, a `no`'s empty). The page fields stay as Appendix
+  D has them; these ride beside them, and the page is unchanged.
 - A human neuron inside a composed instance asks on the same page, its item
   named by instance path (`box/who`); `effect` human calls behave as the
   fixtures of M0 prove (a timeout is `unknown`); withdrawn and timed-out
   items refuse answers (410) as Appendix D says.
 - The M0 fixtures are unchanged: the virtual host still refuses `human`
   without its scripted person, and `conform` never serves a page.
-- Covered by `tests/desk.rs` (11): the three answers with the page's rules,
+- Covered by `tests/desk.rs` (12): the three answers with the page's rules,
   a withdrawn item, a timed-out effect, the credential and path refusals,
-  the page's CSP and values-as-text, and the composed instance — all driven
-  through the API the browser uses, no browser needed.
+  the page's CSP and values-as-text, the composed instance — all driven
+  through the API the browser uses, no browser needed — and the host
+  surface's ask (the state's `payload` and `t`) and answer (the stderr's
+  `desk answer:` line).
 
 ### Gates measured when M2 closed
 

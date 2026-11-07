@@ -333,6 +333,56 @@ fn desk_approve_sends_the_proposal() {
 }
 
 #[test]
+fn desk_state_carries_the_ask_and_the_stderr_carries_the_answer() {
+    // A host recording a run reads `/state` for what was asked (the item's
+    // `payload`, the input value whole, and its `t` in run milliseconds) and
+    // the run's stderr for what was answered: the desk closes with the run,
+    // so a last answer can only be read live — the desk's POST lands it as
+    // one `desk answer:` line, the answer the run will carry (an approve's
+    // text is the proposal, not the POST's). The page fields stay as
+    // Appendix D has them; these ride beside them.
+    let temp = Temp::new("ask-answer");
+    let net = temp.write("network.json", &human_network("", false));
+    let inputs = inputs_file(
+        &temp,
+        &[(
+            "0",
+            "src",
+            "{\"draft\":\"the old text\",\"proposal\":\"the new text\",\"title\":\"passage one\",\"notes\":[\"checks passed\"],\"id\":\"a#1\",\"round\":2,\"status\":\"ready\",\"extra\":{\"n\":1}}",
+        )],
+    );
+    let mut run = Run::start(&temp, &net, &inputs, &[]);
+    let (port, token) = run.desk();
+    let state = wait_items(&mut run, port, &token, 1);
+    // The ask: the whole input under `payload`, and the ask's run time under
+    // `t` (a whole millisecond figure, never negative). No answer rides in
+    // the state: the desk closes with the run, and answers go to stderr.
+    assert!(state.contains("\"payload\":{\"draft\":\"the old text\""), "{}", state);
+    assert!(
+        state.contains("\"id\":\"a#1\"") && state.contains("\"round\":2") && state.contains("\"status\":\"ready\""),
+        "{}",
+        state
+    );
+    assert!(
+        state.contains("\"extra\":{\"n\":1}"),
+        "the payload's own nesting rides verbatim: {}",
+        state
+    );
+    assert!(state.contains("\"t\":"), "the ask's run time: {}", state);
+    assert!(!state.contains("\"t\":-"), "t is a run millisecond, never negative: {}", state);
+    // The item is answered on the page (a person's approve); the stderr lands
+    // the answer the run will carry, and the printed answer matches it.
+    let item = extract_id(&state, 0).expect("the item's id");
+    let r = post(port, &token, &format!("{{\"item\":\"{item}\",\"kind\":\"approve\"}}"));
+    assert_eq!(r.code, 200, "{}", r.body);
+    let status = run.wait();
+    assert!(status.success(), "stderr: {}", run.err());
+    let want = format!("desk answer: {{\"item\":\"{item}\",\"kind\":\"approve\",\"text\":\"the new text\"}}");
+    assert!(run.err().contains(want.as_str()), "the answer as the run carries it: {}", run.err());
+    assert_eq!(run.out().trim(), "the new text");
+}
+
+#[test]
 fn desk_approve_of_a_string_input_sends_the_input() {
     let temp = Temp::new("approve-str");
     let net = temp.write("network.json", &human_network("", false));
@@ -369,7 +419,14 @@ fn desk_no_answers_quiet() {
     let (port, token) = run.desk();
     let state = wait_items(&mut run, port, &token, 1);
     let item = extract_id(&state, 0).expect("the item's id");
-    answer_ok(&mut run, port, &token, &item, "no", None);
+    let r = post(port, &token, &format!("{{\"item\":\"{item}\",\"kind\":\"no\"}}"));
+    assert_eq!(r.code, 200, "{}", r.body);
+    let status = run.wait();
+    assert!(status.success(), "stderr: {}", run.err());
+    // The quiet reads back as its own answer line (the desk closes with the
+    // run, so a host records answers from the stderr, not a final poll).
+    let want = format!("desk answer: {{\"item\":\"{item}\",\"kind\":\"no\",\"text\":\"\"}}");
+    assert!(run.err().contains(want.as_str()), "{}", run.err());
     assert_eq!(run.out(), ""); // a quiet prints nothing
 }
 
