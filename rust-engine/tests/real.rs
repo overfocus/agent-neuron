@@ -136,7 +136,12 @@ fn l0_answer() {
         "network.json",
         &network(
             "",
-            &[("a", "\"run\"", &format!("[\"python3\", \"{}\"]", progs("echo.py")), ", \"description\": \"e\"")],
+            &[(
+                "a",
+                "\"run\"",
+                &format!("[\"python3\", \"{}\"]", progs("echo.py")),
+                ", \"description\": \"e\"",
+            )],
         ),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "21")]);
@@ -151,10 +156,7 @@ fn l0_quiet() {
     let temp = Temp::new("l0-quiet");
     let net = temp.write(
         "network.json",
-        &network(
-            "",
-            &[("q", "\"run\"", &format!("[\"sh\", \"{}\"]", progs("quiet.sh")), "")],
-        ),
+        &network("", &[("q", "\"run\"", &format!("[\"sh\", \"{}\"]", progs("quiet.sh")), "")]),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
     let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
@@ -169,15 +171,16 @@ fn l0_junk() {
     let temp = Temp::new("l0-junk");
     let net = temp.write(
         "network.json",
-        &network(
-            "",
-            &[("j", "\"run\"", &format!("[\"sh\", \"{}\"]", progs("junk.sh")), "")],
-        ),
+        &network("", &[("j", "\"run\"", &format!("[\"sh\", \"{}\"]", progs("junk.sh")), "")]),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
     let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
     let trace = std::fs::read_to_string(temp.path("t.json")).unwrap();
-    assert!(has(&trace, "\"code\":\"junk\"") && has(&trace, "\"message\":\"not JSON: not a json value at all\""), "{}", trace);
+    assert!(
+        has(&trace, "\"code\":\"junk\"") && has(&trace, "\"message\":\"not JSON: not a json value at all\""),
+        "{}",
+        trace
+    );
     assert_eq!(count(&trace, "\"type\":\"error\""), 1);
     let _ = out;
 }
@@ -187,16 +190,21 @@ fn l0_exit_error() {
     let temp = Temp::new("l0-exit");
     let net = temp.write(
         "network.json",
-        &network(
-            "",
-            &[("e", "\"run\"", &format!("[\"sh\", \"{}\"]", progs("err.sh")), "")],
-        ),
+        &network("", &[("e", "\"run\"", &format!("[\"sh\", \"{}\"]", progs("err.sh")), "")]),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
     let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
     let trace = std::fs::read_to_string(temp.path("t.json")).unwrap();
-    assert!(out.status.success(), "a failing call is an event, not a failed run: {}", stderr(&out));
-    assert!(has(&trace, "\"code\":\"exit\"") && has(&trace, "\"message\":\"exit 7: boom on stderr\""), "{}", trace);
+    assert!(
+        out.status.success(),
+        "a failing call is an event, not a failed run: {}",
+        stderr(&out)
+    );
+    assert!(
+        has(&trace, "\"code\":\"exit\"") && has(&trace, "\"message\":\"exit 7: boom on stderr\""),
+        "{}",
+        trace
+    );
 }
 
 #[test]
@@ -204,10 +212,7 @@ fn l0_signal_error() {
     let temp = Temp::new("l0-signal");
     let net = temp.write(
         "network.json",
-        &network(
-            "",
-            &[("s", "\"run\"", &format!("[\"sh\", \"{}\"]", progs("signal.sh")), "")],
-        ),
+        &network("", &[("s", "\"run\"", &format!("[\"sh\", \"{}\"]", progs("signal.sh")), "")]),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
     let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
@@ -221,16 +226,17 @@ fn l0_overlong_output() {
     let temp = Temp::new("l0-overlong");
     let net = temp.write(
         "network.json",
-        &network(
-            "",
-            &[("o", "\"run\"", &format!("[\"python3\", \"{}\"]", progs("overlong.py")), "")],
-        ),
+        &network("", &[("o", "\"run\"", &format!("[\"python3\", \"{}\"]", progs("overlong.py")), "")]),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
     let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
     assert!(out.status.success());
     let trace = std::fs::read_to_string(temp.path("t.json")).unwrap();
-    assert!(has(&trace, "\"code\":\"output\"") && has(&trace, "\"message\":\"output too large\""), "{}", trace);
+    assert!(
+        has(&trace, "\"code\":\"output\"") && has(&trace, "\"message\":\"output too large\""),
+        "{}",
+        trace
+    );
     // The group went down at once: the kill note follows the error (6.3).
     assert!(has(&trace, "\"what\":\"kill\""), "{}", trace);
 }
@@ -242,14 +248,23 @@ fn l0_timeout_and_cancel() {
         "network.json",
         &network(
             "",
-            &[("h", "\"run\"", &format!("[\"python3\", \"{}\"]", progs("hang.py")), ", \"timeout\": 300")],
+            &[(
+                "h",
+                "\"run\"",
+                &format!("[\"python3\", \"{}\"]", progs("hang.py")),
+                ", \"timeout\": 300",
+            )],
         ),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
     let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
     assert!(out.status.success());
     let trace = std::fs::read_to_string(temp.path("t.json")).unwrap();
-    assert!(has(&trace, "\"code\":\"timeout\"") && has(&trace, "\"message\":\"timed out after 300 ms\""), "{}", trace);
+    assert!(
+        has(&trace, "\"code\":\"timeout\"") && has(&trace, "\"message\":\"timed out after 300 ms\""),
+        "{}",
+        trace
+    );
     assert!(has(&trace, "\"what\":\"cancel\"") && has(&trace, "\"what\":\"term\""), "{}", trace);
 }
 
@@ -258,7 +273,15 @@ fn l0_spawn_failure() {
     let temp = Temp::new("l0-spawn");
     let net = temp.write(
         "network.json",
-        &network("", &[("x", "\"run\"", &format!("[\"{}\", \"--help\"]", temp.path("no-such-executable").to_string_lossy()), "")]),
+        &network(
+            "",
+            &[(
+                "x",
+                "\"run\"",
+                &format!("[\"{}\", \"--help\"]", temp.path("no-such-executable").to_string_lossy()),
+                "",
+            )],
+        ),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
     let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
@@ -274,7 +297,12 @@ fn l0_env_isolation() {
         "network.json",
         &network(
             "",
-            &[("v", "\"run\"", &format!("[\"python3\", \"{}\"]", progs("envcheck.py")), ", \"env\": [\"EXTRA\"]")],
+            &[(
+                "v",
+                "\"run\"",
+                &format!("[\"python3\", \"{}\"]", progs("envcheck.py")),
+                ", \"env\": [\"EXTRA\"]",
+            )],
         ),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
@@ -300,7 +328,11 @@ fn l0_cwd_and_relative_command() {
     let temp = Temp::new("l0-cwd");
     let sub = temp.path("sub");
     std::fs::create_dir_all(&sub).unwrap();
-    std::fs::write(sub.join("cwdprobe.py"), "import json, os\nprint(json.dumps({\"cwd\": os.path.basename(os.getcwd())}))\n").unwrap();
+    std::fs::write(
+        sub.join("cwdprobe.py"),
+        "import json, os\nprint(json.dumps({\"cwd\": os.path.basename(os.getcwd())}))\n",
+    )
+    .unwrap();
     std::fs::write(sub.join("relprog.sh"), "#!/bin/sh\necho '{\"rel\": true}'\n").unwrap();
     {
         use std::os::unix::fs::PermissionsExt;
@@ -310,8 +342,10 @@ fn l0_cwd_and_relative_command() {
         "network.json",
         &network(
             "",
-            &[("w", "\"run\"", "[\"python3\", \"cwdprobe.py\"]", ", \"cwd\": \"sub\""),
-            ("r", "\"run\"", "[\"./relprog.sh\"]", ", \"cwd\": \"sub\"")],
+            &[
+                ("w", "\"run\"", "[\"python3\", \"cwdprobe.py\"]", ", \"cwd\": \"sub\""),
+                ("r", "\"run\"", "[\"./relprog.sh\"]", ", \"cwd\": \"sub\""),
+            ],
         ),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
@@ -330,7 +364,12 @@ fn l0_term_then_kill_with_survivor() {
         "network.json",
         &network(
             "",
-            &[("l", "\"run\"", &format!("[\"python3\", \"{}\"]", progs("leaves_ignore.py")), ", \"timeout\": 250")],
+            &[(
+                "l",
+                "\"run\"",
+                &format!("[\"python3\", \"{}\"]", progs("leaves_ignore.py")),
+                ", \"timeout\": 250",
+            )],
         ),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "\"hello\"")]);
@@ -347,7 +386,9 @@ fn l0_term_then_kill_with_survivor() {
 
 // -- Level 1 (SPEC 3.2) ------------------------------------------------------
 
-fn serve_network(delay_ms: u64, max_inflight: u64, timeout_ms: u64) -> String {
+/// The network of one serve neuron on `serve.py`; its `maxInflight` of 2 is
+/// the program's own word in `ready` (3.2), not a field of the file.
+fn serve_network(delay_ms: u64, timeout_ms: u64) -> String {
     network(
         "",
         &[(
@@ -362,14 +403,18 @@ fn serve_network(delay_ms: u64, max_inflight: u64, timeout_ms: u64) -> String {
 #[test]
 fn l1_handshake_run_and_finish() {
     let temp = Temp::new("l1-basics");
-    let net = temp.write("network.json", &serve_network(10, 2, 3000));
+    let net = temp.write("network.json", &serve_network(10, 3000));
     let inputs = inputs_file(&temp, &[("0", "src", "{\"n\": 2}")]);
     let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     // The threshold call's input rides as {payload, inputs} only above 1.
     assert_eq!(stdout(&out).trim(), "{\"n\":4}");
     let trace = std::fs::read_to_string(temp.path("t.json")).unwrap();
-    assert!(trace.contains("\"kind\":\"serve\"") && trace.contains("\"kind\":\"source\""), "{}", trace);
+    assert!(
+        trace.contains("\"kind\":\"serve\"") && trace.contains("\"kind\":\"source\""),
+        "{}",
+        trace
+    );
 }
 
 #[test]
@@ -379,7 +424,12 @@ fn l1_ready_validation_refuses() {
         "network.json",
         &network(
             "",
-            &[("s", "\"serve\"", &format!("[\"python3\", \"{}\"]", progs("serve_badready.py")), ", \"timeout\": 400")],
+            &[(
+                "s",
+                "\"serve\"",
+                &format!("[\"python3\", \"{}\"]", progs("serve_badready.py")),
+                ", \"timeout\": 400",
+            )],
         ),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
@@ -396,7 +446,12 @@ fn l1_never_ready_refuses() {
         "network.json",
         &network(
             "",
-            &[("s", "\"serve\"", &format!("[\"python3\", \"{}\"]", progs("serve_noready.py")), ", \"timeout\": 300")],
+            &[(
+                "s",
+                "\"serve\"",
+                &format!("[\"python3\", \"{}\"]", progs("serve_noready.py")),
+                ", \"timeout\": 300",
+            )],
         ),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
@@ -410,11 +465,8 @@ fn l1_maxinflight_queue() {
     // maxInflight 2 and three calls of 200 ms: two run, one queues; the
     // answers still arrive for all three (3.2).
     let temp = Temp::new("l1-queue");
-    let net = temp.write("network.json", &serve_network(200, 2, 5000));
-    let inputs = inputs_file(
-        &temp,
-        &[("0", "src", "1"), ("50", "src", "2"), ("100", "src", "3")],
-    );
+    let net = temp.write("network.json", &serve_network(200, 5000));
+    let inputs = inputs_file(&temp, &[("0", "src", "1"), ("50", "src", "2"), ("100", "src", "3")]);
     let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     assert_eq!(stdout(&out).lines().count(), 3);
@@ -426,7 +478,7 @@ fn l1_cancel_of_running_call() {
     // is running, the cancel note follows it (5.4, 6.2), and the neuron's
     // quiet for the cancelled re is discarded; the second call answers.
     let temp = Temp::new("l1-cancel");
-    let net = temp.write("network.json", &serve_network(1200, 2, 2500));
+    let net = temp.write("network.json", &serve_network(1200, 2500));
     let p = temp.path("inputs.jsonl");
     std::fs::write(
         &p,
@@ -446,10 +498,15 @@ fn l1_ping_and_pong() {
     // Long idle gap with a short ping interval: pings are answered and
     // nobody hangs.
     let temp = Temp::new("l1-ping");
-    let net = temp.write("network.json", &serve_network(10, 2, 2000));
-    let inputs = inputs_file(&temp, &[("0", "src", "{\"n\": 1}"), ("0", "src", "{\"n\": 2}")]);
+    // The network file is rewritten from the same shape the other tests use;
+    // its path is read again, at the run, below.
+    temp.write("network.json", &serve_network(10, 2000));
     let p2 = temp.path("i2.jsonl");
-    std::fs::write(&p2, "{\"at\":0,\"source\":\"src\",\"payload\":{\"n\":1}}\n{\"at\":0,\"source\":\"src\",\"payload\":{\"n\":2}}\n").unwrap();
+    std::fs::write(
+        &p2,
+        "{\"at\":0,\"source\":\"src\",\"payload\":{\"n\":1}}\n{\"at\":0,\"source\":\"src\",\"payload\":{\"n\":2}}\n",
+    )
+    .unwrap();
     let out = run_with_env(
         &temp,
         &temp.path("network.json"),
@@ -481,7 +538,12 @@ fn l1_hang_on_pong() {
         ),
     );
     let inputs = inputs_file(&temp, &[("0", "src", "{\"n\": 1}")]);
-    let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy(), "--ping", "200"]);
+    let out = run_cli(
+        &temp,
+        &net,
+        &inputs,
+        &["--trace", &temp.path("t.json").to_string_lossy(), "--ping", "200"],
+    );
     assert!(out.status.success());
     let trace = std::fs::read_to_string(temp.path("t.json")).unwrap();
     // The hang is of an idle process: the restart note is the fact; a crash
@@ -495,7 +557,7 @@ fn l1_crash_and_restart() {
     // A process that dies before its call answers: the call fails with crash,
     // the process restarts with the backoff, and the next call answers (3.2).
     let temp = Temp::new("l1-crash");
-    let net = temp.write(
+    temp.write(
         "network.json",
         &network(
             "",
@@ -513,9 +575,18 @@ fn l1_crash_and_restart() {
         "{\"at\":0,\"source\":\"src\",\"payload\":{\"n\":1}}\n{\"at\":300,\"source\":\"src\",\"payload\":{\"n\":2}}\n",
     )
     .unwrap();
-    let out = run_cli(&temp, &temp.path("network.json"), &p, &["--trace", &temp.path("t.json").to_string_lossy()]);
+    let out = run_cli(
+        &temp,
+        &temp.path("network.json"),
+        &p,
+        &["--trace", &temp.path("t.json").to_string_lossy()],
+    );
     let trace = std::fs::read_to_string(temp.path("t.json")).unwrap();
-    assert!(has(&trace, "\"code\":\"crash\"") && has(&trace, "process failed"), "crash: {}", trace);
+    assert!(
+        has(&trace, "\"code\":\"crash\"") && has(&trace, "process failed"),
+        "crash: {}",
+        trace
+    );
     assert!(has(&trace, "\"what\":\"restart\""), "restart: {}", trace);
     // The restarted process answers the second call.
     assert_eq!(count(&stdout(&out), "\"seen\":"), 1, "{}", stdout(&out));
@@ -588,7 +659,11 @@ fn l1_protocol_error() {
     let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
     assert!(out.status.success());
     let trace = std::fs::read_to_string(temp.path("t.json")).unwrap();
-    assert!(has(&trace, "\"code\":\"protocol\"") && has(&trace, "protocol: to names"), "{}", trace);
+    assert!(
+        has(&trace, "\"code\":\"protocol\"") && has(&trace, "protocol: to names"),
+        "{}",
+        trace
+    );
 }
 
 // -- The run command's surfaces ----------------------------------------------
@@ -596,10 +671,7 @@ fn l1_protocol_error() {
 #[test]
 fn run_refuses_http() {
     let temp = Temp::new("run-http");
-    let net = temp.write(
-        "network.json",
-        &network("", &[("h", "\"http\"", "\"http://127.0.0.1:9/x\"", "")]),
-    );
+    let net = temp.write("network.json", &network("", &[("h", "\"http\"", "\"http://127.0.0.1:9/x\"", "")]));
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
     let out = run_cli(&temp, &net, &inputs, &[]);
     assert!(!out.status.success());
@@ -609,10 +681,7 @@ fn run_refuses_http() {
 #[test]
 fn run_refuses_human() {
     let temp = Temp::new("run-human");
-    let net = temp.write(
-        "network.json",
-        &network("", &[("h", "\"human\"", "true", "")]),
-    );
+    let net = temp.write("network.json", &network("", &[("h", "\"human\"", "true", "")]));
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
     let out = run_cli(&temp, &net, &inputs, &[]);
     assert!(!out.status.success());
@@ -624,10 +693,16 @@ fn run_refuses_a_file_that_does_not_check() {
     let temp = Temp::new("run-check-fail");
     let net = temp.write(
         "network.json",
-        &network("", &[("b", "\"run\"", "[\"python3\", \"-c\", \"pass\"]", ", \"cost\": {\"credits\": 3}")]),
+        &network(
+            "",
+            &[("b", "\"run\"", "[\"python3\", \"-c\", \"pass\"]", ", \"cost\": {\"credits\": 3}")],
+        ),
     );
     let mut with_budget = std::fs::read_to_string(&net).unwrap();
-    with_budget = with_budget.replace("\"description\": \"a test network\",", "\"description\": \"a test network\",\n  \"budget\": {},");
+    with_budget = with_budget.replace(
+        "\"description\": \"a test network\",",
+        "\"description\": \"a test network\",\n  \"budget\": {},",
+    );
     std::fs::write(&net, with_budget).unwrap();
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
     let out = run_cli(&temp, &net, &inputs, &[]);
@@ -640,7 +715,7 @@ fn run_refuses_a_file_that_does_not_check() {
 #[test]
 fn trace_header_and_stream_lines() {
     let temp = Temp::new("trace-stream");
-    let net = temp.write("network.json", &serve_network(10, 2, 3000));
+    let net = temp.write("network.json", &serve_network(10, 3000));
     let inputs = inputs_file(&temp, &[("0", "src", "{\"n\": 5}")]);
     let out = run_cli(
         &temp,
@@ -664,7 +739,11 @@ fn trace_header_and_stream_lines() {
     assert!(has(&trace, "\"summary\": {}"));
     // Every signal's fields and the finished at the end; the events are one
     // per line.
-    assert!(has(&trace, "\"replaces\":\"k\"") || has(&trace, "\"type\":\"finished\""), "{}", trace);
+    assert!(
+        has(&trace, "\"replaces\":\"k\"") || has(&trace, "\"type\":\"finished\""),
+        "{}",
+        trace
+    );
     assert!(has(&trace, "\"type\":\"finished\""));
     // The stream file: the same events, one JSON object per line.
     let stream = std::fs::read_to_string(temp.path("s.jsonl")).unwrap();
@@ -681,13 +760,12 @@ fn stream_pipe_without_reader_is_off() {
     // A pipe with no reader: the stream is off, with one message on stderr,
     // and the run itself is unaffected (9.1).
     let temp = Temp::new("stream-pipe");
-    let net = temp.write("network.json", &serve_network(10, 2, 2000));
-    let fifo = temp.path("events.fifo");
+    temp.write("network.json", &serve_network(10, 2000));
     std::fs::create_dir(temp.path("d")).unwrap();
     let fifo = temp.path("d").join("events.fifo");
     make_fifo(&fifo);
     let inputs = inputs_file(&temp, &[("0", "src", "{\"n\": 1}")]);
-    let out = run_cli(&temp, &net, &inputs, &["--stream", &fifo.to_string_lossy()]);
+    let out = run_cli(&temp, &temp.path("network.json"), &inputs, &["--stream", &fifo.to_string_lossy()]);
     assert!(out.status.success(), "the run never waits on a stream: {}", stderr(&out));
     assert!(has(&stderr(&out), "no reader"), "{}", stderr(&out));
 }

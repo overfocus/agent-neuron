@@ -6,10 +6,13 @@ def send(m):
     with lock:
         print(json.dumps(m), flush=True)
 def call(m, delay, cancelled):
-    waited = 0
-    while waited < delay and not cancelled.is_set():
+    # The delay is a real-time deadline (time.time), not a count of 10 ms
+    # sleeps: a scheduler that stretches a 10 ms sleep must not turn a
+    # `delay` of 1200 into seconds of wall time (the answer would arrive
+    # after the neuron's timeout and be cancelled instead).
+    deadline = time.time() + delay / 1000.0
+    while not cancelled.is_set() and time.time() < deadline:
         time.sleep(0.01)
-        waited += 10
     if cancelled.is_set():
         send({"type": "quiet", "re": m["re"]})
         return

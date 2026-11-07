@@ -7,6 +7,20 @@ use crate::net::{NetFile, Network};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// The live-stream sink of a run (9.1): each event, in order; never holds the
+/// run up.
+pub type StreamSink = Box<dyn FnMut(&Value)>;
+
+/// One finished run: the answers of the neurons with no outgoing links in
+/// their printed form (4.4), the events, and the network's tree (the declared
+/// file first, then every composed file it names).
+pub struct RunResult {
+    pub answers: Vec<String>,
+    pub events: Vec<Value>,
+    pub network: Network,
+    pub files: HashMap<String, NetFile>,
+}
+
 pub struct RunOpts {
     pub inputs: String,
     pub ping_every: u64,
@@ -43,11 +57,7 @@ pub fn read_inputs(path: &str) -> Result<Vec<fixture::Input>, String> {
 /// Returns the run's printed answers — the whole payloads of the neurons with
 /// no outgoing links, in the order they happened (4.4), a text payload as its
 /// text and the rest as its JSON — the events, and the network's tree.
-pub fn run_with_stream(
-    file: &str,
-    opts: &RunOpts,
-    sink: Option<Box<dyn FnMut(&Value)>>,
-) -> Result<(Vec<String>, Vec<Value>, Network, HashMap<String, NetFile>), String> {
+pub fn run_with_stream(file: &str, opts: &RunOpts, sink: Option<StreamSink>) -> Result<RunResult, String> {
     let inputs = read_inputs(&opts.inputs)?;
     let path = Path::new(file);
     let (outer, files) = crate::runner::load_network_tree(path).map_err(|e| e.join("; "))?;
@@ -72,15 +82,12 @@ pub fn run_with_stream(
     if let Some(why) = &outcome.refused {
         return Err(format!("the engine refused the run: {}", why));
     }
-    let printed: Vec<String> = outcome
-        .answers
-        .iter()
-        .map(|(_, payload)| match payload {
-            crate::engine::PVal::Text(text) => text.clone(),
-            other => crate::json::write(&other.as_full()),
-        })
-        .collect();
-    Ok((printed, outcome.events, outer, files))
+    Ok(RunResult {
+        answers: outcome.printed_answers(),
+        events: outcome.events,
+        network: outer,
+        files,
+    })
 }
 
 /// The answers on stdout, one per line (already the printed form).

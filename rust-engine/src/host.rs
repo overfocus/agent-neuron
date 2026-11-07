@@ -515,10 +515,7 @@ impl Host {
                                 // engine kills the group now, whatever the
                                 // process does after it wrote (6.3, 3.1).
                                 if !over_reported.swap(true, Ordering::SeqCst) {
-                                    push_ev(&reader_events, Ev::L0Done {
-                                        l0,
-                                        out: L0Out::Overlong,
-                                    });
+                                    push_ev(&reader_events, Ev::L0Done { l0, out: L0Out::Overlong });
                                 }
                             } else {
                                 h.data.extend_from_slice(&buf[..n]);
@@ -865,17 +862,23 @@ mod probe {
     /// a spawning failure names itself here and not hidden in a run.
     #[test]
     fn l0_echo_round_trip() {
-        let mut h = Host::new();
         let input = b"{\"n\": 1}";
         let dir = std::env::temp_dir().to_string_lossy().to_string();
         let cases: Vec<(&str, Vec<String>)> = vec![
-            ("no cwd", vec!["/bin/sh".into(), "-c".into(), "read -r x; echo \"{\\\"o\\\": $x}\"".into()]),
-            ("with cwd", vec!["/bin/sh".into(), "-c".into(), "echo \"{\\\"o\\\": cwd-ok}\"".into()]),
+            (
+                "no cwd",
+                vec!["/bin/sh".into(), "-c".into(), "read -r x; echo \"{\\\"o\\\": $x}\"".into()],
+            ),
+            ("with cwd", vec!["/bin/sh".into(), "-c".into(), "echo '{\"o\": \"cwd-ok\"}'".into()]),
         ];
         for (what, cmd) in cases {
             let mut h = Host::new();
             let with_dir = what.starts_with("with");
-            let cwd = if with_dir { Some(std::path::PathBuf::from(dir.clone())) } else { None };
+            let cwd = if with_dir {
+                Some(std::path::PathBuf::from(dir.clone()))
+            } else {
+                None
+            };
             let gid = h.l0_begin(0, &cmd, cwd.as_deref(), &[], input).expect("the call starts");
             let _ = gid;
             let Some(m) = h.pump(Some(clock_ms() + 5000)) else {
@@ -895,6 +898,5 @@ mod probe {
                 other => panic!("wrong ev: {:?}", other),
             }
         }
-        let _ = &h;
     }
 }

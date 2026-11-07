@@ -119,7 +119,11 @@ fn run(args: &[String]) {
     }
     let file = flags.free[0].clone();
     let get = |name: &str| flags.named.iter().find(|(n, _)| n == name).map(|(_, v)| v.clone());
-    if flags.named.iter().any(|(n, _)| !matches!(n.as_str(), "inputs" | "trace" | "stream" | "ping")) {
+    if flags
+        .named
+        .iter()
+        .any(|(n, _)| !matches!(n.as_str(), "inputs" | "trace" | "stream" | "ping"))
+    {
         usage();
     }
     let Some(inputs) = get("inputs") else { usage() };
@@ -138,7 +142,7 @@ fn run(args: &[String]) {
     // The stream is in place before the engine starts, so the first event is
     // offered too (9.1: the stream is the trace, event for event).
     let written: std::sync::Arc<std::sync::Mutex<Vec<String>>> = std::sync::Arc::default();
-    let mut sink: Option<Box<dyn FnMut(&json::Value)>> = None;
+    let mut sink: Option<run::StreamSink> = None;
     if let Some(path) = &stream_path {
         match trace::Stream::open(path) {
             Ok(mut s) => {
@@ -163,22 +167,25 @@ fn run(args: &[String]) {
         ping_every,
     };
     match run::run_with_stream(&file, &opts, sink) {
-        Ok((answers, events, outer, _files)) => {
-            run::print_answers(&answers);
+        Ok(result) => {
+            run::print_answers(&result.answers);
             if let Some(out) = &trace_out {
                 // The stream's record rides only when a stream was asked for.
                 let record = if stream_path.is_some() { Some(&written) } else { None };
-                if let Err(why) = write_trace_checked(out, &events, &outer, record) {
+                if let Err(why) = write_trace_checked(out, &result.events, &result.network, record) {
                     eprintln!("{}", why);
                     std::process::exit(1);
                 }
             }
-            let demo = if outer.name.is_empty() {
-                Path::new(&file).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
+            let demo = if result.network.name.is_empty() {
+                Path::new(&file)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default()
             } else {
-                outer.name
+                result.network.name
             };
-            eprintln!("ran {}: {} events", demo, events.len());
+            eprintln!("ran {}: {} events", demo, result.events.len());
         }
         Err(why) => {
             eprintln!("{}", why);
@@ -196,7 +203,10 @@ fn write_trace_checked(
     outer: &rust_engine::net::Network,
     written: Option<&std::sync::Arc<std::sync::Mutex<Vec<String>>>>,
 ) -> Result<(), String> {
-    let fallback = Path::new(out).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let fallback = Path::new(out)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
     let demo = if outer.name.is_empty() { fallback } else { outer.name.clone() };
     trace::write_trace(out, outer, &demo, events)?;
     let from_trace = trace::read_events(out)?;

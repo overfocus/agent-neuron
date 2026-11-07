@@ -368,8 +368,23 @@ pub struct RunOutcome {
     pub injected_traces: Vec<u64>,
     /// The whole answer payloads of the neurons with no outgoing links (a
     /// stale effect call's included), in the order they happened (the run
-    /// prints these; the trace cuts long payloads).
-    pub answers: Vec<(String, PVal)>,
+    /// prints these; the trace cuts long payloads). Read them through
+    /// `printed_answers`; `PVal` is the engine's own shape.
+    pub(crate) answers: Vec<(String, PVal)>,
+}
+
+impl RunOutcome {
+    /// The answers as the run prints them (4.4): a text payload as its text,
+    /// the rest as their JSON value.
+    pub fn printed_answers(&self) -> Vec<String> {
+        self.answers
+            .iter()
+            .map(|(_, payload)| match payload {
+                PVal::Text(text) => text.clone(),
+                other => json::write(&other.as_full()),
+            })
+            .collect()
+    }
 }
 
 pub struct Engine {
@@ -413,7 +428,7 @@ pub struct Engine {
     real: Option<Host>,
     /// The first live-stream copy of each reported event (the `--stream` pipe
     /// or file; SPEC 9.1). Never holds the run up.
-    stream: Option<Box<dyn FnMut(&Value)>>,
+    stream: Option<crate::run::StreamSink>,
     /// False on the real host while its serve programs are still starting:
     /// nothing is reported before the engine's clock starts.
     reporting: bool,
@@ -483,7 +498,7 @@ impl Engine {
 
     /// Offer a copy of every reported event as it happens (9.1). The sink is
     /// the `run` command's; a slow or closed sink never changes the run.
-    pub fn set_stream(&mut self, sink: Box<dyn FnMut(&Value)>) {
+    pub fn set_stream(&mut self, sink: crate::run::StreamSink) {
         self.stream = Some(sink);
     }
 
@@ -1955,7 +1970,7 @@ impl Engine {
                     self.finish_check(None);
                 }
             }
-            if !self.works[work].done && !matches!(self.l0s[l0].gid, None) {
+            if !self.works[work].done && self.l0s[l0].gid.is_some() {
                 self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
             }
             return;
@@ -2663,10 +2678,14 @@ impl Engine {
         if !valid {
             return; // a line of an older process, or no such process
         }
-        let p = self.proc_of(node).expect("the process is up");
-        p.lines += 1;
-        let line_no = p.lines;
-        drop(p); // no borrow rides past here
+        // A new scope ends the process's borrow before the engine's own
+        // fields are used again. (The line number counts every line, ready
+        // included, from 1 per process, 3.2.)
+        let line_no = {
+            let p = self.proc_of(node).expect("the process is up");
+            p.lines += 1;
+            p.lines
+        };
         let ready = self.proc_of(node).map(|p| p.ready).unwrap_or(false);
         if !ready && self.is_real() {
             match line {
@@ -3348,18 +3367,15 @@ impl Engine {
         // What remains of the process group is killed with SIGTERM; the kill
         // grace follows 2000 ms later when a member remains (6.3).
         if self.is_real() {
-            match gid {
-                Some(g) => {
-                    let alive = host::group_alive(g);
-                    if alive {
-                        self.emit_node_note(server, "term");
-                        host::term_group(g);
-                    }
-                    if alive {
-                        self.arm_terminate_grace(server, gen, true);
-                    }
+            if let Some(g) = gid {
+                let alive = host::group_alive(g);
+                if alive {
+                    self.emit_node_note(server, "term");
+                    host::term_group(g);
                 }
-                None => {}
+                if alive {
+                    self.arm_terminate_grace(server, gen, true);
+                }
             }
         } else {
             if leader_alive || leaves {
