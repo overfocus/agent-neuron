@@ -283,6 +283,12 @@ pub fn units_of(v: &Value, what: &str, errs: &mut Vec<String>) -> Option<Units> 
     Some(out)
 }
 
+/// One entry of an inputs file (`run --inputs`, SPEC 4.1): the same shape a
+/// fixture's `inputs` takes. Public for the run command.
+pub fn inputs_of(v: &Value, i: usize, errs: &mut Vec<String>) -> Input {
+    input(v, i, errs)
+}
+
 fn prog(pv: &Value, path: &str, errs: &mut Vec<String>) -> Prog {
     if !pv.is_obj() {
         errs.push(format!("script['{}'] is not an object", path));

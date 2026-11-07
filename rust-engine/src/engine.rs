@@ -1,12 +1,15 @@
-// The engine (SPEC sections 4-11) with the scripted host for fixtures, in one
-// event loop.
+// The engine (SPEC sections 4-11), in one event loop, on either host.
 //
-// Sans-IO: the engine never reads a clock and never touches the world. Time is
-// a count of milliseconds and every event comes out of one queue of wake-ups,
-// in the order they were set (SPEC 6.2 rule 1). The scripted host of
-// CONFORMANCE 5 stands in for processes, groups, slots and people; a real host
-// would answer the same questions (start, write, term, kill) at the same
-// points, which is for later milestones.
+// The event core never reads a clock and never touches the world: time is a
+// count of milliseconds and every event comes out of one queue of wake-ups, in
+// the order they were set (SPEC 6.2 rule 1). On the scripted host of
+// CONFORMANCE 5 (the fixtures), programs are plans: a call's entry says when it
+// ends and what it writes, and the wake-ups deliver those promises. On the real
+// host (`host.rs`, the `run` command), programs are processes: the host starts
+// them, reads their streams, and delivers what happened with the time it read
+// it; the engine consumes those events at the same points (a reply line, a
+// ready line, a ping's pong, a process's exit) and arms only its own wake-ups
+// (timeouts, graces, restarts, pings).
 //
 // Structure: `plant` loads the network file(s) into one forest of instances
 // (the outer network, then every composed file it names, one instance per
@@ -18,12 +21,16 @@
 // Events of the outer instance are reported; the inside of a composed neuron is
 // discarded (sealing, SPEC 2.6). A call's reply wake-up is armed before its
 // timeout, so a reply due at the timeout instant wins (SPEC 6.2 rule 7); every
-// other same-instant order falls out of the arm order.
+// other same-instant order falls out of the arm order. On the real host an
+// event's time is when the host read it, so a reply that made it to the queue
+// by its timeout instant goes first.
 use crate::fixture::{CallEntry, Input, Prog, Rule, Units};
-use crate::json::{Obj, Value};
-use crate::net::{Kind, Network};
+use crate::host::{self, Host, Line};
+use crate::json::{self, Obj, Value};
+use crate::net::{Kind, NetFile, Network};
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
+use std::path::PathBuf;
 
 /// The staleness and sealing scope of a signal and the work it starts: the
 /// outer instance is one scope; a composed neuron's inside is one scope per
@@ -34,7 +41,7 @@ struct ScopeKey(u32, usize);
 /// A payload as the engine carries it: a JSON value or a text payload (a JSON
 /// string is text: the one lossy spot, SPEC 7.2).
 #[derive(Debug, Clone)]
-enum PVal {
+pub(crate) enum PVal {
     Json(Value),
     Text(String),
 }
@@ -44,6 +51,15 @@ impl PVal {
         match self {
             PVal::Json(v) => Obj::new().str("type", "json").set("data", v.clone()).build(),
             PVal::Text(s) => Obj::new().str("type", "text").str("text", s.clone()).build(),
+        }
+    }
+
+    /// The whole value, as the run's answers carry it (the trace cuts long
+    /// payloads; the run prints the whole one, TRACE.md and 9.1).
+    pub(crate) fn as_full(&self) -> Value {
+        match self {
+            PVal::Json(v) => v.clone(),
+            PVal::Text(s) => Value::Str(s.clone()),
         }
     }
 
@@ -95,6 +111,10 @@ struct Work {
     entry: Option<CallEntry>,
     /// Effects: a started call is marked, never cut (11.2).
     stale_marked: bool,
+    /// The outcome's event is out: a further event of the same call (a real
+    /// process dying after its timeout, say) reports nothing; the commit of
+    /// such a call still waits for its program to be over (10.4).
+    reported: bool,
     /// Budget: the pool this work reserved from.
     pool: Option<u64>,
     reserved: bool,
@@ -117,12 +137,18 @@ impl Work {
 }
 
 /// A level 0 process group (SPEC 3.1, 5.4): the leader and whatever it left
-/// running in the group.
+/// running in the group. On the real host, `gid` is the process group; the
+/// scripted host's flags are the script's word on the same facts.
 struct L0Proc {
     work: usize,
+    /// The leader still lives (scripted: per the script; real: no exit seen).
     leader_alive: bool,
     survivor: bool,
     ignore_term: bool,
+    /// The real process group (the leader's process group, its own pid).
+    gid: Option<i32>,
+    /// A real group whose over-long output was already killed at once.
+    killed: bool,
 }
 
 /// A level 1 slot: at most `maxInflight` run at once (SPEC 3.2).
@@ -189,6 +215,8 @@ struct Proc {
     next_re: u64,
     slots: Vec<Slot>,
     lines: u64,
+    /// The real process group of this generation.
+    gid: Option<i32>,
 }
 
 struct Serve {
@@ -203,10 +231,12 @@ struct Serve {
     ping_open: Option<u64>,
     /// A kill grace under way: the group is being killed; the note and the
     /// flag of whether someone may still be in it live here, not on `cur`,
-    /// because the process record is gone (6.3).
+    /// because the process record is gone (6.3). The real host's group id of
+    /// that grace rides with it.
     grace: bool,
     grace_gen: usize,
     grace_survivor: bool,
+    grace_gid: Option<i32>,
 }
 
 /// A signal: the engine sets all of its fields (SPEC 1); the trace is the
@@ -254,6 +284,13 @@ struct INode {
     cost: Option<Units>,
     out: Vec<usize>,
     prog: String,
+    /// The program of a `run` or `serve` neuron, and the working directory it
+    /// runs in: the `cwd` option, else the directory of the file that declares
+    /// the neuron (SPEC 2.4), and the `env` names (2.4). The real host reads
+    /// them; the scripted host ignores them.
+    cmd: Vec<String>,
+    cwd: Option<PathBuf>,
+    env: Vec<String>,
 }
 
 /// What a script answers a call with (CONFORMANCE 5.2), with the reply's `to`
@@ -275,6 +312,22 @@ enum Outcome {
 /// A `replaces` key in a reply: absent inherits the incoming signal's key,
 /// `null` clears it, and a string of at most 256 bytes sets it (SPEC 5.2).
 type KeyThree = Option<Option<String>>;
+
+/// One level 0 program's outcome, as both hosts report it (SPEC 3.1): the
+/// scripted host's reply object and the real host's streams both land on one
+/// of these.
+enum L0Out {
+    Answer {
+        payload: PVal,
+    },
+    Quiet,
+    /// stdout carried more than 1 MiB: the error, then the kill.
+    Overlong,
+    Fail {
+        code: &'static str,
+        msg: String,
+    },
+}
 
 /// An observer injection waiting for its `after` (SPEC 9).
 #[derive(Clone)]
@@ -313,6 +366,10 @@ pub struct RunOutcome {
     pub refused: Option<String>,
     pub harness: Option<String>,
     pub injected_traces: Vec<u64>,
+    /// The whole answer payloads of the neurons with no outgoing links (a
+    /// stale effect call's included), in the order they happened (the run
+    /// prints these; the trace cuts long payloads).
+    pub answers: Vec<(String, PVal)>,
 }
 
 pub struct Engine {
@@ -349,6 +406,18 @@ pub struct Engine {
     injected_roots: Vec<u64>,
     harness: Option<String>,
     refused: Option<String>,
+
+    /// The world of the `run` command: real processes under `host.rs`. `None`
+    /// is the scripted host of the conformance fixtures; every difference
+    /// between the two hosts sits in one `is_real()` branch.
+    real: Option<Host>,
+    /// The first live-stream copy of each reported event (the `--stream` pipe
+    /// or file; SPEC 9.1). Never holds the run up.
+    stream: Option<Box<dyn FnMut(&Value)>>,
+    /// False on the real host while its serve programs are still starting:
+    /// nothing is reported before the engine's clock starts.
+    reporting: bool,
+    answers: Vec<(String, PVal)>,
 }
 
 impl Engine {
@@ -395,7 +464,51 @@ impl Engine {
             injected_roots: Vec::new(),
             harness: None,
             refused: None,
+            real: None,
+            stream: None,
+            reporting: false,
+            answers: Vec::new(),
         }
+    }
+
+    /// The real host: `run`'s engine. The clock is real time; the inputs are
+    /// injected `at` ms after time zero (the last ready of the serve
+    /// programs, CONFORMANCE 4.2's real analogue).
+    pub fn new_real(inputs: Vec<Input>, ping_every: u64) -> Engine {
+        let mut eng = Engine::new(inputs, HashMap::new(), HashMap::new(), ping_every, Vec::new());
+        eng.real = Some(Host::new());
+        eng.now = host::clock_ms();
+        eng
+    }
+
+    /// Offer a copy of every reported event as it happens (9.1). The sink is
+    /// the `run` command's; a slow or closed sink never changes the run.
+    pub fn set_stream(&mut self, sink: Box<dyn FnMut(&Value)>) {
+        self.stream = Some(sink);
+    }
+
+    /// A run the engine refused at its start (a serve program that never said
+    /// ready): the start spawned processes; they are stopped, silently.
+    pub fn stop_after_refusal(&mut self) {
+        if self.real.is_none() {
+            return;
+        }
+        let gids: Vec<i32> = self
+            .serves
+            .values()
+            .filter_map(|s| s.cur.as_ref())
+            .filter_map(|p| p.gid)
+            .filter(|g| host::group_alive(*g))
+            .collect();
+        self.host().end_refused(&gids);
+    }
+
+    fn is_real(&self) -> bool {
+        self.real.is_some()
+    }
+
+    fn host(&mut self) -> &mut Host {
+        self.real.as_mut().expect("the real host")
     }
 
     /// A harness failure (a call no script entry matches, say): the run
@@ -414,10 +527,19 @@ impl Engine {
 
     /// Report an event of `inst`'s network; the inside of a composed neuron is
     /// never reported (sealing, SPEC 2.6). The observer (SPEC 9) reads the
-    /// outer events as they are reported.
+    /// outer events as they are reported, and so does the run's stream. On the
+    /// real host nothing is reported before the engine's clock starts (an
+    /// engine reports from its run's time zero on; a pre-time-zero fact is a
+    /// process fact of the start-up, and the run that follows never sees it).
     fn emit(&mut self, inst: u32, ev: Value) {
         if inst != 0 {
             return;
+        }
+        if self.real.is_some() && !self.reporting {
+            return;
+        }
+        if let Some(stream) = &mut self.stream {
+            stream(&ev);
         }
         self.observer_sees(&ev);
         self.events.push(ev);
@@ -463,15 +585,25 @@ impl Engine {
     // The forest of instances
     // -----------------------------------------------------------------------
 
-    /// Load the outer network and every composed file it names. An `http`
-    /// neuron refuses the run: this engine runs none of them.
-    pub fn plant(&mut self, outer: &Network, files: &HashMap<String, Network>) -> Result<(), String> {
-        self.plant_net(outer, files, 0, None, "")?;
-        if let Some(ix) = self.nodes.iter().position(|n| matches!(n.kind, Kind::Http(_))) {
-            self.refused = Some(format!(
-                "the network has an http neuron ('{}'), which this engine does not run",
-                self.nodes[ix].display
-            ));
+    /// Load the outer network and every composed file it names. On the real
+    /// host an `http` neuron refuses the run (no HTTP in this engine yet), and
+    /// so does a `human` one: the run command has no desk for a person (3.4,
+    /// Appendix D is the reference engine's page).
+    pub fn plant(&mut self, outer: &Network, files: &HashMap<String, NetFile>, base: Option<&PathBuf>) -> Result<(), String> {
+        self.plant_net(outer, files, 0, None, "", base.map(PathBuf::from).unwrap_or_default())?;
+        let bad: Option<&INode> = self.nodes.iter().find(|n| match &n.kind {
+            Kind::Http(_) => true,
+            Kind::Human => self.is_real(),
+            _ => false,
+        });
+        if let Some(n) = bad {
+            self.refused = Some(match &n.kind {
+                Kind::Http(_) => format!("the network has an http neuron ('{}'), which this engine does not run", n.display),
+                _ => format!(
+                    "the network has a human neuron ('{}'), and run has no desk for a person (3.4)",
+                    n.display
+                ),
+            });
         }
         Ok(())
     }
@@ -479,10 +611,11 @@ impl Engine {
     fn plant_net(
         &mut self,
         net: &Network,
-        files: &HashMap<String, Network>,
+        files: &HashMap<String, NetFile>,
         inst: u32,
         _owner: Option<usize>,
         prefix: &str,
+        dir: PathBuf,
     ) -> Result<(), String> {
         self.insts.push(Inst {
             nodes: Vec::new(),
@@ -500,6 +633,25 @@ impl Engine {
                 self.inner_inst_of.insert(node, self.next_inst);
                 self.next_inst += 1;
             }
+            let (cmd, env) = match &n.kind {
+                Kind::Run(cmd) | Kind::Serve(cmd) => (cmd.clone(), n.opts.env.clone()),
+                _ => (Vec::new(), Vec::new()),
+            };
+            // cwd: the `cwd` option (a relative one is relative to the
+            // declaring file's directory: a value in the file means what the
+            // file means), else that directory itself (SPEC 2.4).
+            let cwd = n
+                .opts
+                .cwd
+                .clone()
+                .map(|c| {
+                    if PathBuf::from(&c).is_absolute() {
+                        PathBuf::from(&c)
+                    } else {
+                        dir.join(&c)
+                    }
+                })
+                .or_else(|| Some(dir.clone()));
             self.nodes.push(INode {
                 inst,
                 kind: n.kind.clone(),
@@ -512,20 +664,25 @@ impl Engine {
                 cost: n.opts.cost.clone(),
                 out: Vec::new(),
                 prog: format!("{}{}", prefix, n.id),
+                cmd,
+                cwd,
+                env,
             });
         }
         for n in net.nodes.iter() {
             if let Kind::Network(p) = &n.kind {
                 let node = local[&n.id];
                 let inner_inst = self.inner_inst_of[&node];
-                let inner = files.get(p).ok_or_else(|| format!("the composed file '{}' is not loaded", p))?;
+                let file = files.get(p).ok_or_else(|| format!("the composed file '{}' is not loaded", p))?;
+                let (inner, inner_dir) = (file.net.clone(), file.dir.clone());
                 self.plant_net(
-                    inner,
+                    &inner,
                     files,
                     inner_inst,
                     Some(node),
                     // The instance path joins the parent's: diag/mid/e (5.1).
                     &format!("{}{}/", prefix, n.id),
+                    inner_dir,
                 )?;
             }
         }
@@ -560,15 +717,39 @@ impl Engine {
                 self.spawn_process(node, false);
             }
         }
-        while self.any_serve_unready() {
-            let Some(Reverse((t, _, _))) = self.heap.peek().copied() else {
-                break;
-            };
-            self.now = t;
-            let Some(w) = self.pop() else { break };
-            self.fire(w);
-            if self.harness.is_some() {
-                break;
+        if self.is_real() {
+            // The real start-up: wait for every serve program's first line.
+            while self.harness.is_none() && self.refused.is_none() && self.any_serve_unready() {
+                let next = self.next_wake();
+                if self.host_step(next) {
+                    continue;
+                }
+                match next {
+                    Some(t) => {
+                        self.now = t;
+                        let Some(w) = self.pop() else { break };
+                        self.fire(w);
+                        self.wake_composed_calls();
+                    }
+                    None => {
+                        // Only host events can arrive: wait for one.
+                        if !self.host_step(None) {
+                            break;
+                        }
+                    }
+                }
+            }
+        } else {
+            while self.any_serve_unready() {
+                let Some(Reverse((t, _, _))) = self.heap.peek().copied() else {
+                    break;
+                };
+                self.now = t;
+                let Some(w) = self.pop() else { break };
+                self.fire(w);
+                if self.harness.is_some() {
+                    break;
+                }
             }
         }
         if self.harness.is_none() && self.any_serve_unready() {
@@ -585,6 +766,11 @@ impl Engine {
             .map(|p| p.ready_at)
             .max()
             .unwrap_or(0);
+        if self.is_real() {
+            // The clock starts here (Appendix C): from now on, an event's
+            // time is ms since time zero, and events are reported.
+            self.reporting = true;
+        }
         Ok(())
     }
 
@@ -619,6 +805,7 @@ impl Engine {
                 refused: Some(refused),
                 harness: self.harness.take(),
                 injected_traces: Vec::new(),
+                answers: Vec::new(),
             };
         }
         // Injections are set before the run starts, in listed order; at a tie
@@ -632,19 +819,69 @@ impl Engine {
             if self.run_over() {
                 break;
             }
-            let Some(Reverse((t, _, w))) = self.heap.peek().copied() else {
-                break;
-            };
-            self.now = t;
-            self.pop();
+            let next = self.next_wake();
+            if self.is_real() {
+                // A host event due at or before the next wake-up goes first;
+                // its time is when the host read it, so work that ended in the
+                // same ms as its timeout (rule 7) is here by its stamp.
+                if self.host_step(Some(next.unwrap_or(u64::MAX))) {
+                    continue;
+                }
+                self.now = next.unwrap_or_else(|| self.now + 65_536);
+                let Some(w) = self.pop() else {
+                    // The heap is empty and nothing is due: only a process
+                    // outcome can close the run.
+                    if self.host_step(None) {
+                        continue;
+                    }
+                    break;
+                };
+                self.fire(w);
+                self.wake_composed_calls();
+                continue;
+            }
+            let Some(next) = next else { break };
+            self.now = next;
+            let Some(w) = self.pop() else { break };
             self.fire(w);
             self.wake_composed_calls();
+        }
+        if self.is_real() {
+            self.end_run_quietly();
         }
         RunOutcome {
             events: std::mem::take(&mut self.events),
             refused: self.refused.take(),
             harness: self.harness.take(),
             injected_traces: std::mem::take(&mut self.injected_roots),
+            answers: std::mem::take(&mut self.answers),
+        }
+    }
+
+    /// The end of a real run (SPEC 3.2's shutdown, Appendix C): stdin closed
+    /// everywhere, then SIGTERM to what still lives after 2 s and SIGKILL 2 s
+    /// later, silently; the run returns after the processes are gone. The
+    /// groups of finished calls that left a member behind are stopped the
+    /// same way (decision 0001: the engine kills a call's process group).
+    fn end_run_quietly(&mut self) {
+        let mut serve_gids: Vec<i32> = Vec::new();
+        let mut close: Vec<(usize, usize)> = Vec::new();
+        for (node, s) in self.serves.iter() {
+            let Some(p) = s.cur.as_ref() else { continue };
+            if let Some(g) = p.gid {
+                close.push((*node, p.gen));
+                serve_gids.push(g);
+            }
+        }
+        for (node, gen) in &close {
+            self.host().l1_close(*node, *gen);
+        }
+        // Finished calls' groups that left a member behind are stopped the
+        // same way (decision 0001: the engine kills a call's process group).
+        let l0_gids: Vec<i32> = self.l0s.iter().filter_map(|p| p.gid).filter(|g| host::group_alive(*g)).collect();
+        self.host().end_run(&serve_gids);
+        if !l0_gids.is_empty() {
+            self.host().end_run(&l0_gids);
         }
     }
 
@@ -660,6 +897,12 @@ impl Engine {
             && !self.serves.values().any(|s| s.grace)
     }
 
+    /// The run's next wake-up, or `None` when the heap is empty: the loop
+    /// waits to that instant (or until a host event arrives first).
+    fn next_wake(&self) -> Option<u64> {
+        self.heap.peek().map(|Reverse((t, _, _))| *t)
+    }
+
     fn arm(&mut self, t: u64, w: Wake) {
         self.seq += 1;
         self.heap.push(Reverse((t, self.seq, w)));
@@ -667,6 +910,28 @@ impl Engine {
 
     fn pop(&mut self) -> Option<Wake> {
         self.heap.pop().map(|Reverse((_, _, w))| w)
+    }
+
+    /// One event from the real host, if one is due before the engine's next
+    /// wake-up (or, with `None` for the cap, one at all): the time is when the
+    /// host read it. `true` when an event was taken.
+    ///
+    /// The cap of the wait is a generous bound, not a promise: the heap is
+    /// never empty while anything is open (every running call has a timeout
+    /// armed), so the fallback keeps the run from hanging on a process the
+    /// host can no longer report on.
+    fn host_step(&mut self, cap: Option<u64>) -> bool {
+        let cap = cap.or_else(|| Some(self.now + 65_536));
+        let Some(m) = self.real.as_ref().expect("the real host").pump(cap) else {
+            return false;
+        };
+        self.now = self.now.max(m.t);
+        match m.ev {
+            host::Ev::L0Done { l0, out } => self.host_l0_done(l0, out),
+            host::Ev::L1Line { server, gen, line } => self.consume_line(server, gen, line),
+            host::Ev::L1Down { server, gen, exited } => self.host_l1_down(server, gen, exited),
+        }
+        true
     }
 }
 // ---------------------------------------------------------------------------
@@ -784,79 +1049,110 @@ impl Engine {
     // -- A level 0 program's outcome (or a scripted person's) ---------------
 
     fn fire_call_end(&mut self, work: usize) {
-        let state = self.works.get(work).map(|w| (w.kind, w.running(), w.cut));
-        let Some((kind, running, cut)) = state else { return };
+        let state = self.works.get(work).map(|w| (w.running(), w.cut));
+        let Some((running, cut)) = state else { return };
         if !running || cut {
             return;
         }
-        let reply = self.works[work].entry.as_ref().map(|e| e.reply.clone()).unwrap_or(Value::Null);
+        let kind = self.works[work].kind;
         match kind {
-            WKind::Human => self.person_replied(work, &reply),
-            WKind::Run => self.l0_replied(work, &reply),
+            WKind::Human => {
+                let reply = self.works[work].entry.as_ref().map(|e| e.reply.clone()).unwrap_or(Value::Null);
+                self.person_replied(work, &reply);
+                self.finish_check(None);
+            }
+            WKind::Run => {
+                let reply = self.works[work].entry.as_ref().map(|e| e.reply.clone()).unwrap_or(Value::Null);
+                let get = |k: &str| match &reply {
+                    Value::Obj(fields) => fields.iter().find(|(f, _)| f == k).map(|(_, v)| v),
+                    _ => None,
+                };
+                let out = if get("quiet").map(|v| v == &Value::Bool(true)).unwrap_or(false) {
+                    L0Out::Quiet
+                } else if let Some(Value::Str(msg)) = get("error") {
+                    L0Out::Fail {
+                        code: "exit",
+                        msg: format!("exit 1: {}", trim_500(msg)),
+                    }
+                } else if let Some(Value::Str(text)) = get("junk") {
+                    L0Out::Fail {
+                        code: "junk",
+                        msg: format!("not JSON: {}", trim_2000(text)),
+                    }
+                } else if get("crash").is_some() {
+                    let name = match get("crash") {
+                        Some(Value::Str(s)) => s.clone(),
+                        _ => "SIGKILL".to_string(),
+                    };
+                    L0Out::Fail {
+                        code: "exit",
+                        msg: format!("signal {name}: "),
+                    }
+                } else if get("overlong").map(|v| v == &Value::Bool(true)).unwrap_or(false) {
+                    L0Out::Overlong
+                } else if get("hang").map(|v| v == &Value::Bool(true)).unwrap_or(false) {
+                    // Never ends by itself: only the run's other wake-ups
+                    // reach it.
+                    return;
+                } else if let Some(p) = get("answer") {
+                    L0Out::Answer {
+                        payload: payload_of(p.clone()),
+                    }
+                } else {
+                    self.harness_failure(format!("the reply of the level 0 call {} is not an outcome", work));
+                };
+                self.l0_finished(work, out);
+                self.finish_check(None);
+            }
             _ => {}
         }
-        self.finish_check(None);
     }
 
-    fn l0_replied(&mut self, work: usize, reply: &Value) {
-        let Value::Obj(fields) = reply else {
-            self.harness_failure(format!("the reply of the level 0 call {} is not an object", work));
-        };
-        let fields = fields.clone();
-        let get = |k: &str| fields.iter().find(|(f, _)| f == k).map(|(_, v)| v);
+    /// A level 0 program is over (SPEC 3.1): the commit just before the
+    /// outcome event (10.4), then the event, and for an over-long output the
+    /// kill that follows its error. `done` waits for the bookkeeping too: a
+    /// cut level 0 call is finished when its process group is gone.
+    fn l0_finished(&mut self, work: usize, out: L0Out) {
         let node = self.works[work].node;
-        let ends = true; // every outcome but `hang` ends the program
-        if get("quiet").map(|v| v == &Value::Bool(true)).unwrap_or(false) {
-            self.call_replied(work, Outcome::Quiet);
-        } else if let Some(Value::Str(msg)) = get("error") {
-            let msg = trim_500(msg);
-            self.fail_call(work, "exit", &format!("exit 1: {}", msg));
-        } else if let Some(Value::Str(text)) = get("junk") {
-            self.fail_call(work, "junk", &format!("not JSON: {}", trim_2000(text)));
-        } else if get("crash").is_some() {
-            let name = match get("crash") {
-                Some(Value::Bool(true)) => "SIGKILL".to_string(),
-                Some(Value::Str(s)) => s.clone(),
-                _ => "SIGKILL".to_string(),
-            };
-            self.fail_call(work, "exit", &format!("signal {}: ", name));
-        } else if get("overlong").map(|v| v == &Value::Bool(true)).unwrap_or(false) {
-            // The commit comes before the error (probe q2); the finished event
-            // then the kill note, the step's last word (6.3).
-            self.commit_call(work);
-            self.emit_fail(work, "output", "output too large");
-            self.works[work].done = true;
-            self.finish_check(None);
-            if let Some(l0) = self.works[work].l0 {
-                if self.l0s[l0].leader_alive || self.l0s[l0].survivor {
-                    self.emit(0, self.node_note(node, "kill"));
-                }
+        match out {
+            L0Out::Quiet => self.call_replied(work, Outcome::Quiet),
+            L0Out::Answer { payload } => {
+                self.call_replied(
+                    work,
+                    Outcome::Answer {
+                        payload,
+                        to: None,
+                        replaces: None,
+                    },
+                );
             }
-        } else if get("hang").map(|v| v == &Value::Bool(true)).unwrap_or(false) {
-            // Never ends by itself: only the run's other wake-ups reach it.
-            return;
-        } else if let Some(p) = get("answer") {
-            let payload = payload_of(p.clone());
-            self.call_replied(
-                work,
-                Outcome::Answer {
-                    payload,
-                    to: None,
-                    replaces: None,
-                },
-            );
-        } else {
-            self.harness_failure(format!("the reply of the level 0 call {} is not an outcome", work));
+            L0Out::Fail { code, msg } => {
+                self.fail_call(work, code, &msg);
+            }
+            L0Out::Overlong => {
+                // The commit comes before the error (probe q2); the finished
+                // event is due then the kill note, the step's last word (6.3).
+                self.commit_call(work);
+                self.emit_fail(work, "output", "output too large");
+                self.works[work].done = true;
+                self.finish_check(None);
+                if let Some(l0) = self.works[work].l0 {
+                    let killed = self.kill_l0_group_now(l0);
+                    if killed {
+                        self.emit(0, self.node_note(node, "kill"));
+                    }
+                }
+                return;
+            }
         }
         // The program is over (its output and exit arrived); with `leaves` a
         // member of the group survives, until the engine stops it silently at
         // the end of the run (5.4).
-        if ends {
-            if let Some(l0) = self.works[work].l0 {
-                self.l0s[l0].leader_alive = false;
-            }
-            self.works[work].done = true;
+        if let Some(l0) = self.works[work].l0 {
+            self.l0s[l0].leader_alive = false;
         }
+        self.works[work].done = true;
+        self.finish_check(None);
     }
 
     fn person_replied(&mut self, work: usize, reply: &Value) {
@@ -925,6 +1221,7 @@ impl Engine {
                     }
                 }
                 let re = self.works[work].re;
+                self.send_cancel_line(node, re);
                 self.arm(self.now + self.nodes[node].timeout, Wake::SlotDeadline { server: node, re });
             }
             WKind::Composed => {
@@ -1039,6 +1336,7 @@ impl Engine {
                 .set("payload", sigrec.payload.shaped())
                 .build(),
         );
+        self.works[work].reported = true;
         if sigrec.inst != 0 {
             if let Some(cw) = sigrec.owner_call {
                 self.works[cw].fail_inner = true;
@@ -1321,6 +1619,9 @@ impl Engine {
                         // `onCancel` writes it, after `after` ms (5.1): the
                         // slot frees then, as with a timeout's cancel.
                         self.arm_on_cancel(work);
+                        if let Some(re) = self.slot_re_of(work) {
+                            self.send_cancel_line(node, re);
+                        }
                     }
                     WKind::Human => {
                         // The question is withdrawn; a late answer finds the
@@ -1458,6 +1759,7 @@ impl Engine {
             l0: None,
             entry: None,
             stale_marked: false,
+            reported: false,
             pool,
             reserved: false,
             committed: false,
@@ -1531,6 +1833,7 @@ impl Engine {
             grace: false,
             grace_gen: 0,
             grace_survivor: false,
+            grace_gid: None,
         }
     }
 
@@ -1619,6 +1922,44 @@ impl Engine {
             self.works[work].done = true;
             return;
         }
+        if self.is_real() {
+            // The program starts now (10.3): the check, the reserve, the
+            // spawn, and only the timeout wake-up. The outcome arrives from
+            // the host, with the exit and the whole stdout read.
+            self.reserve_call(work);
+            let cmd = self.nodes[node].cmd.clone();
+            let env = self.nodes[node].env.clone();
+            let cwd = self.nodes[node].cwd.clone();
+            let input = json::write(&self.input_value_of(work));
+            let l0 = self.l0s.len();
+            self.l0s.push(L0Proc {
+                work,
+                leader_alive: true,
+                survivor: false,
+                ignore_term: false,
+                gid: None,
+                killed: false,
+            });
+            self.works[work].l0 = Some(l0);
+            self.works[work].st = WSt::Running;
+            let spawn = self.host().l0_begin(l0, &cmd, cwd.as_deref(), &env, input.as_bytes());
+            match spawn {
+                Ok(gid) => self.l0s[l0].gid = Some(gid),
+                Err(why) => {
+                    // The program never ran: an error even for an effect
+                    // neuron (11.3 is for calls that started).
+                    self.commit_call(work);
+                    self.emit_fail_unstarted(work, "exit", &format!("exit 127: {}", why));
+                    self.l0s[l0].leader_alive = false;
+                    self.works[work].done = true;
+                    self.finish_check(None);
+                }
+            }
+            if !self.works[work].done && !matches!(self.l0s[l0].gid, None) {
+                self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
+            }
+            return;
+        }
         let prog = self.nodes[node].prog.clone();
         let entry = self.match_call_entry(&prog, work, false);
         self.works[work].entry = Some(entry.clone());
@@ -1630,6 +1971,8 @@ impl Engine {
             leader_alive: true,
             survivor: entry.leaves,
             ignore_term,
+            gid: None,
+            killed: false,
         });
         self.works[work].l0 = Some(l0);
         self.works[work].st = WSt::Running;
@@ -1658,8 +2001,32 @@ impl Engine {
 
     /// The level 0 group is terminated (SIGTERM): a `term` note when the group
     /// still had a live member, then the kill 2000 ms later if anything
-    /// remains (6.3).
+    /// remains (6.3). On the real host the group is the OS's: a probe says
+    /// who is still in it, and SIGTERM goes to the group now.
     fn terminate_l0(&mut self, l0: usize) {
+        if self.is_real() {
+            let Some(gid) = self.l0s[l0].gid else {
+                // Never spawned (a spawn failure): the call is over.
+                let work = self.l0s[l0].work;
+                self.commit_call(work);
+                self.works[work].done = true;
+                return;
+            };
+            let alive = host::group_alive(gid);
+            if alive {
+                let node = self.works[self.l0s[l0].work].node;
+                self.emit_node_note(node, "term");
+                host::term_group(gid);
+                self.arm(self.now + host::GRACE_MS, Wake::L0Grace { proc: l0 });
+            } else {
+                // The program is gone: the cut call commits now (10.4).
+                self.host().l0_forget(l0);
+                let work = self.l0s[l0].work;
+                self.commit_call(work);
+                self.works[work].done = true;
+            }
+            return;
+        }
         let alive = self.l0s[l0].leader_alive || self.l0s[l0].survivor;
         if alive {
             let node = self.works[self.l0s[l0].work].node;
@@ -1680,21 +2047,84 @@ impl Engine {
     }
 
     /// The SIGKILL of a level 0 group that ignored SIGTERM: the group is gone,
-    /// the cut call commits (its ms include the grace).
+    /// the cut call commits (its ms include the grace). Real: the group is
+    /// still alive by the OS's word; the scripted host's word is its flags.
     fn fire_l0_grace(&mut self, l0: usize) {
         let work = self.l0s[l0].work;
         if self.works[work].done {
             return;
         }
         let node = self.works[work].node;
-        if self.l0s[l0].leader_alive || self.l0s[l0].survivor {
+        let killed: bool = if self.is_real() {
+            match self.l0s[l0].gid {
+                Some(gid) => {
+                    let alive = host::group_alive(gid);
+                    if alive {
+                        host::kill_group(gid);
+                    }
+                    self.host().l0_forget(l0);
+                    alive
+                }
+                None => false,
+            }
+        } else {
+            std::mem::replace(&mut self.l0s[l0].survivor, false) || std::mem::replace(&mut self.l0s[l0].leader_alive, false)
+        };
+        if killed {
             self.emit_node_note(node, "kill");
         }
         self.l0s[l0].leader_alive = false;
-        self.l0s[l0].survivor = false;
         self.commit_call(work);
         self.works[work].done = true;
         self.finish_check(None);
+    }
+
+    /// SIGKILL to a level 0 group at once (an over-long output, 6.3): `true`
+    /// when the group still had a member, so the `kill` note follows the
+    /// error. The script's word is its flags; the real host probes and kills.
+    fn kill_l0_group_now(&mut self, l0: usize) -> bool {
+        if self.is_real() {
+            let Some(gid) = self.l0s[l0].gid else { return false };
+            let alive = host::group_alive(gid);
+            if alive {
+                host::kill_group(gid);
+            }
+            self.host().l0_forget(l0);
+            self.l0s[l0].leader_alive = false;
+            self.l0s[l0].killed = true;
+            return alive;
+        }
+        let alive = self.l0s[l0].leader_alive || self.l0s[l0].survivor;
+        self.l0s[l0].leader_alive = false;
+        self.l0s[l0].survivor = false;
+        self.l0s[l0].killed = true;
+        alive
+    }
+
+    /// A level 0 program's whole outcome arriving from the real host: the
+    /// exit and the stdout head were read, the settle happened. A call whose
+    /// outcome is not yet out takes it; one already reported (its timeout, an
+    /// earlier error) commits only when its group is gone (10.4, 6.2 rule 6).
+    fn host_l0_done(&mut self, l0: usize, out: host::L0Out) {
+        let Some(p) = self.l0s.get(l0) else { return };
+        let work = p.work;
+        let still_running = self.works[work].running() && !self.works[work].cut && !self.works[work].reported;
+        let gid = p.gid;
+        self.l0s[l0].leader_alive = false;
+        if still_running && !self.works[work].done {
+            self.l0_finished(work, l0_out_of(out));
+            self.finish_check(None);
+            return;
+        }
+        if !self.works[work].done {
+            let alive = gid.map(host::group_alive).unwrap_or(false);
+            if !alive {
+                self.host().l0_forget(l0);
+                self.commit_call(work);
+                self.works[work].done = true;
+                self.finish_check(None);
+            }
+        }
     }
 
     // -- Humans (SPEC 3.4, CONFORMANCE 5.5) ---------------------------------
@@ -1737,6 +2167,7 @@ impl Engine {
         // The call is over: its wake-ups (timeout, a late reply) are no-ops
         // from here, and its own forward can no longer cut it.
         self.works[work].done = true;
+        self.works[work].reported = true;
         match outcome.clone() {
             Outcome::Fail { code, msg } => {
                 self.emit_fail(work, code, &msg);
@@ -1753,6 +2184,12 @@ impl Engine {
                     if let Value::Obj(entries) = &mut ev {
                         entries.push(("forwarded".into(), Value::Bool(false)));
                     }
+                }
+                // The run prints the answers of the neurons with no outgoing
+                // links (SPEC 4.4); the whole payload, the trace cuts long
+                // ones (TRACE.md).
+                if self.nodes[node].out.is_empty() {
+                    self.answers.push((self.disp(node), payload.clone()));
                 }
                 self.emit(rec.inst, ev);
                 // The forward is a signal on the same key and must not cut
@@ -1852,16 +2289,9 @@ impl Engine {
 // Level 1 (SPEC 3.2): the engine's side of the protocol
 // ---------------------------------------------------------------------------
 
-/// What a scripted reply writes, in the order it writes it (CONFORMANCE 5.2):
-/// `also` lines first, then the reply's own.
-enum Line {
-    Obj(Value),
-    Text(String),
-    Overlong,
-}
-
 /// The lines of one scripted reply, with the direct outcomes: nothing for a
-/// `hang`, and the process's exit for a `crash`.
+/// `hang`, and the process's exit for a `crash`. (The real host's lines come
+/// from its processes as `host::Line` events.)
 fn script_lines(reply: &Value, re: u64) -> (Vec<Line>, bool, bool) {
     let mut lines: Vec<Line> = Vec::new();
     let mut crash = false;
@@ -1962,6 +2392,30 @@ fn trim_500(s: &str) -> String {
     s.chars().take(500).collect()
 }
 
+/// The engine's level 0 outcome of the host's reading of a process (SPEC 3.1,
+/// 6.1): the message shape is the one the 6.1 table starts (`exit N:`,
+/// `signal S:`, `not JSON:`), with the head's whitespace trimmed (3.1's
+/// "trimmed").
+fn l0_out_of(out: host::L0Out) -> L0Out {
+    match out {
+        host::L0Out::Overlong => L0Out::Overlong,
+        host::L0Out::Quiet => L0Out::Quiet,
+        host::L0Out::Answer(v) => L0Out::Answer { payload: payload_of(v) },
+        host::L0Out::Junk(text) => L0Out::Fail {
+            code: "junk",
+            msg: format!("not JSON: {}", trim_2000(text.trim())),
+        },
+        host::L0Out::Exit { code, stderr } => L0Out::Fail {
+            code: "exit",
+            msg: format!("exit {}: {}", code, trim_500(stderr.trim())),
+        },
+        host::L0Out::Signal { num, stderr } => L0Out::Fail {
+            code: "exit",
+            msg: format!("signal {}: {}", host::signal_name(num), trim_500(stderr.trim())),
+        },
+    }
+}
+
 fn trim_2000(s: &str) -> String {
     s.chars().take(2000).collect()
 }
@@ -2030,7 +2484,9 @@ impl Engine {
 
     /// The level 1 call starts when its signal line is written (SPEC 10.3):
     /// the reserve check, then the entry, the reserve note, the line, and the
-    /// reply and timeout wake-ups (the reply armed first, 6.2 rule 7).
+    /// reply and timeout wake-ups (the reply armed first, 6.2 rule 7). The
+    /// real host writes the line through its writer thread and arms only the
+    /// timeout: the reply arrives as a line, when the program sends it.
     fn signal_line(&mut self, work: usize) {
         let node = self.works[work].node;
         if let Err(why) = self.check_cost(work) {
@@ -2042,26 +2498,76 @@ impl Engine {
             }
             return;
         }
+        let re;
+        if self.is_real() {
+            self.reserve_call(work);
+            self.works[work].st = WSt::Running;
+            let l1 = {
+                let p = self.proc_of(node).expect("the process is up");
+                let r = p.next_re;
+                p.next_re += 1;
+                p.slots.push(Slot {
+                    re: r,
+                    work,
+                    cancelled: false,
+                });
+                (r, p.gen)
+            };
+            re = l1.0;
+            self.works[work].re = re;
+            // The envelope of 3.2: `type`, `re`, and the input as 3.1 (a
+            // threshold's wrapper rides as its `payload` and `inputs` fields).
+            let threshold = self.nodes[node].threshold;
+            let input_value = self.input_value_of(work);
+            let mut fields: Vec<(String, Value)> = vec![
+                ("type".to_string(), Value::Str("signal".into())),
+                ("re".to_string(), Value::Int(re as i64)),
+            ];
+            match &input_value {
+                Value::Obj(entries) if threshold > 1 => fields.extend(entries.iter().cloned()),
+                other => fields.push(("payload".to_string(), other.clone())),
+            }
+            let gen = l1.1;
+            let line = json::write(&Value::Obj(fields));
+            self.host().l1_send(node, gen, line);
+            self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
+            return;
+        }
         let prog = self.nodes[node].prog.clone();
         let entry = self.match_call_entry(&prog, work, false);
         self.works[work].entry = Some(entry.clone());
         self.reserve_call(work);
         self.works[work].st = WSt::Running;
-        let re = {
+        re = {
             let p = self.proc_of(node).expect("the process is up");
-            let re = p.next_re;
+            let r = p.next_re;
             p.next_re += 1;
             p.slots.push(Slot {
-                re,
+                re: r,
                 work,
                 cancelled: false,
             });
-            re
+            r
         };
         self.works[work].re = re;
         let after = entry.after;
         self.arm(self.now + after, Wake::L1Reply { work });
         self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
+    }
+
+    /// The `cancel` line (3.2): the neuron SHOULD stop and MUST reply, which
+    /// frees its slot. The real host sends it through the writer; the
+    /// scripted host sends the line its entry's `onCancel` promises.
+    fn send_cancel_line(&mut self, node: usize, re: u64) {
+        if !self.is_real() {
+            return;
+        }
+        let gen = self.proc_of(node).map(|p| p.gen).unwrap_or(0);
+        if gen == 0 {
+            return;
+        }
+        let line = json::write(&Obj::new().str("type", "cancel").int("re", re as i64).build());
+        self.host().l1_send(node, gen, line);
     }
 
     /// A free slot takes the next waiting call, in the order it queued (3.2).
@@ -2099,6 +2605,7 @@ impl Engine {
         // A cancelled `re` writes its line all the same when the program
         // ignores the cancel: `reply_line` discards it and frees the slot
         // (3.2), which commits the cut call.
+        let gen = self.proc_of(node).map(|p| p.gen).unwrap_or(0);
         let entry = self.works[work].entry.clone().expect("the call has an entry");
         let (lines, crash, hang) = script_lines(&entry.reply, self.works[work].re);
         if crash {
@@ -2110,7 +2617,7 @@ impl Engine {
             return;
         }
         for line in lines {
-            self.consume_line(node, line);
+            self.consume_line(node, gen, line);
         }
     }
 
@@ -2129,23 +2636,50 @@ impl Engine {
         let Some(entry) = self.works[work].entry.clone() else { return };
         let Some((_, reply)) = entry.on_cancel else { return };
         let (lines, crash, _hang) = script_lines(&reply, self.works[work].re);
+        let gen = self.proc_of(node).map(|p| p.gen).unwrap_or(0);
         if crash {
             self.process_down(node, true, false);
             return;
         }
         for line in lines {
-            self.consume_line(node, line);
+            self.consume_line(node, gen, line);
         }
     }
 
     // -- One stdout line -----------------------------------------------------
 
     /// One line arrives at the engine: framing, junk, protocol errors, and the
-    /// reply types of SPEC 3.2.
-    fn consume_line(&mut self, node: usize, line: Line) {
-        let Some(p) = self.proc_of(node) else { return };
+    /// reply types of SPEC 3.2. On the real host every line before the
+    /// process's `ready` is a first line: a valid one starts the process, and
+    /// anything else is a failed start (Appendix C). A pong of a ping is the
+    /// engine's own message (3.2).
+    fn consume_line(&mut self, node: usize, gen: usize, line: Line) {
+        let valid = self
+            .serves
+            .get(&node)
+            .and_then(|s| s.cur.as_ref())
+            .map(|p| p.gen == gen)
+            .unwrap_or(false);
+        if !valid {
+            return; // a line of an older process, or no such process
+        }
+        let p = self.proc_of(node).expect("the process is up");
         p.lines += 1;
         let line_no = p.lines;
+        drop(p); // no borrow rides past here
+        let ready = self.proc_of(node).map(|p| p.ready).unwrap_or(false);
+        if !ready && self.is_real() {
+            match line {
+                Line::Obj(v) => match self.ready_line_error(&v, 1) {
+                    None => self.ready_ok(node, gen, v.get("maxInflight").and_then(|x| x.as_u64())),
+                    Some(why) => self.start_failed(node, gen, why),
+                },
+                Line::Text(_) | Line::Overlong => {
+                    self.start_failed(node, gen, "the first line is not a ready object".into());
+                }
+            }
+            return;
+        }
         match line {
             Line::Text(t) => {
                 self.junk_line(node, line_no, t);
@@ -2160,6 +2694,7 @@ impl Engine {
                 }
                 match type_field(&v).unwrap_or_default() {
                     "answer" | "quiet" | "error" => self.reply_line(node, v),
+                    "pong" => self.pong_line(node, v),
                     _ => {} // an unknown message type is ignored
                 }
             }
@@ -2370,8 +2905,10 @@ impl Engine {
 
 impl Engine {
     /// Start a level 1 process: write the `hello` line, arm the start
-    /// deadline, and arm the instant the program would say `ready` (5.3).
-    /// A restart is preceded by a note (6.3).
+    /// deadline, and on the scripted host arm the instant the program would
+    /// say `ready` (5.3). A restart is preceded by a note (6.3). The real
+    /// host spawns a process and writes `hello` to it; its ready line arrives
+    /// through the stream, and only its start deadline is armed here.
     fn spawn_process(&mut self, node: usize, restart_note: bool) {
         let (timeout, gen) = {
             let s = self.serves.get_mut(&node).expect("the server");
@@ -2380,12 +2917,15 @@ impl Engine {
             s.ping_open = None;
             (s.timeout, s.procs)
         };
-        let spec = self
-            .script
-            .get(&self.nodes[node].prog)
-            .and_then(|p| p.starts.get(gen - 1))
-            .cloned()
-            .unwrap_or(Value::Obj(Vec::new()));
+        let spec = if self.is_real() {
+            Value::Obj(Vec::new())
+        } else {
+            self.script
+                .get(&self.nodes[node].prog)
+                .and_then(|p| p.starts.get(gen - 1))
+                .cloned()
+                .unwrap_or(Value::Obj(Vec::new()))
+        };
         let spec = StartSpec::from(&spec);
         if restart_note {
             self.emit_node_note(node, "restart");
@@ -2403,15 +2943,58 @@ impl Engine {
                 next_re: 1,
                 slots: Vec::new(),
                 lines: 0,
+                gid: None,
             });
         }
-        // The program writes `hello` at once; its `ready` line comes `ready`
-        // later, default 0 (the next instant). A `ready` of `false` (never)
-        // arms nothing: only the start deadline waits (5.3, never-ready).
-        // The ready wake-up is armed before the deadline (3.2, probe p3): a
-        // ready at the deadline's instant is within timeout.
+        if self.is_real() {
+            let display = self.nodes[node].display.clone();
+            let cmd = self.nodes[node].cmd.clone();
+            let env = self.nodes[node].env.clone();
+            let cwd = self.nodes[node].cwd.clone();
+            let hello = json::write(&Obj::new().int("v", 1).str("type", "hello").str("neuron", display).build());
+            let spawn = self.host().l1_begin(node, gen, &hello, &cmd, cwd.as_deref(), &env);
+            match spawn {
+                Ok(gid) => {
+                    if let Some(s) = self.serves.get_mut(&node) {
+                        if let Some(p) = s.cur.as_mut() {
+                            p.gid = Some(gid);
+                        }
+                    }
+                }
+                Err(why) => {
+                    // A start that never began: the first refuses the engine
+                    // (3.2, Appendix C); a later one is a failed start.
+                    let procs = self.serves.get(&node).map(|s| s.procs).unwrap_or(0);
+                    if procs <= 1 {
+                        self.refused = Some(format!(
+                            "the serve program of '{}' failed its first start: {}",
+                            self.nodes[node].display, why
+                        ));
+                    } else {
+                        if let Some(s) = self.serves.get_mut(&node) {
+                            s.f += 1;
+                            s.down = true;
+                            s.ping_open = None;
+                            s.cur = None;
+                        }
+                        let f = self.serves.get(&node).map(|s| s.f).unwrap_or(0);
+                        self.arm(self.now + backoff(f), Wake::RestartDue { server: node });
+                    }
+                    return;
+                }
+            }
+        }
+        // The program writes `hello` at once. The scripted host's `ready`
+        // line comes `ready` later, default 0 (the next instant); a `ready`
+        // of `false` (never) arms nothing: only the start deadline waits
+        // (5.3, never-ready). The ready wake-up is armed before the deadline
+        // (3.2, probe p3): a ready at the deadline's instant is within
+        // timeout. The real host's ready is its process's first line; no
+        // wake-up invents it.
         if let Some(ready_ms) = ready {
-            self.arm(self.now + ready_ms, Wake::ReadyAt { server: node, gen });
+            if !self.is_real() {
+                self.arm(self.now + ready_ms, Wake::ReadyAt { server: node, gen });
+            }
         }
         self.arm(self.now + timeout, Wake::StartDeadline { server: node, gen });
     }
@@ -2419,46 +3002,151 @@ impl Engine {
     /// The start deadline of a process that never said `ready` (5.3): the
     /// first start refuses the engine; a later one is a failed start.
     fn fire_start_deadline(&mut self, server: usize, gen: usize) {
-        let state = self
+        let valid = self
             .serves
             .get(&server)
-            .and_then(|s| s.cur.as_ref().map(|p| (p.gen, p.ready, p.alive, p.spec.ignore_term, p.spec.leaves)));
-        let Some((pgen, ready, alive, ignore_term, survivor)) = state else {
-            return;
-        };
-        if pgen != gen || ready {
+            .and_then(|s| s.cur.as_ref())
+            .map(|p| p.gen == gen && !p.ready)
+            .unwrap_or(false);
+        if !valid {
             return;
         }
-        let (procs, timeout) = self.serves.get(&server).map(|s| (s.procs, s.timeout)).unwrap_or((0, 0));
-        if procs == 1 {
+        let timeout = self.serves.get(&server).map(|s| s.timeout).unwrap_or(0);
+        self.start_failed(server, gen, format!("no ready within {} ms", timeout));
+    }
+
+    /// A start failed (no ready, a `ready` of the wrong shape, a spawn that
+    /// never began): the first start refuses the engine (3.2, Appendix C:
+    /// the engine does not restart a neuron whose first start fails); a later
+    /// one is a failed start, with the backoff and the limit of 5. The real
+    /// host's group is term'd at once, its grace armed if it may survive.
+    fn start_failed(&mut self, server: usize, gen: usize, reason: String) {
+        let real = self.is_real();
+        let procs = self.serves.get(&server).map(|s| s.procs).unwrap_or(0);
+        if procs <= 1 {
             self.refused = Some(format!(
-                "the serve program of '{}' failed its first start: no ready within {} ms",
-                self.nodes[server].display, timeout
+                "the serve program of '{}' failed its first start: {}",
+                self.nodes[server].display, reason
             ));
+            if real {
+                if let Some(g) = self.serves.get(&server).and_then(|s| s.cur.as_ref()).and_then(|p| p.gid) {
+                    host::kill_group(g); // silent: a refused run reports nothing
+                }
+            }
             return;
         }
+        let (alive, ignore_term, survivor, gid) = if real {
+            let filtered = self
+                .serves
+                .get(&server)
+                .and_then(|s| s.cur.as_ref())
+                .filter(|p| p.gen == gen)
+                .map(|p| (p.alive, p.spec.ignore_term, p.spec.leaves, p.gid));
+            match filtered {
+                Some((a, i, s, g)) => (a, i, s, g),
+                None => (false, false, false, None),
+            }
+        } else {
+            let cur = self.serves.get(&server).and_then(|s| s.cur.as_ref()).filter(|p| p.gen == gen);
+            match cur.map(|p| (p.alive, p.spec.ignore_term, p.spec.leaves)) {
+                Some((a, i, s)) => (a, i, s, None),
+                None => (false, false, false, None),
+            }
+        };
         if let Some(s) = self.serves.get_mut(&server) {
             s.f += 1;
         }
-        // The engine kills what remains of the group; the engine does not
-        // restart a refused first start.
-        if alive || survivor {
+        let grace = if real {
+            match gid {
+                Some(g) => {
+                    let is_alive = host::group_alive(g);
+                    if is_alive || alive || survivor {
+                        self.emit_node_note(server, "term");
+                    }
+                    host::term_group(g);
+                    is_alive
+                }
+                None => {
+                    if alive || survivor {
+                        self.emit_node_note(server, "term");
+                    }
+                    false
+                }
+            }
+        } else if alive || survivor {
             self.emit_node_note(server, "term");
-        }
-        let grace = ignore_term || survivor;
+            ignore_term || survivor
+        } else {
+            false
+        };
         if grace {
             self.arm_terminate_grace(server, gen, grace);
         }
         let f = self.serves.get(&server).map(|s| s.f).unwrap_or(0);
         self.arm(self.now + backoff(f), Wake::RestartDue { server });
-        // The record is gone and the process never came up: the server is
-        // down, so a restart due later really restarts (3.2).
         if let Some(s) = self.serves.get_mut(&server) {
             s.down = true;
             s.ping_open = None;
             s.cur = None;
         }
         self.finish_check(None);
+    }
+
+    /// The first line said ready (the real host's path; the scripted host's
+    /// `ready` arrives as a wake-up with its line counted there): the
+    /// process's run clock starts now, its pings are armed, and whatever was
+    /// queued runs (3.2).
+    fn ready_ok(&mut self, server: usize, gen: usize, max: Option<u64>) {
+        {
+            let s = self.serves.get_mut(&server).expect("server");
+            let p = s.cur.as_mut().expect("cur");
+            p.ready = true;
+            p.ready_at = self.now;
+            p.max_inflight = max.unwrap_or(1).max(1);
+        }
+        self.arm(self.now + self.ping_every, Wake::PingTick { server, gen });
+        self.drain_serve(server);
+        self.finish_check(None);
+    }
+
+    /// An answer arrived for a ping (the real host's pong; the scripted one
+    /// arrives as a wake-up): the ping is closed and the failed-start count
+    /// clears (3.2). A pong for no ping of this process is ignored.
+    fn pong_line(&mut self, node: usize, v: Value) {
+        let Some(n) = v.get("n").and_then(|x| x.as_u64()) else { return };
+        let Some(s) = self.serves.get_mut(&node) else { return };
+        if s.ping_open != Some(n) {
+            return;
+        }
+        s.ping_open = None;
+        s.f = 0;
+    }
+
+    /// A level 1 process went down on the real host (Appendix C: noticed when
+    /// it exits, after the settle, or when its stdout closes): a process past
+    /// its ready is a crash; one before it never really started.
+    fn host_l1_down(&mut self, server: usize, gen: usize, exited: bool) {
+        let valid = self
+            .serves
+            .get(&server)
+            .and_then(|s| s.cur.as_ref())
+            .map(|p| p.gen == gen)
+            .unwrap_or(false);
+        if !valid {
+            return;
+        }
+        let ready = self.proc_of(server).map(|p| p.ready).unwrap_or(false);
+        if ready {
+            self.process_down(server, !exited, false);
+        } else {
+            let reason = if exited {
+                "the process ended before it was ready"
+            } else {
+                "stdout closed before it was ready"
+            }
+            .to_string();
+            self.start_failed(server, gen, reason);
+        }
     }
 
     /// The instant the program would write its first line (5.3): the `first`
@@ -2474,10 +3162,10 @@ impl Engine {
         if !valid {
             return;
         }
-        let (first, ready_v, max_inflight, procs) = {
+        let (first, ready_v, max_inflight) = {
             let s = self.serves.get(&server).expect("server");
             let p = s.cur.as_ref().expect("cur");
-            (p.spec.first.clone(), p.spec.ready_v, p.spec.max_inflight, s.procs)
+            (p.spec.first.clone(), p.spec.ready_v, p.spec.max_inflight)
         };
         // Validation (3.2, CONFORMANCE 4.3): the first line is a valid
         // `ready` object, with `v` 1 and a `maxInflight` of at least 1.
@@ -2518,51 +3206,35 @@ impl Engine {
             self.finish_check(None);
             return;
         }
-        let reason = reason.unwrap_or_default();
         // A protocol error at the first line: the first start refuses the
-        // engine; a later one is a failed start.
-        if procs == 1 {
-            self.refused = Some(format!(
-                "the serve program of '{}' failed its first start: {}",
-                self.nodes[server].display, reason
-            ));
-            return;
-        }
-        let (alive, ignore_term, survivor) = self
-            .serves
-            .get(&server)
-            .and_then(|s| s.cur.as_ref())
-            .map(|p| (p.alive, p.spec.ignore_term, p.spec.leaves))
-            .unwrap_or((false, false, false));
-        if let Some(s) = self.serves.get_mut(&server) {
-            s.f += 1;
-        }
-        if alive || survivor {
-            self.emit_node_note(server, "term");
-        }
-        let grace = ignore_term || survivor;
-        if grace {
-            self.arm_terminate_grace(server, gen, grace);
-        }
-        let f = self.serves.get(&server).map(|s| s.f).unwrap_or(0);
-        self.arm(self.now + backoff(f), Wake::RestartDue { server });
-        if let Some(s) = self.serves.get_mut(&server) {
-            s.down = true;
-            s.ping_open = None;
-            s.cur = None;
-        }
-        self.finish_check(None);
+        // engine; a later one is a failed start (3.2, Appendix C).
+        self.start_failed(server, gen, reason.unwrap_or_default());
     }
 
     /// The kill grace of a terminated group (6.3): 2000 ms later the group is
     /// gone; the `kill` note is recorded then if someone may have survived
     /// the termination. The state lives on the server: the process record is
-    /// already gone when the grace fires.
+    /// already gone when the grace fires. The real host's group id rides
+    /// with the grace; the scripted host's flags say who may have survived.
     fn arm_terminate_grace(&mut self, server: usize, gen: usize, survivor: bool) {
+        let gid = if self.is_real() {
+            self.serves
+                .get(&server)
+                .and_then(|s| s.cur.as_ref())
+                .filter(|p| p.gen == gen)
+                .and_then(|p| p.gid)
+        } else {
+            None
+        };
+        // On the real host the grace asks the OS who is left, so the flag
+        // only says to ask; the script's flag is the script's word.
+        let real = self.is_real();
+        let the_survivor = if real { true } else { survivor };
         if let Some(s) = self.serves.get_mut(&server) {
             s.grace = true;
             s.grace_gen = gen;
-            s.grace_survivor = survivor;
+            s.grace_survivor = the_survivor;
+            s.grace_gid = gid;
         }
         self.arm(self.now + 2000, Wake::ServeGrace { server, gen });
     }
@@ -2603,16 +3275,29 @@ impl Engine {
         self.process_down(server, alive_now, false);
     }
 
-    /// The SIGKILL of a level 1 group that survived SIGTERM (6.3).
+    /// The SIGKILL of a level 1 group that survived SIGTERM (6.3). Real: the
+    /// group still has a member by the OS's word, so the note and the SIGKILL.
     fn fire_serve_grace(&mut self, server: usize, gen: usize) {
-        let Some(s) = self.serves.get_mut(&server) else { return };
-        if !s.grace || s.grace_gen != gen {
-            return; // no grace, or one armed by an older generation
-        }
-        s.grace = false;
-        if s.grace_survivor {
-            s.grace_survivor = false;
+        let (_grace, grace_survivor, grace_gid) = match self.serves.get(&server) {
+            Some(s) if s.grace && s.grace_gen == gen => (true, s.grace_survivor, s.grace_gid),
+            _ => return, // no grace, or one armed by an older generation
+        };
+        if self.is_real() {
+            if grace_survivor {
+                if let Some(gid) = grace_gid {
+                    if host::group_alive(gid) {
+                        self.emit_node_note(server, "kill");
+                        host::kill_group(gid);
+                    }
+                }
+            }
+        } else if grace_survivor {
             self.emit_node_note(server, "kill");
+        }
+        if let Some(s) = self.serves.get_mut(&server) {
+            s.grace = false;
+            s.grace_survivor = false;
+            s.grace_gid = None;
         }
         self.finish_check(None);
     }
@@ -2620,20 +3305,25 @@ impl Engine {
     /// The process is down (a crash: exit, closeStdout, an error line without
     /// `re`, an over-long line, a ping unanswered, a cancelled slot never
     /// freed): every running call fails (code crash), the group is killed, and
-    /// the neuron restarts with the backoff of SPEC 3.2.
+    /// the neuron restarts with the backoff of SPEC 3.2. On the real host the
+    /// group term and its grace follow what the OS still holds.
     fn process_down(&mut self, server: usize, leader_alive: bool, hang: bool) {
         let spec = self
             .serves
             .get(&server)
             .and_then(|s| s.cur.as_ref())
-            .map(|p| (p.spec.leaves, p.spec.ignore_term, p.gen, p.ready_at, p.slots.clone()))
-            .unwrap_or((false, false, 0, 0, Vec::new()));
-        let (leaves, ignore_term, gen, ready_at, slots) = spec;
-        if slots.is_empty() && !leader_alive && !leaves {
-            // Nothing was running; the process still crashed.
-        }
-        let Some((crash_msg, _)) = Some((self.crash_msg(server), ())) else {
-            return;
+            .map(|p| (p.spec.leaves, p.spec.ignore_term, p.gen, p.ready_at, p.slots.clone(), p.gid))
+            .unwrap_or((false, false, 0, 0, Vec::new(), None));
+        let (leaves, ignore_term, gen, ready_at, slots, gid) = spec;
+        let crash_msg = if self.is_real() {
+            let stderr = self.host().l1_stderr_head(server, gen);
+            if stderr.trim().is_empty() {
+                "process failed".to_string()
+            } else {
+                format!("process failed: {}", trim_500(&stderr))
+            }
+        } else {
+            self.crash_msg(server)
         };
         // Every running call fails; the crashed call's program is over now.
         for slot in &slots {
@@ -2657,14 +3347,30 @@ impl Engine {
         }
         // What remains of the process group is killed with SIGTERM; the kill
         // grace follows 2000 ms later when a member remains (6.3).
-        if leader_alive || leaves {
-            self.emit_node_note(server, "term");
+        if self.is_real() {
+            match gid {
+                Some(g) => {
+                    let alive = host::group_alive(g);
+                    if alive {
+                        self.emit_node_note(server, "term");
+                        host::term_group(g);
+                    }
+                    if alive {
+                        self.arm_terminate_grace(server, gen, true);
+                    }
+                }
+                None => {}
+            }
+        } else {
+            if leader_alive || leaves {
+                self.emit_node_note(server, "term");
+            }
+            let grace = (leader_alive && ignore_term) || leaves;
+            if grace {
+                self.arm_terminate_grace(server, gen, grace);
+            }
         }
-        let grace = (leader_alive && ignore_term) || leaves;
         let now = self.now;
-        if grace {
-            self.arm_terminate_grace(server, gen, grace);
-        }
         let Some(s) = self.serves.get_mut(&server) else { return };
         if let Some(p) = s.cur.take() {
             drop(p);
@@ -2754,8 +3460,15 @@ impl Engine {
             s.cur.as_ref().and_then(|p| p.spec.pong)
         };
         // `pong: false` scripts a neuron that never answers a ping: only the
-        // deadline is armed (3.2), and it hangs the process.
-        if let Some(pong) = pong {
+        // deadline is armed (3.2), and it hangs the process. The real host
+        // writes the line; the pong arrives as one (3.2).
+        if self.is_real() {
+            let gen = self.proc_of(server).map(|p| p.gen).unwrap_or(0);
+            if gen > 0 {
+                let line = json::write(&Obj::new().str("type", "ping").int("n", n as i64).build());
+                self.host().l1_send(server, gen, line);
+            }
+        } else if let Some(pong) = pong {
             self.arm(self.now + pong, Wake::PongArrive { server, gen, n });
         }
         self.arm(self.now + timeout, Wake::PongDeadline { server, gen, n });
@@ -2977,19 +3690,6 @@ impl Engine {
             if inner_open {
                 continue;
             }
-            let works_dbg: Vec<String> = self
-                .works
-                .iter()
-                .enumerate()
-                .map(|(ix, w)| format!("{}:[tr={} done={} kind={:?} st={:?}]", ix, w.trace, w.done, w.kind, w.st))
-                .collect();
-            eprintln!(
-                "DBG wake cw={} root={} works={} groups={:?}",
-                cw,
-                root,
-                works_dbg.join(" "),
-                self.groups.keys().map(|(n, t)| format!("({},{})", n, t)).collect::<Vec<_>>()
-            );
             self.works[cw].exit_replied = true;
             if self.works[cw].fail_inner {
                 self.call_replied(

@@ -7,6 +7,7 @@
 use crate::fixture::Units;
 use crate::json::{parse, Value};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 pub const MAX_I: i64 = 9_007_199_254_740_991; // 2^53 - 1
 
@@ -29,6 +30,7 @@ pub struct Opts {
     pub env: Vec<String>,
     pub effect: bool,
     pub cost: Option<Units>,
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +45,14 @@ pub struct Node {
 pub struct Link {
     pub from: String,
     pub to: String,
+}
+
+/// One network file and where it lives: the real host needs the declaring
+/// file's directory, because a neuron's `cwd` defaults to it (SPEC 2.4).
+#[derive(Debug, Clone)]
+pub struct NetFile {
+    pub net: Network,
+    pub dir: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -435,7 +445,7 @@ fn neuron(nv: &Value, i: usize, errs: &mut Vec<String>) -> Node {
     }
     if let Some(x) = nv.get("cwd") {
         match x {
-            Value::Str(s) if is_literal(s) => {}
+            Value::Str(s) if is_literal(s) => opts.cwd = Some(s.clone()),
             _ => errs.push(format!("{}: cwd is a path", what)),
         }
     }

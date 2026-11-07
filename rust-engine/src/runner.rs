@@ -9,7 +9,7 @@
 use crate::engine::{Engine, RunOutcome};
 use crate::fixture::{self, Fixture};
 use crate::json::{self, Value};
-use crate::net::{self, Network};
+use crate::net::{self, NetFile, Network};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -55,36 +55,41 @@ fn walk(base: &Path, dir: &Path, out: &mut Vec<Discovered>) -> std::io::Result<(
     Ok(())
 }
 
-/// The fixture's network file and every composed file it names, each
-/// validated (the errors of SPEC 2.7 whose lack is a refusal). The composed
-/// paths are relative to the file that declares the neuron; the map is keyed
-/// by the string the declaring file wrote.
-fn load_networks(dir: &Path, fx: &Fixture) -> std::result::Result<(Network, HashMap<String, Network>), Vec<String>> {
-    let root_path = dir.join(&fx.network_path);
-    let root = net::load(&root_path.to_string_lossy(), false)?;
-    let mut files: HashMap<String, Network> = HashMap::new();
-    let mut queue: Vec<(PathBuf, String)> = composed_of(&root)
-        .into_iter()
-        .map(|p| {
-            // Composed paths are relative to the declaring file's directory.
-            (root_path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(".")), p)
-        })
-        .collect();
-    while let Some((base, declared)) = queue.first().cloned() {
+/// The network file's tree: the file itself plus every composed file it
+/// names, each validated (the errors of SPEC 2.7 whose lack is a refusal),
+/// keyed by the string the declaring file wrote, each with its own directory
+/// (a neuron's `cwd` defaults to it, 2.4). Composed paths are relative to the
+/// file that declares the neuron.
+pub fn load_network_tree(path: &Path) -> std::result::Result<(Network, HashMap<String, NetFile>), Vec<String>> {
+    let root = net::load(&path.to_string_lossy(), false)?;
+    let empty = PathBuf::from(".");
+    let base = path.parent().map(Path::to_path_buf).unwrap_or_else(|| empty.clone());
+    let mut files: HashMap<String, NetFile> = HashMap::new();
+    let mut queue: Vec<(PathBuf, String)> = composed_of(&root).into_iter().map(|p| (base.clone(), p)).collect();
+    while let Some((cur_base, declared)) = queue.first().cloned() {
         queue.remove(0);
-        let file_path = base.join(&declared);
-        let key = declared;
-        if files.contains_key(&key) {
+        let file_path = cur_base.join(&declared);
+        if files.contains_key(&declared) {
             continue;
         }
-        let the_file = net::load(&file_path.to_string_lossy(), true)?;
-        for name in composed_of(&the_file) {
-            let base2 = file_path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
-            queue.push((base2, name));
+        let the_net = net::load(&file_path.to_string_lossy(), true)?;
+        let the_dir = file_path.parent().map(Path::to_path_buf).unwrap_or_else(|| empty.clone());
+        for name in composed_of(&the_net) {
+            queue.push((the_dir.clone(), name));
         }
-        files.insert(key, the_file);
+        files.insert(
+            declared,
+            NetFile {
+                net: the_net,
+                dir: the_dir,
+            },
+        );
     }
     Ok((root, files))
+}
+
+fn load_networks(dir: &Path, fx: &Fixture) -> std::result::Result<(Network, HashMap<String, NetFile>), Vec<String>> {
+    load_network_tree(&dir.join(&fx.network_path))
 }
 
 fn composed_of(net: &Network) -> Vec<String> {
@@ -112,7 +117,12 @@ enum RunFail {
 /// One scripted run: the engine with the fixture's inputs, script and observer
 /// (or no observer), the start-up phase, the run. A harness failure (a call no
 /// script entry matches) is carried out as the panic payload of the engine.
-fn one_run(fx: &Fixture, networks: &(Network, HashMap<String, Network>), with_observer: bool) -> std::result::Result<RunOutcome, RunFail> {
+fn one_run(
+    fx: &Fixture,
+    networks: &(Network, HashMap<String, NetFile>),
+    with_observer: bool,
+    base: &Path,
+) -> std::result::Result<RunOutcome, RunFail> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut eng = Engine::new(
             fx.inputs.clone(),
@@ -121,7 +131,8 @@ fn one_run(fx: &Fixture, networks: &(Network, HashMap<String, Network>), with_ob
             fx.ping_every,
             if with_observer { fx.observer.clone() } else { Vec::new() },
         );
-        eng.plant(&networks.0, &networks.1).map_err(RunFail::Refused)?;
+        eng.plant(&networks.0, &networks.1, Some(&base.to_path_buf()))
+            .map_err(RunFail::Refused)?;
         if let Some(why) = eng.start_serves_err() {
             // A serve program that never becomes ready or fails its first
             // start is a refusal of the whole run (SPEC 3.2, 5.3).
@@ -163,7 +174,8 @@ pub fn run_fixture(_root: &Path, found: &Discovered) -> std::result::Result<(), 
     };
 
     // The run with the scripted observer (of CONFORMANCE 6), if it has one.
-    let first = match one_run(&fx, &networks, true) {
+    let base = found.dir.clone();
+    let first = match one_run(&fx, &networks, true, &base) {
         Ok(outcome) => outcome,
         Err(RunFail::Refused(why)) => {
             // A refusal passes exactly the fixtures that expect one (4.3).
@@ -206,7 +218,7 @@ pub fn run_fixture(_root: &Path, found: &Discovered) -> std::result::Result<(), 
     // SPEC 8.5 / CONFORMANCE 6: the run without the observer (its rules
     // removed), when there is one, or the fixture pins two lists.
     if !fx.observer.is_empty() || fx.expect_without.is_some() {
-        let second = match one_run(&fx, &networks, false) {
+        let second = match one_run(&fx, &networks, false, &base) {
             Ok(outcome) => outcome,
             Err(RunFail::Refused(why)) => {
                 return Err(Result::Failed {
@@ -499,7 +511,7 @@ impl Engine {
 #[doc(hidden)]
 pub fn run_for_debug(
     fx: &crate::fixture::Fixture,
-    networks: &(Network, HashMap<String, Network>),
+    networks: &(Network, HashMap<String, NetFile>),
 ) -> std::result::Result<RunOutcome, String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut eng = Engine::new(
@@ -509,7 +521,7 @@ pub fn run_for_debug(
             fx.ping_every,
             fx.observer.clone(),
         );
-        eng.plant(&networks.0, &networks.1)
+        eng.plant(&networks.0, &networks.1, None)
             .map_err(|e| format!("the engine did not start: {}", e))?;
         if let Some(why) = eng.start_serves_err() {
             return Err(why);
