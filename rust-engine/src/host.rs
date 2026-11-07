@@ -203,6 +203,17 @@ fn registered_groups() -> Vec<i32> {
     LIVE.lock().map(|l| l.clone()).unwrap_or_default()
 }
 
+/// Every live group the process still knows of, killed at once: the MCP
+/// server's stdin-EOF exit uses it (a client gone mid-run leaves no programs
+/// behind, and the polite `end_run` discipline needs a process to keep
+/// waiting — there is none after the exit). A group already reaped is a
+/// no-op, the way `kill_group` reads dead ids.
+pub fn kill_live_groups() {
+    for gid in registered_groups() {
+        kill_group(gid);
+    }
+}
+
 // -- The self-pipe signal teardown (the CLI's SIGINT/SIGTERM, decision 0001) --
 
 static SIGNAL_WRITE: AtomicI32 = AtomicI32::new(-1);

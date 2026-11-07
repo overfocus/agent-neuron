@@ -404,6 +404,10 @@ pub struct RunOutcome {
     /// prints these; the trace cuts long payloads). Read them through
     /// `printed_answers`; `PVal` is the engine's own shape.
     pub(crate) answers: Vec<(String, PVal)>,
+    /// The run reached its deadline (a caller's `timeout_ms`) with work still
+    /// open: the loop broke there, the teardown followed, and these are the
+    /// facts of the run up to the deadline. Only the real host sets it.
+    pub timed_out: bool,
 }
 
 impl RunOutcome {
@@ -417,6 +421,17 @@ impl RunOutcome {
                 other => json::write(&other.as_full()),
             })
             .collect()
+    }
+
+    fn empty() -> RunOutcome {
+        RunOutcome {
+            events: Vec::new(),
+            refused: None,
+            harness: None,
+            injected_traces: Vec::new(),
+            answers: Vec::new(),
+            timed_out: false,
+        }
     }
 }
 
@@ -471,6 +486,15 @@ pub struct Engine {
     desk: Option<crate::desk::Desk>,
     /// The http requests, in start order; the engine cancels one by index.
     https: Vec<crate::http::Cancel>,
+    /// A hard deadline for the run, on the real host's clock (`set_deadline_ms`
+    /// of a caller's `timeout_ms`): at the instant with work still open the
+    /// loop breaks, the outcome says `timed_out`, and the teardown that every
+    /// real run ends with runs as usual. `None` is a run with no deadline.
+    deadline: Option<u64>,
+    /// Whether this route opens a desk when the network has `human` neurons
+    /// (decision 0008). The `run` route does (default); an MCP route does not:
+    /// the desk is the person's surface, and such a route refuses at plant.
+    wants_desk: bool,
 }
 
 impl Engine {
@@ -523,6 +547,8 @@ impl Engine {
             answers: Vec::new(),
             desk: None,
             https: Vec::new(),
+            deadline: None,
+            wants_desk: true,
         }
     }
 
@@ -540,6 +566,20 @@ impl Engine {
     /// the `run` command's; a slow or closed sink never changes the run.
     pub fn set_stream(&mut self, sink: crate::run::StreamSink) {
         self.stream = Some(sink);
+    }
+
+    /// A hard deadline for the run, `ms` from now on the real host's clock: a
+    /// run still open at the instant stops as timed out (see the field). The
+    /// deadline covers the plant and the serve start too, so a route may give
+    /// a whole run's budget to one call of it.
+    pub fn set_deadline_ms(&mut self, ms: u64) {
+        self.deadline = Some(host::clock_ms().saturating_add(ms));
+    }
+
+    /// No desk on this route: a network with `human` neurons is refused at
+    /// plant (a person answers at a desk, and this route has none to offer).
+    pub fn set_no_desk(&mut self) {
+        self.wants_desk = false;
     }
 
     /// A run the engine refused at its start (a serve program that never said
@@ -673,6 +713,23 @@ impl Engine {
             return Ok(());
         }
         if self.is_real() && self.nodes.iter().any(|n| matches!(n.kind, Kind::Human)) {
+            if !self.wants_desk {
+                // SPEC 3.4 with the M3 reading: a person answers at a desk,
+                // and this route is not the desk's surface — an MCP result
+                // never holds a person's page. The engine refuses before the
+                // run starts, as the M1 `no desk for a person` refusal did.
+                let who = self
+                    .nodes
+                    .iter()
+                    .find(|n| matches!(n.kind, Kind::Human))
+                    .map(|n| n.display.clone())
+                    .unwrap_or_default();
+                self.refused = Some(format!(
+                    "the network has a human neuron ('{who}'), and this route has no desk for a person \
+                     (the desk is the person's surface, not an MCP surface; 3.4)"
+                ));
+                return Ok(());
+            }
             // The desk binds before anything runs, so the address is on
             // stderr before the first answer could matter. Appendix D opens
             // the page "at the first question"; this engine opens it at the
@@ -880,13 +937,9 @@ impl Engine {
             }
         }
         if let Some(refused) = self.refused.take() {
-            return RunOutcome {
-                events: Vec::new(),
-                refused: Some(refused),
-                harness: self.harness.take(),
-                injected_traces: Vec::new(),
-                answers: Vec::new(),
-            };
+            let mut outcome = RunOutcome::empty();
+            outcome.refused = Some(refused);
+            return outcome;
         }
         // Injections are set before the run starts, in listed order; at a tie
         // they go before every wake-up the run sets itself. The run's own arms
@@ -895,24 +948,46 @@ impl Engine {
             self.heap.push(Reverse((self.t_zero + inp.at, i as u64, Wake::Inject(i))));
             self.injections += 1;
         }
+        let mut timed_out = false;
         while self.harness.is_none() {
             if self.run_over() {
+                break;
+            }
+            if self.deadline_due() {
+                timed_out = true;
                 break;
             }
             let next = self.next_wake();
             if self.is_real() {
                 // A host event due at or before the next wake-up goes first;
                 // its time is when the host read it, so work that ended in the
-                // same ms as its timeout (rule 7) is here by its stamp.
-                if self.host_step(Some(next.unwrap_or(u64::MAX))) {
+                // same ms as its timeout (rule 7) is here by its stamp. A
+                // deadline caps every wait the loop makes: the engine's pump
+                // never blocks past it, and at the instant the run stops as
+                // timed out, with the teardown after the loop.
+                let cap = match (next, self.deadline) {
+                    (Some(t), Some(d)) => Some(t.min(d)),
+                    (t, d) => t.or(d),
+                };
+                if self.host_step(cap) {
                     continue;
+                }
+                if self.deadline_due() {
+                    timed_out = true;
+                    break;
                 }
                 self.now = next.unwrap_or_else(|| self.now + 65_536);
                 let Some(w) = self.pop() else {
                     // The heap is empty and nothing is due: only a process
-                    // outcome can close the run.
-                    if self.host_step(None) {
+                    // outcome can close the run. The pump waits to the
+                    // deadline when one is set, and to nothing at all when
+                    // none is (a process's end is the only closer).
+                    if self.host_step(self.deadline) {
                         continue;
+                    }
+                    if self.deadline_due() {
+                        timed_out = true;
+                        break;
                     }
                     break;
                 };
@@ -935,7 +1010,15 @@ impl Engine {
             harness: self.harness.take(),
             injected_traces: std::mem::take(&mut self.injected_roots),
             answers: std::mem::take(&mut self.answers),
+            timed_out,
         }
+    }
+
+    /// Is the run's deadline due (set by a caller's `timeout_ms`)? Only the
+    /// real host has one: the scripted host of the conformance run never sets
+    /// a deadline, and its loop is never asked about one.
+    fn deadline_due(&self) -> bool {
+        matches!(self.deadline, Some(d) if self.now >= d)
     }
 
     /// The end of a real run (SPEC 3.2's shutdown, Appendix C): stdin closed

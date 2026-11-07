@@ -2,14 +2,16 @@
 // command-line form; the answers of the neurons with no outgoing links).
 use crate::engine::Engine;
 use crate::fixture;
-use crate::json::Value;
+use crate::json::{self, Value};
 use crate::net::{NetFile, Network};
+use crate::trace;
 use std::collections::HashMap;
 use std::path::Path;
 
 /// The live-stream sink of a run (9.1): each event, in order; never holds the
-/// run up.
-pub type StreamSink = Box<dyn FnMut(&Value)>;
+/// run up. `Send`: an MCP job runs the engine in its own thread, so the sink
+/// it gives the engine crosses that thread's boundary.
+pub type StreamSink = Box<dyn FnMut(&Value) + Send>;
 
 /// One finished run: the answers of the neurons with no outgoing links in
 /// their printed form (4.4), the events, and the network's tree (the declared
@@ -111,4 +113,56 @@ pub fn print_answers(answers: &[String]) {
     for line in answers {
         println!("{}", line);
     }
+}
+
+/// The trace file, and the self-check: its events (read back from the disk)
+/// are the engine's events, and the stream's lines — when a stream fed the
+/// run — are the same events in the same order (the P2 gate; 9.1 says the
+/// stream is the trace). The `run` command and the MCP route share it.
+pub fn write_trace_checked(
+    out: &str,
+    events: &[json::Value],
+    outer: &Network,
+    written: Option<&std::sync::Arc<std::sync::Mutex<Vec<String>>>>,
+) -> Result<(), String> {
+    let fallback = Path::new(out)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let demo = if outer.name.is_empty() { fallback } else { outer.name.clone() };
+    trace::write_trace(out, outer, &demo, events)?;
+    let from_trace = trace::read_events(out)?;
+    if from_trace.len() != events.len() {
+        return Err(format!(
+            "the trace self-check failed: the file holds {} events, the run reported {}",
+            from_trace.len(),
+            events.len()
+        ));
+    }
+    for (i, (a, b)) in from_trace.iter().zip(events.iter()).enumerate() {
+        if !a.deep_eq(b) {
+            return Err(format!(
+                "the trace self-check failed at event {}: {} != {}",
+                i,
+                json::write(a),
+                json::write(b)
+            ));
+        }
+    }
+    if let Some(written) = written {
+        let lines = written.lock().map(|v| v.clone()).unwrap_or_default();
+        if lines.len() != events.len() {
+            return Err(format!(
+                "the stream self-check failed: the stream holds {} events, the run reported {}",
+                lines.len(),
+                events.len()
+            ));
+        }
+        for (i, (line, ev)) in lines.iter().zip(events.iter()).enumerate() {
+            if line != &json::write(ev) {
+                return Err(format!("the stream self-check failed at event {}", i));
+            }
+        }
+    }
+    Ok(())
 }

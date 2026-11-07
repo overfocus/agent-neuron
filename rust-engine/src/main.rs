@@ -172,7 +172,7 @@ fn run(args: &[String]) {
             if let Some(out) = &trace_out {
                 // The stream's record rides only when a stream was asked for.
                 let record = if stream_path.is_some() { Some(&written) } else { None };
-                if let Err(why) = write_trace_checked(out, &result.events, &result.network, record) {
+                if let Err(why) = run::write_trace_checked(out, &result.events, &result.network, record) {
                     eprintln!("{}", why);
                     std::process::exit(1);
                 }
@@ -192,55 +192,4 @@ fn run(args: &[String]) {
             std::process::exit(1);
         }
     }
-}
-
-/// The trace file, and the self-check: its events (read back from the disk)
-/// are the engine's events, and the stream's lines are the same events in the
-/// same order (the P2 gate; 9.1 says the stream is the trace).
-fn write_trace_checked(
-    out: &str,
-    events: &[json::Value],
-    outer: &rust_engine::net::Network,
-    written: Option<&std::sync::Arc<std::sync::Mutex<Vec<String>>>>,
-) -> Result<(), String> {
-    let fallback = Path::new(out)
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let demo = if outer.name.is_empty() { fallback } else { outer.name.clone() };
-    trace::write_trace(out, outer, &demo, events)?;
-    let from_trace = trace::read_events(out)?;
-    if from_trace.len() != events.len() {
-        return Err(format!(
-            "the trace self-check failed: the file holds {} events, the run reported {}",
-            from_trace.len(),
-            events.len()
-        ));
-    }
-    for (i, (a, b)) in from_trace.iter().zip(events.iter()).enumerate() {
-        if !a.deep_eq(b) {
-            return Err(format!(
-                "the trace self-check failed at event {}: {} != {}",
-                i,
-                json::write(a),
-                json::write(b)
-            ));
-        }
-    }
-    if let Some(written) = written {
-        let lines = written.lock().map(|v| v.clone()).unwrap_or_default();
-        if lines.len() != events.len() {
-            return Err(format!(
-                "the stream self-check failed: the stream holds {} events, the run reported {}",
-                lines.len(),
-                events.len()
-            ));
-        }
-        for (i, (line, ev)) in lines.iter().zip(events.iter()).enumerate() {
-            if line != &json::write(ev) {
-                return Err(format!("the stream self-check failed at event {}", i));
-            }
-        }
-    }
-    Ok(())
 }
