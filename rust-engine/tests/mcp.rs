@@ -871,6 +871,13 @@ fn read_trace_returns_the_trace_file() {
     assert_eq!(header.get("format").and_then(|f| f.as_str()), Some("agent-neuron-trace"));
     assert_eq!(header.get("version").and_then(|v| v.as_i64()), Some(1));
     assert_eq!(header.get("demo").and_then(|d| d.as_str()), Some("tracey"));
+    // The header is the file's header: the writer's `ids` field rides with it.
+    assert_eq!(
+        header.get("ids").map(json::write),
+        Some("{\"signal\":\"run-numbered\",\"trace\":\"run-numbered\"}".to_string()),
+        "{}",
+        json::write(header)
+    );
     let events: Vec<&Value> = body
         .get("events")
         .and_then(|e| e.as_arr())
@@ -901,6 +908,32 @@ fn read_trace_returns_the_trace_file() {
         .get("error")
         .and_then(|e| e.as_str())
         .is_some_and(|e| e.contains("cannot read")));
+}
+
+#[test]
+fn read_trace_reads_a_trace_that_has_no_ids_field() {
+    // The `ids` field is optional for a reader (a v1 reader ignores a top
+    // level field it does not know): the tool reads a trace without one and
+    // carries the header as it stands.
+    let mut c = Client::start();
+    handshake(&mut c);
+    let temp = Temp::new("trace-no-ids");
+    let bare = temp.write(
+        "bare.json",
+        r#"{
+  "format": "agent-neuron-trace",
+  "version": 1,
+  "demo": "bare",
+  "neurons": [],
+  "events": [],
+  "summary": {}
+}"#,
+    );
+    let reply = c.rpc(2, &read_trace_call(&bare));
+    let (body, is_error) = c.tool_body(&reply);
+    assert!(!is_error, "{}", json::write(&body));
+    let header = body.get("header").expect("header");
+    assert!(header.get("ids").is_none(), "{}", json::write(header));
 }
 
 #[test]

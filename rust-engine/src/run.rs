@@ -131,6 +131,16 @@ pub fn write_trace_checked(
         .unwrap_or_default();
     let demo = if outer.name.is_empty() { fallback } else { outer.name.clone() };
     trace::write_trace(out, outer, &demo, events)?;
+    // The header's `ids` is written with the trace; the read-back carries it
+    // whole (the ids the file declares are the ids the run assigned).
+    let ids = trace::read_ids(out)?;
+    if !ids.deep_eq(&trace::ids_value()) {
+        return Err(format!(
+            "the trace self-check failed: the header's ids is {}, the writer writes {}",
+            json::write(&ids),
+            json::write(&trace::ids_value())
+        ));
+    }
     let from_trace = trace::read_events(out)?;
     if from_trace.len() != events.len() {
         return Err(format!(
