@@ -60,10 +60,21 @@ pub fn read_inputs(path: &str) -> Result<Vec<fixture::Input>, String> {
 pub fn run_with_stream(file: &str, opts: &RunOpts, sink: Option<StreamSink>) -> Result<RunResult, String> {
     let inputs = read_inputs(&opts.inputs)?;
     let path = Path::new(file);
-    let (outer, files) = crate::runner::load_network_tree(path).map_err(|e| e.join("; "))?;
+    // The declaring file's directory is the default working directory of its
+    // neurons (SPEC 2.4); a file named bare is resolved against the caller's
+    // own working directory before its parent becomes one, because what the
+    // spawns chdir to has to exist.
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| format!("cannot run: the working directory is unreadable ({})", e))?
+            .join(path)
+    };
+    let (outer, files) = crate::runner::load_network_tree(&absolute).map_err(|e| e.join("; "))?;
     // The declaring file's directory is the default working directory of its
     // neurons (SPEC 2.4); the engine plants with it.
-    let base = path
+    let base = absolute
         .parent()
         .map(std::path::Path::to_path_buf)
         .unwrap_or_else(|| std::path::PathBuf::from("."));

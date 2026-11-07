@@ -710,6 +710,28 @@ fn run_refuses_a_file_that_does_not_check() {
     assert!(has(&stderr(&out), "empty"), "{}", stderr(&out));
 }
 
+#[test]
+fn run_resolves_a_file_named_bare_against_the_callers_cwd() {
+    // The declaring file's directory is the working directory of its neurons
+    // (2.4); a file named bare (no directory in the argument) sits in the
+    // caller's cwd, whose directory the spawns must be able to chdir to.
+    let temp = Temp::new("run-bare");
+    let _net = temp.write(
+        "network.json",
+        &network("", &[("a", "\"run\"", &format!("[\"sh\", \"{}\"]", progs("quiet.sh")), "")]),
+    );
+    let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
+    let mut cmd = Command::new(engine());
+    cmd.arg("run")
+        .arg(temp.path("network.json").file_name().unwrap())
+        .arg("--inputs")
+        .arg(inputs.to_string_lossy().as_ref());
+    cmd.current_dir(temp.dir.clone());
+    let out = cmd.output().expect("the engine runs");
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out), ""); // the quiet prints nothing
+}
+
 // -- The trace and the stream -------------------------------------------------
 
 #[test]
