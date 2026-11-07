@@ -8,6 +8,7 @@
 // neurons with no outgoing links on stdout, a live stream (a file or a pipe)
 // that never holds the run up, and the trace file when asked, with the
 // events-vs-trace-vs-stream self-check.
+use rust_engine::mcp;
 use rust_engine::run::{self, RunOpts};
 use rust_engine::runner;
 use rust_engine::trace;
@@ -18,6 +19,7 @@ fn usage() -> ! {
     eprintln!("usage: neuron-engine conform <dir> [--only <text>]");
     eprintln!("       neuron-engine run <file> --inputs <jsonl> [--trace <out.json>] [--stream <path>] [--ping <ms>]");
     eprintln!("       neuron-engine check <file>");
+    eprintln!("       neuron-engine mcp");
     std::process::exit(2);
 }
 
@@ -54,6 +56,7 @@ fn main() {
         "conform" => conform(&args[1..]),
         "run" => run(&args[1..]),
         "check" => check::main(&args[1..]),
+        "mcp" => mcp::main(&args[1..]),
         _ => usage(),
     }
 }

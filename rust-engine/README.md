@@ -1,8 +1,10 @@
-# agent-neuron engine, second implementation (Rust, M1)
+# agent-neuron engine, second implementation (Rust, M3)
 
-This crate is the Rust engine of [`agent-neuron`](../), milestone M1: the M0
-sans-IO conformance core plus the process layer — real `run`, the `check`
-command, the trace file and the live stream. It is written from
+This crate is the Rust engine of [`agent-neuron`](../), milestones M0-M3: the
+M0 sans-IO conformance core, the process layer (real `run`, the `check`
+command, the trace file and the live stream), real `http` neurons and the desk
+of M2, and the MCP interface of M3 — a stdio JSON-RPC server speaking Model
+Context Protocol's stable core subset. It is written from
 [SPEC.md](../docs/SPEC.md), [CONFORMANCE.md](../docs/CONFORMANCE.md),
 [spec/network.schema.json](../spec/network.schema.json), the fixtures
 themselves and [TRACE.md](../docs/TRACE.md)
@@ -75,13 +77,14 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 39: real 27, check 11, probe 1
+cargo test                                          # 76: mcp 14, real 27, check 11, desk 11, http 11, unit 2
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 201, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
 target/debug/neuron-engine run spec/examples/alerts-python-serve.network.json --inputs spec/examples/alerts.inputs.jsonl
 target/debug/neuron-engine run spec/examples/alerts-budget.network.json --inputs spec/examples/alerts.inputs.jsonl
 target/debug/neuron-engine check <file>
+neuron-engine mcp                                   # the M3 server on stdin/stdout
 ```
 
 Results when M1 closed, re-run the commands above to check: `spec/fixtures`
@@ -170,6 +173,127 @@ end-to-end one.
 - `cargo fmt --check` and `clippy --all-targets -- -D warnings` clean.
 - The three alert smokes still write their traces (324/316/580 events —
   counts vary run to run with the machine's load, as the M1 section notes).
+
+## M3 — the MCP interface (`neuron-engine mcp`)
+
+An MCP server on stdio, `src/mcp.rs`, hand-rolled on `json.rs` and the
+standard library: newline-delimited JSON-RPC 2.0, one request per line, one
+response per line; logs and diagnostics go to stderr only (stdout is the
+protocol, nothing else writes there). It speaks the stable core subset of
+Model Context Protocol and nothing beyond it: no sampling, no elicitation, no
+prompts, and `conform` and the fixtures are not exposed anywhere on this
+surface.
+
+- The handshake: `initialize` answers `{"protocolVersion", "capabilities",
+  "serverInfo"}` — the client's version echoed when the server speaks it
+  (`2024-11-05` and `2025-06-18`), else the first stable protocol's;
+  `capabilities` advertise `{tools: {listChanged: false}, resources:
+  {subscribe: true, listChanged: false}}`; `serverInfo` is `{"name":
+  "agent-neuron", "version": "0.0.0"}`. `notifications/initialized` closes it
+  silently; a second `initialize` on the same session is refused. `ping`
+  answers `{}` at any time. Protocol errors keep JSON-RPC's semantics:
+  malformed JSON is `-32700` (a fresh server survives it), an unknown method
+  `-32601`, bad params on the wire `-32600`/`-32602`. Tool failures that are
+  the subject's fault — a check that found errors, a refused run, a timed-out
+  one — are RESULTS with `isError: true`, not wire errors.
+- `tools/list` carries five tools, each with its description and a closed
+  JSON-schema `inputSchema` (`required` marked, `additionalProperties`:
+  false); the schemas are built, not guessed — an unknown field of the
+  arguments is refused as the schema promised. `tools/call` answers
+  `content` (one text block, the compact JSON of the body, byte-identical to
+  it) plus `structuredContent` (the same object); an unknown tool name is a
+  protocol error, as the spec's error table has it.
+- `check_network {file}` — the `check` command's whole surface (same error
+  set, same wordings, positions), the file resolved as a path of the
+  server's working directory: `{ok, errors, warnings}`, each diagnostic with
+  its file, line, column and message. A check with errors is `isError` too:
+  the subject is the thing at fault.
+- `run_network {file, inputs, timeout_ms? = 60000, cap 600000,
+  keep_trace? = false}` — a synchronous run through the engine's real route:
+  `{status: "done"|"refused"|"failed", answers, summary, events}` where the
+  summary says the whole counts and `events` carries a run's events whole to
+  300, else the first 299 plus a `{"truncated": <total>}` marker. A refused
+  run (checking included) is `refused` with the engine's refusal wording; the
+  deadline reached is `failed` with the reason `timed out at N ms`, and the
+  run is torn down by the engine's own end-of-run discipline (stdin closed,
+  then the SIGTERM/SIGKILL of 3.2 — the deadline inside the engine loop, so
+  the teardown is the one every real run ends with, not a kill from outside).
+  `keep_trace` writes a v1 trace (with the P2 self-check, as `run` writes
+  its traces) into a temp directory the server manages (removed at the
+  server's own exit; a server killed by a signal leaves it to the OS's temp
+  cleaning), returned as `{trace_path}` with its trace:// resource. The
+  events of an events-stamped-at-the-deadline run are the run's facts up to
+  the deadline: the tie of such an event resolves the pump way already (the
+  host's stamps, 6.2 rule 7), so nothing new was needed at the M3 line.
+- `start_run` — the same arguments, non-blocking: the run goes in a job's
+  own thread; the answer is `{job_id}` at once. `poll_run {job_id,
+  wait_ms? = 0, cap 30000}` waits for the end and returns the run result (or
+  `{status: "running"}`); an unknown job is `isError`. The Engine runs two
+  jobs' engines at once honestly: the instances are per-job, and the only
+  process-wide bits are the live-group registry and the start instant that
+  the signal/teardown machinery owns.
+- `read_trace {path}` — the records of a v1 trace file: `{header, events}
+  from the trace's own readers' wordings; an unknown version or an
+  unreadable file is `isError`.
+- The resources: `resources/list` shows the four spec resources —
+  `spec://SPEC.md`, `spec://CONFORMANCE.md`, `spec://TRACE.md`,
+  `spec://network.schema.json` (mime text/markdown or application/json, a
+  title each) — plus every job's live `run://{job_id}` (mime
+  application/json) and every kept trace's resource
+  (`trace://{job_id}`, or `trace://sync/{n}` for a synchronous run's). The
+  spec resources are build-embedded (`include_str!`): the text a
+  client reads is this public repo's normative text at the build the binary
+  came from, byte for byte (`resources/read` equality is a test), and it is
+  version-stamped by the binary itself rather than read from a filesystem
+  that may have moved on. A job's state is `{job_id, status: "running",
+  events_so_far, answers_so_far}` while the run goes and the run's result
+  plus its trace path once it ended; jobs live for the server's lifetime —
+  nothing is dropped when a result is collected, so a client may read back
+  what it saw, and a job the client never collects is dropped only when the
+  whole server exits. `resources/subscribe {uri}` stands (unknown uris are
+  refused, for a subscription that would never fire is a lie); the updates
+  come as `notifications/resources/updated` (params `{uri}`) when a
+  subscribed job's state changes — coarse, at most one per second per job
+  while it runs, with the run's end announced immediately against the limit
+  (it is the one change a subscriber must not miss; a client who misses it
+  still has `poll_run`) — and `resources/unsubscribe` takes a subscription
+  back off. No list-changed notifications: the capability promises none, and
+  none are sent; a new job's resource simply appears from the next list on.
+- The two honest exclusions, enforced rather than documented: a network with
+  `human` neurons is refused by the run tools — the engine's no-desk route
+  refuses at plant with the M1 wording carried by an extra clause (the desk
+  is the person's surface, not an MCP surface), because a person answers at
+  a desk and an MCP result never holds that page; and a network with an
+  `https://` neuron is refused by the engine as at M2 (no TLS in a std-only
+  crate). `conform` and the fixtures are not exposed.
+- Pointing a client at it: run `neuron-engine mcp` as a child process and
+  speak the protocol to its stdin/stdout — the tests do exactly that
+  (`tests/mcp.rs`, a subprocess with a buffered reader, no MCP client
+  dependency).
+- Covered by `tests/mcp.rs` (14): the handshake with both protocol-version
+  answers and the second-initialization refusal, ping, unknown method,
+  malformed line, tools/list with the inputSchemas, resources/list with the
+  four spec resources then a live run's entry, resources/read for every
+  embedded text (byte for byte) and the unknown-uri refusals, check_network
+  on an example (ok) and on a bad network (errors with file/line/col) and
+  the unreadable and no-file refusals, run_network sync (answers, events,
+  summary), the three refusals (a failing file, `https://`, the human
+  clause), timeout_ms honored, poll_run of an unknown job, start_run +
+  poll_run to completion with the live resource's two states and its trace,
+  the subscription's announcements, read_trace round trip and its two
+  refusals, and the server leaving cleanly when the client closes stdin
+  (killing any live group first, and empty of stray stdout lines).
+
+### Gates measured when M3 closed
+
+- `conform spec/fixtures` 201/0/0 and `conform py/probes` 10/0/0 — unchanged.
+- `cargo test`: unit 2, check 11, desk 11, http 11, mcp 14, real 27, all
+  green (the mcp suite runs its many short servers one at a time with the
+  rest, as the crate's config already holds).
+- `cargo fmt --check` and `clippy --all-targets -- -D warnings` clean.
+- The three alert smokes still write their traces through the unchanged CLI
+  (this machine's closing run: 316/316/587 events — counts vary run to run
+  with the machine's load, as the M1 section notes).
 
 ## Design in one page
 
@@ -271,27 +395,32 @@ Lines as committed (`wc -l`), formatted at `max_width = 140`:
 |---|---|
 | `src/json.rs` | 415 |
 | `src/net.rs` | 1083 |
-| `src/check.rs` | 252 |
+| `src/check.rs` | 257 |
 | `src/fixture.rs` | 400 |
-| `src/engine.rs` | 3784 |
-| `src/host.rs` | 902 |
-| `src/run.rs` | 98 |
+| `src/engine.rs` | 4182 |
+| `src/host.rs` | 953 |
+| `src/run.rs` | 168 |
 | `src/trace.rs` | 204 |
 | `src/runner.rs` | 539 |
-| `src/main.rs` | 246 |
-| `src/lib.rs` | 11 |
-| source total | 7934 |
-| `tests/real.rs` | 784 |
+| `src/mcp.rs` | 1335 |
+| `src/main.rs` | 198 |
+| `src/lib.rs` | 15 |
+| source total | 11152 |
+| `tests/real.rs` | 802 |
 | `tests/check.rs` | 493 |
+| `tests/desk.rs` | 664 |
+| `tests/http.rs` | 394 |
+| `tests/mcp.rs` | 927 |
 
-Updated after M2 (`wc -l` of the same files, plus the new ones): `engine.rs`
-4075, `net.rs` 1083, `host.rs` 942, `desk.rs` (new) 938, `http.rs` (new) 465,
-`check.rs` 257, `trace.rs` 204, `run.rs` 98; tests: `real.rs` 802,
-`check.rs` 493, `desk.rs` (new) 664, `http.rs` (new) 394; unit tests
-included. Sources 8666, tests 2353, 12045 all told.
+Updated after M3 (`wc -l` of the same files, plus the new ones): `mcp.rs`
+(new) 1335, `engine.rs` 4182, `host.rs` 953, `run.rs` 168; tests:
+`mcp.rs` (new) 927. Sources 11152, tests 3280 (with the two desk/http test
+files of M2 and the probe unit test), 14432 all told.
 
 For scale: the TypeScript reference engine (`src/engine/`) is 1353 by
 `wc -l` (decision 0005's table). This crate is larger for the same honest
 reasons as at M0 — the std-only JSON layer and the conformance runner — plus
-the M1 process layer (host, run, trace, check) that the reference engine
-gets "for free" from Node. None of this is golf.
+the M1 process layer (host, run, trace, check) and the M3 std-only MCP server
+(the whole client side of the protocol: a JSON-RPC frame on the JSON layer,
+five tools, the resources and their subscriptions) that a Python or Node
+engine would get "for free" from an SDK. None of this is golf.

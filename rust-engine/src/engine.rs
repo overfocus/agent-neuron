@@ -1049,6 +1049,30 @@ impl Engine {
         }
     }
 
+    /// The groups of a run that did not end politely (a harness failure
+    /// unwinds): every serve program and every level 0 call's group stopped
+    /// at once — term, then the kill for whatever stays. A group the run's
+    /// own teardown ended is dead to this, the way `kill_group` reads dead
+    /// ids.
+    pub fn kill_leftovers(&mut self) {
+        self.desk_close();
+        if self.real.is_none() {
+            return;
+        }
+        let mut serve_gids: Vec<i32> = Vec::new();
+        for s in self.serves.values() {
+            let Some(p) = s.cur.as_ref() else { continue };
+            if let Some(g) = p.gid {
+                serve_gids.push(g);
+            }
+        }
+        let l0_gids: Vec<i32> = self.l0s.iter().filter_map(|p| p.gid).collect();
+        self.host().end_refused(&serve_gids);
+        if !l0_gids.is_empty() {
+            self.host().end_refused(&l0_gids);
+        }
+    }
+
     /// Is the run over (SPEC 6.2 rule 6): nothing running, queued or held, no
     /// injection still to come, and no cancelled work left behind (a cut
     /// level 0 group, a cancelled level 1 call's slot, a kill grace). A
