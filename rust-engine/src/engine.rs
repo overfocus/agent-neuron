@@ -2453,7 +2453,8 @@ impl Engine {
     /// never sent; the `draft`/`proposal` pair is the diff convention; any
     /// other input is shown as its text, else its JSON. The neuron is named
     /// by its instance path (a human inside a composed instance is its own
-    /// item: "outer/inner").
+    /// item: "outer/inner"). A host recording the run needs the ask itself:
+    /// the item's `payload` is the input, whole, and `t` its run millisecond.
     fn desk_item_of(&self, work: usize) -> crate::desk::NewItem {
         let node = self.works[work].node;
         let input = self.input_value_of(work);
@@ -2474,6 +2475,8 @@ impl Engine {
             draft,
             proposal,
             text,
+            payload: input.clone(),
+            t: self.now,
         }
     }
 
@@ -2488,7 +2491,10 @@ impl Engine {
     /// else the input if it is a string, else the input as JSON text; Edit
     /// sends the person's text (never empty: the desk refuses an empty one);
     /// No answers empty, which is quiet. An answer whose call was cut, or
-    /// whose outcome is already out, is discarded (5.4, 4.3).
+    /// whose outcome is already out, is discarded (5.4, 4.3). The desk's POST
+    /// handler reads the item's stored `payload` with the same
+    /// `approve_text_of` rule, so what settled here is what `/state` reads
+    /// back.
     fn desk_settle(&mut self, reply: crate::desk::Reply) {
         let Some(work) = self.works.iter().position(|w| w.desk.as_deref() == Some(reply.item.as_str())) else {
             return;
@@ -2501,7 +2507,7 @@ impl Engine {
             crate::desk::Kind::Approve => {
                 let input = self.input_value_of(work);
                 Outcome::Answer {
-                    payload: PVal::Text(approve_text_of(&input)),
+                    payload: PVal::Text(crate::desk::approve_text_of(&input)),
                     to: None,
                     replaces: None,
                 }
@@ -2786,19 +2792,6 @@ fn display_text(input: &Value) -> String {
         Value::Str(s) => s.clone(),
         other => json::write(other),
     }
-}
-
-/// What an Approve sends (Appendix D): the input's `proposal` field if it is
-/// a string, else the input itself if it is a string, else the input as JSON
-/// text.
-fn approve_text_of(input: &Value) -> String {
-    if let Some(Value::Str(p)) = input.get("proposal") {
-        return p.clone();
-    }
-    if let Value::Str(s) = input {
-        return s.clone();
-    }
-    json::write(input)
 }
 
 fn trim_500(s: &str) -> String {
