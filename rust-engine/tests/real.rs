@@ -669,23 +669,19 @@ fn l1_protocol_error() {
 // -- The run command's surfaces ----------------------------------------------
 
 #[test]
-fn run_refuses_http() {
-    let temp = Temp::new("run-http");
-    let net = temp.write("network.json", &network("", &[("h", "\"http\"", "\"http://127.0.0.1:9/x\"", "")]));
+fn run_refuses_https() {
+    // An `http` neuron runs for real over http:// (3.3); a `https://` one is
+    // refused at the start, for a std-only engine has no TLS. The reason
+    // names the neuron and the scheme.
+    let temp = Temp::new("run-https");
+    let net = temp.write("network.json", &network("", &[("h", "\"http\"", "\"https://127.0.0.1:9/x\"", "")]));
     let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
     let out = run_cli(&temp, &net, &inputs, &[]);
     assert!(!out.status.success());
-    assert!(has(&stderr(&out), "http"), "{}", stderr(&out));
-}
-
-#[test]
-fn run_refuses_human() {
-    let temp = Temp::new("run-human");
-    let net = temp.write("network.json", &network("", &[("h", "\"human\"", "true", "")]));
-    let inputs = inputs_file(&temp, &[("0", "src", "{}")]);
-    let out = run_cli(&temp, &net, &inputs, &[]);
-    assert!(!out.status.success());
-    assert!(has(&stderr(&out), "no desk for a person"), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(has(&err, "refused the run"), "{}", err);
+    assert!(has(&err, "https"), "{}", err);
+    assert!(has(&err, "'h'"), "{}", err);
 }
 
 #[test]

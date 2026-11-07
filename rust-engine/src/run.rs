@@ -82,6 +82,11 @@ pub fn run_with_stream(file: &str, opts: &RunOpts, sink: Option<StreamSink>) -> 
     if let Err(e) = eng.plant(&outer, &files, Some(&base)) {
         return Err(format!("cannot run: {}", e));
     }
+    // The desk's address (decision 0008, Appendix D): one page per run, its
+    // token in the query, on the stderr lines (stdout carries the answers).
+    if let Some(line) = eng.desk_line() {
+        eprintln!("{}", line);
+    }
     if let Some(sink) = sink {
         eng.set_stream(sink);
     }

@@ -31,6 +31,7 @@ use crate::net::{Kind, NetFile, Network};
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// The staleness and sealing scope of a signal and the work it starts: the
 /// outer instance is one scope; a composed neuron's inside is one scope per
@@ -47,10 +48,35 @@ pub(crate) enum PVal {
 }
 
 impl PVal {
+    /// The payload as a trace event carries it (7.2, TRACE.md): the whole
+    /// value up to 2000 characters; a longer one is cut to its first 2000 and
+    /// marked `truncated` (a JSON's preview stands in for its `data`). The
+    /// run's printed answers carry the whole one (9.1, `as_full`).
     fn shaped(&self) -> Value {
         match self {
-            PVal::Json(v) => Obj::new().str("type", "json").set("data", v.clone()).build(),
-            PVal::Text(s) => Obj::new().str("type", "text").str("text", s.clone()).build(),
+            PVal::Json(v) => {
+                let text = json::write(v);
+                if text.chars().count() > TRACE_PAYLOAD_CAP {
+                    Obj::new()
+                        .str("type", "json")
+                        .str("preview", cut_chars(&text, TRACE_PAYLOAD_CAP))
+                        .set("truncated", Value::Bool(true))
+                        .build()
+                } else {
+                    Obj::new().str("type", "json").set("data", v.clone()).build()
+                }
+            }
+            PVal::Text(s) => {
+                if s.chars().count() > TRACE_PAYLOAD_CAP {
+                    Obj::new()
+                        .str("type", "text")
+                        .str("text", cut_chars(s, TRACE_PAYLOAD_CAP))
+                        .set("truncated", Value::Bool(true))
+                        .build()
+                } else {
+                    Obj::new().str("type", "text").str("text", s.clone()).build()
+                }
+            }
         }
     }
 
@@ -79,6 +105,9 @@ enum WKind {
     Serve,
     Human,
     Composed,
+    /// An `http` neuron's one call: the request runs in its own thread (3.3);
+    /// the engine's timeout and staleness cancel it.
+    Http,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +154,10 @@ struct Work {
     inner_root: Option<u64>,
     fail_inner: bool,
     exit_replied: bool,
+    /// `http`: the request's index in the engine's `https`.
+    http: Option<usize>,
+    /// `human` on the real host: the desk item of the question.
+    desk: Option<String>,
 }
 
 impl Work {
@@ -433,6 +466,11 @@ pub struct Engine {
     /// nothing is reported before the engine's clock starts.
     reporting: bool,
     answers: Vec<(String, PVal)>,
+    /// The desk (decision 0008, Appendix D): some on a run whose network has
+    /// `human` neurons; `None` when it has none, or on the scripted host.
+    desk: Option<crate::desk::Desk>,
+    /// The http requests, in start order; the engine cancels one by index.
+    https: Vec<crate::http::Cancel>,
 }
 
 impl Engine {
@@ -483,6 +521,8 @@ impl Engine {
             stream: None,
             reporting: false,
             answers: Vec::new(),
+            desk: None,
+            https: Vec::new(),
         }
     }
 
@@ -505,6 +545,7 @@ impl Engine {
     /// A run the engine refused at its start (a serve program that never said
     /// ready): the start spawned processes; they are stopped, silently.
     pub fn stop_after_refusal(&mut self) {
+        self.desk_close();
         if self.real.is_none() {
             return;
         }
@@ -600,25 +641,49 @@ impl Engine {
     // The forest of instances
     // -----------------------------------------------------------------------
 
-    /// Load the outer network and every composed file it names. On the real
-    /// host an `http` neuron refuses the run (no HTTP in this engine yet), and
-    /// so does a `human` one: the run command has no desk for a person (3.4,
-    /// Appendix D is the reference engine's page).
+    /// Load the outer network and every composed file it names. On the virtual
+    /// host (conformance) an `http` neuron refuses the run as before: the
+    /// fixtures have no page for the network. On the real host the run
+    /// performs http calls (M2), and only a `https://` one is refused, for a
+    /// std-only engine has no TLS. A `human` neuron runs for real: the desk
+    /// of decision 0008 is opened here, one page for the run, on 127.0.0.1
+    /// only, and the run's stderr carries its address.
     pub fn plant(&mut self, outer: &Network, files: &HashMap<String, NetFile>, base: Option<&PathBuf>) -> Result<(), String> {
         self.plant_net(outer, files, 0, None, "", base.map(PathBuf::from).unwrap_or_default())?;
-        let bad: Option<&INode> = self.nodes.iter().find(|n| match &n.kind {
-            Kind::Http(_) => true,
-            Kind::Human => self.is_real(),
-            _ => false,
+        let bad: Option<String> = self.nodes.iter().find_map(|n| match &n.kind {
+            Kind::Http(url) => {
+                if !self.is_real() {
+                    Some(format!(
+                        "the network has an http neuron ('{}'), which this engine does not run",
+                        n.display
+                    ))
+                } else if url.starts_with("https://") {
+                    Some(format!(
+                        "the http neuron '{}' names '{url}', and this engine has no TLS (it is std-only; http:// only)",
+                        n.display
+                    ))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         });
-        if let Some(n) = bad {
-            self.refused = Some(match &n.kind {
-                Kind::Http(_) => format!("the network has an http neuron ('{}'), which this engine does not run", n.display),
-                _ => format!(
-                    "the network has a human neuron ('{}'), and run has no desk for a person (3.4)",
-                    n.display
-                ),
-            });
+        if let Some(why) = bad {
+            self.refused = Some(why);
+            return Ok(());
+        }
+        if self.is_real() && self.nodes.iter().any(|n| matches!(n.kind, Kind::Human)) {
+            // The desk binds before anything runs, so the address is on
+            // stderr before the first answer could matter. Appendix D opens
+            // the page "at the first question"; this engine opens it at the
+            // plant; with no questions it closes again, unanswered.
+            let post = self.host().post_handle();
+            match crate::desk::Desk::open(std::sync::Arc::new(move || post.post(host::Ev::Desk))) {
+                Ok(desk) => self.desk = Some(desk),
+                Err(why) => {
+                    self.refused = Some(format!("the desk for the network's human neurons could not be opened ({why})"));
+                }
+            }
         }
         Ok(())
     }
@@ -879,6 +944,7 @@ impl Engine {
     /// groups of finished calls that left a member behind are stopped the
     /// same way (decision 0001: the engine kills a call's process group).
     fn end_run_quietly(&mut self) {
+        self.desk_close();
         let mut serve_gids: Vec<i32> = Vec::new();
         let mut close: Vec<(usize, usize)> = Vec::new();
         for (node, s) in self.serves.iter() {
@@ -945,10 +1011,13 @@ impl Engine {
             host::Ev::L0Done { l0, out } => self.host_l0_done(l0, out),
             host::Ev::L1Line { server, gen, line } => self.consume_line(server, gen, line),
             host::Ev::L1Down { server, gen, exited } => self.host_l1_down(server, gen, exited),
+            host::Ev::HttpDone { idx, out } => self.host_http_done(idx, out),
+            host::Ev::Desk => self.drain_desk(),
         }
         true
     }
 }
+
 // ---------------------------------------------------------------------------
 // The wake-ups
 // ---------------------------------------------------------------------------
@@ -1218,7 +1287,14 @@ impl Engine {
                 self.terminate_l0(self.works[work].l0.expect("l0"));
             }
             WKind::Human => {
+                self.desk_set_status_work(work, crate::desk::Status::TimedOut);
                 self.emit(0, self.node_note(node, "cancel"));
+                self.commit_call(work);
+                self.works[work].done = true;
+            }
+            WKind::Http => {
+                self.emit(0, self.node_note(node, "cancel"));
+                self.cancel_http(work);
                 self.commit_call(work);
                 self.works[work].done = true;
             }
@@ -1641,6 +1717,14 @@ impl Engine {
                     WKind::Human => {
                         // The question is withdrawn; a late answer finds the
                         // work cut and is discarded.
+                        self.desk_set_status_work(work, crate::desk::Status::Withdrawn);
+                        self.commit_call(work);
+                        self.works[work].done = true;
+                    }
+                    WKind::Http => {
+                        // The request's socket is shut down both ways; a late
+                        // reply is discarded and frees nothing (3.3, 5.4).
+                        self.cancel_http(work);
                         self.commit_call(work);
                         self.works[work].done = true;
                     }
@@ -1764,6 +1848,7 @@ impl Engine {
                 Kind::Run(_) => WKind::Run,
                 Kind::Serve(_) => WKind::Serve,
                 Kind::Human => WKind::Human,
+                Kind::Http(_) => WKind::Http,
                 _ => WKind::Composed,
             },
             st,
@@ -1782,6 +1867,8 @@ impl Engine {
             inner_root: None,
             fail_inner: false,
             exit_replied: false,
+            http: None,
+            desk: None,
         };
         let ix = self.works.len();
         self.works.push(work);
@@ -1825,6 +1912,7 @@ impl Engine {
                 }
             }
             WKind::Human => self.start_human(work),
+            WKind::Http => self.start_http(work),
             WKind::Composed => self.start_composed(work),
         }
     }
@@ -2142,6 +2230,39 @@ impl Engine {
         }
     }
 
+    /// One http request's outcome arriving from the host's queue (3.3): the
+    /// response was read whole by the thread. A call whose outcome is already
+    /// out (its timeout, a staleness cut) discards it: a late reply is
+    /// discarded and frees nothing.
+    fn host_http_done(&mut self, idx: usize, out: crate::http::HttpOut) {
+        let Some(work) = self.works.iter().position(|w| w.http == Some(idx)) else {
+            return;
+        };
+        let running = self.works[work].running() && !self.works[work].cut && !self.works[work].reported;
+        if !running {
+            return;
+        }
+        self.works[work].http = None;
+        let out = match out {
+            crate::http::HttpOut::Answer(v) => L0Out::Answer { payload: payload_of(v) },
+            crate::http::HttpOut::Quiet => L0Out::Quiet,
+            crate::http::HttpOut::OverCap => L0Out::Overlong,
+            crate::http::HttpOut::Err(msg) => L0Out::Fail { code: "http", msg },
+        };
+        self.l0_finished(work, out);
+        self.finish_check(None);
+    }
+
+    /// One of the run's desk items takes a status (answered, withdrawn, timed
+    /// out), when the work carried one.
+    fn desk_set_status_work(&self, work: usize, status: crate::desk::Status) {
+        if let Some(id) = self.works[work].desk.as_deref() {
+            if let Some(desk) = self.desk.as_ref() {
+                desk.set_status(id, status);
+            }
+        }
+    }
+
     // -- Humans (SPEC 3.4, CONFORMANCE 5.5) ---------------------------------
 
     fn start_human(&mut self, work: usize) {
@@ -2150,6 +2271,20 @@ impl Engine {
             self.emit_fail(work, "budget", &why);
             self.mark_trace_refused(self.works[work].trace);
             self.works[work].done = true;
+            return;
+        }
+        if self.is_real() {
+            // The person's question goes on the desk (Appendix D); the
+            // engine's timeout and staleness end it as any call's.
+            let item = self.desk_item_of(work);
+            let Some(desk) = self.desk.as_ref() else {
+                self.harness_failure("the run has a human neuron but no desk".into());
+            };
+            let id = desk.register(item);
+            self.works[work].desk = Some(id);
+            self.reserve_call(work);
+            self.works[work].st = WSt::Running;
+            self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
             return;
         }
         let prog = self.nodes[node].prog.clone();
@@ -2162,6 +2297,131 @@ impl Engine {
             self.arm(self.now + entry.after, Wake::CallEnd { work });
         }
         self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
+    }
+
+    /// An `http` call (3.3): the check, the reserve, the request starting in
+    /// its own thread, then only the timeout wake-up. The outcome arrives
+    /// from the host's queue (3.3, 6.1); the timeout and staleness cancel it.
+    fn start_http(&mut self, work: usize) {
+        let node = self.works[work].node;
+        if let Err(why) = self.check_cost(work) {
+            self.emit_fail(work, "budget", &why);
+            self.mark_trace_refused(self.works[work].trace);
+            self.works[work].done = true;
+            return;
+        }
+        if !self.is_real() {
+            self.harness_failure("an http neuron runs only on the real host".into());
+        }
+        let url = match &self.nodes[node].kind {
+            Kind::Http(url) => url.clone(),
+            _ => unreachable!("an http call's kind"),
+        };
+        let timeout = self.nodes[node].timeout;
+        let input = json::write(&self.input_value_of(work));
+        let idx = self.https.len();
+        let post = self.host().post_handle();
+        self.reserve_call(work);
+        self.works[work].st = WSt::Running;
+        let cancel = crate::http::begin(post, idx, &url, input.as_bytes(), Duration::from_millis(timeout));
+        self.https.push(cancel);
+        self.works[work].http = Some(idx);
+        self.arm(self.now + timeout, Wake::CallTimeout { work });
+    }
+
+    /// Shut a request's socket down both ways (a staleness cut or the
+    /// call's timeout): what the thread saw after is discarded when it
+    /// arrives, and frees nothing (5.4, 6.2 rule 6).
+    fn cancel_http(&mut self, work: usize) {
+        if let Some(idx) = self.works[work].http.take() {
+            if let Some(cancel) = self.https.get(idx) {
+                cancel.cancel();
+            }
+        }
+    }
+
+    // -- The desk (decision 0008, Appendix D) --------------------------------
+
+    /// The desk item's shape (Appendix D): `title` and `notes` are shown,
+    /// never sent; the `draft`/`proposal` pair is the diff convention; any
+    /// other input is shown as its text, else its JSON. The neuron is named
+    /// by its instance path (a human inside a composed instance is its own
+    /// item: "outer/inner").
+    fn desk_item_of(&self, work: usize) -> crate::desk::NewItem {
+        let node = self.works[work].node;
+        let input = self.input_value_of(work);
+        let text_of = |v: Option<&Value>| v.and_then(|v| v.as_str()).map(str::to_string);
+        let title = text_of(input.get("title"));
+        let notes = match input.get("notes") {
+            Some(Value::Arr(items)) => items.iter().filter_map(|v| v.as_str().map(str::to_string)).collect::<Vec<String>>(),
+            _ => Vec::new(),
+        };
+        let (draft, proposal, text) = match (text_of(input.get("draft")), text_of(input.get("proposal"))) {
+            (Some(d), Some(p)) => (Some(d), Some(p), None),
+            (draft, proposal) => (draft, proposal, Some(display_text(&input))),
+        };
+        crate::desk::NewItem {
+            neuron: self.nodes[node].prog.clone(),
+            title,
+            notes,
+            draft,
+            proposal,
+            text,
+        }
+    }
+
+    /// The desk's accepted answers, taken and settled; each at its own now.
+    fn drain_desk(&mut self) {
+        while let Some(reply) = self.desk.as_ref().and_then(|d| d.try_take()) {
+            self.desk_settle(reply);
+        }
+    }
+
+    /// One answer the desk accepted (Appendix D): Approve sends the proposal,
+    /// else the input if it is a string, else the input as JSON text; Edit
+    /// sends the person's text (never empty: the desk refuses an empty one);
+    /// No answers empty, which is quiet. An answer whose call was cut, or
+    /// whose outcome is already out, is discarded (5.4, 4.3).
+    fn desk_settle(&mut self, reply: crate::desk::Reply) {
+        let Some(work) = self.works.iter().position(|w| w.desk.as_deref() == Some(reply.item.as_str())) else {
+            return;
+        };
+        let running = self.works[work].running() && !self.works[work].cut && !self.works[work].reported;
+        if !running {
+            return;
+        }
+        let outcome = match reply.kind {
+            crate::desk::Kind::Approve => {
+                let input = self.input_value_of(work);
+                Outcome::Answer {
+                    payload: PVal::Text(approve_text_of(&input)),
+                    to: None,
+                    replaces: None,
+                }
+            }
+            crate::desk::Kind::Edit => Outcome::Answer {
+                payload: PVal::Text(reply.text),
+                to: None,
+                replaces: None,
+            },
+            crate::desk::Kind::No => Outcome::Quiet,
+        };
+        self.call_replied(work, outcome);
+        self.finish_check(None);
+    }
+
+    /// The run is over (or the engine refused): the page says it is, and the
+    /// desk closes.
+    fn desk_close(&mut self) {
+        if let Some(desk) = self.desk.take() {
+            desk.mark_over();
+            desk.close();
+        }
+    }
+
+    /// The desk's address line, for the run's stderr: `desk: <url>`.
+    pub fn desk_line(&self) -> Option<String> {
+        self.desk.as_ref().map(|d| format!("desk: {}", d.url()))
     }
 
     // -- The reply step (SPEC 4.3, 4.4) -------------------------------------
@@ -2395,12 +2655,43 @@ fn json_text(v: &Value) -> String {
     crate::json::write(v)
 }
 
+/// The trace event's payload cap (TRACE.md): a longer one is cut to its first
+/// characters, marked `truncated`; the run's answers keep the whole value.
+const TRACE_PAYLOAD_CAP: usize = 2000;
+
+/// The first `n` characters of a string.
+fn cut_chars(s: &str, n: usize) -> String {
+    s.chars().take(n).collect()
+}
+
 /// A payload as the engine carries it: a JSON string is a text payload.
 fn payload_of(v: Value) -> PVal {
     match v {
         Value::Str(s) => PVal::Text(s),
         other => PVal::Json(other),
     }
+}
+
+/// The desk item's display text (Appendix D): a string input is shown as its
+/// text; anything else as its JSON.
+fn display_text(input: &Value) -> String {
+    match input {
+        Value::Str(s) => s.clone(),
+        other => json::write(other),
+    }
+}
+
+/// What an Approve sends (Appendix D): the input's `proposal` field if it is
+/// a string, else the input itself if it is a string, else the input as JSON
+/// text.
+fn approve_text_of(input: &Value) -> String {
+    if let Some(Value::Str(p)) = input.get("proposal") {
+        return p.clone();
+    }
+    if let Value::Str(s) = input {
+        return s.clone();
+    }
+    json::write(input)
 }
 
 fn trim_500(s: &str) -> String {

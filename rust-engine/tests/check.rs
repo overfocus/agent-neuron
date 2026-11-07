@@ -355,7 +355,7 @@ fn check_warns_http_and_errors_a_missing_composed_file() {
     );
     let warns = warn_lines(&diags);
     assert!(
-        warns.len() == 1 && warns[0].contains("an http neuron does not run yet"),
+        warns.len() == 1 && warns[0].contains("an http neuron") && warns[0].contains("check cannot reach it"),
         "{}",
         warns.join("\n")
     );

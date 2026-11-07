@@ -71,6 +71,11 @@ pub enum Ev {
     /// A level 1 process's stdout closed (`exited: false`) or the process
     /// exited (`exited: true`, after the settle).
     L1Down { server: usize, gen: usize, exited: bool },
+    /// An http request finished (SPEC 3.3): the engine finds the call by `idx`.
+    HttpDone { idx: usize, out: crate::http::HttpOut },
+    /// A tick from a side surface (the desk accepted an answer): the engine
+    /// reads it when it takes the event.
+    Desk,
 }
 
 pub struct HostMsg {
@@ -355,6 +360,28 @@ fn push_ev(shared: &Arc<Shared>, ev: Ev) {
     }
 }
 
+/// A handle a side thread (an http request, the desk) holds: it posts events
+/// into the engine's queue, stamped when they were posted, and wakes the
+/// engine's wait.
+#[derive(Clone)]
+pub struct Post {
+    shared: Arc<Shared>,
+}
+
+impl Post {
+    /// Post one event now; the engine reads it at its next pump.
+    pub fn post(&self, ev: Ev) {
+        push_ev(&self.shared, ev);
+    }
+}
+
+/// A named thread, so a panic names its work; the return is dropped (an http
+/// request's thread, the desk's, are joined by nothing: the process's exit
+/// ends them).
+pub fn spawn_thread(name: &str, f: impl FnOnce() + Send + 'static) {
+    thread::Builder::new().name(name.into()).spawn(f).ok();
+}
+
 /// One line, plus its newline, to a process's stdin, if the pipe is open:
 /// `true` when the line is safely written and flushed.
 fn write_stdin(stdin: &mut Option<std::process::ChildStdin>, bytes: &[u8]) -> bool {
@@ -408,6 +435,14 @@ impl Default for Host {
 }
 
 impl Host {
+    /// A handle for side threads (the http client, the desk): they post their
+    /// events into this engine's queue.
+    pub fn post_handle(&self) -> Post {
+        Post {
+            shared: self.shared.clone(),
+        }
+    }
+
     pub fn new() -> Host {
         HOST_START.get_or_init(Instant::now);
         Host {
@@ -428,7 +463,11 @@ impl Host {
         let mut q = self.shared.q.lock().unwrap_or_else(|e| e.into_inner());
         loop {
             if !q.is_empty() {
-                if t.map(|t| q[0].t <= t).unwrap_or(true) {
+                // An event stamped before the wake's instant goes first; one
+                // stamped at it is a tie with the call's own wake-ups, and
+                // rule 7 gives those (timeout included, armed at the call's
+                // start) the instant: strict.
+                if t.map(|t| q[0].t < t).unwrap_or(true) {
                     return Some(q.remove(0));
                 }
                 return None; // a later event: the wake-up at `t` goes first
@@ -449,8 +488,9 @@ impl Host {
             q = guard;
             if timeout.timed_out() {
                 // A last look: an event may have been pushed while its
-                // notification raced the timeout; the stamp decides.
-                if !q.is_empty() && q[0].t <= t {
+                // notification raced the timeout; the stamp decides, and a
+                // tie belongs to the wake-up.
+                if !q.is_empty() && q[0].t < t {
                     return Some(q.remove(0));
                 }
                 return None;

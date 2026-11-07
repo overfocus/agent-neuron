@@ -1,0 +1,5 @@
+# The real-network tests (http, desk) are timing-sensitive on real ports:
+# one test at a time per binary keeps them deterministic. The suite stays
+# quick (the binaries themselves still run when you invoke them separately).
+[env]
+RUST_TEST_THREADS = "1"

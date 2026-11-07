@@ -100,13 +100,76 @@ end-to-end one.
 
 ## What is deliberately NOT in M1
 
-- The `http://` and human *page* surfaces (M2): an `http` neuron refuses to
-  run; a `human` neuron runs against the scripted person of CONFORMANCE 5.5
-  only, so `run` refuses a file with one ("no desk for a person").
+- The `http://` and human *page* surfaces: these are M2 (the next section);
+  at M1 an `http` neuron refused to run and `run` refused a file with a
+  `human` neuron in it ("no desk for a person").
 - The ids-in-trace header of the trace file format, and any trace the `conform`
   command writes (the trace is the `run` command's surface).
 - Windows: the process layer is POSIX. The engine's platform list in
   `signal_name` covers darwin and linux.
+
+## M2 — `http` neurons and the desk
+
+### The `http` kind, real
+
+- `src/http.rs`: a std-only HTTP/1.1 client. It POSTs the 3.1 input value
+  (the bare payload, or `{"payload", "inputs"}` above 1) as
+  `application/json`, reads `Content-Length`, `chunked` and EOF bodies with
+  the 1 MiB cap, follows no redirect (3.3), and authenticates with nothing.
+- 3.3's outcomes: 2xx with a JSON body is an answer (the reply keeps its
+  whole shape in the engine's accounting; the trace cuts over 2000
+  characters, TRACE.md); 204 and an empty 2xx body are quiet; a non-2xx
+  status, a connection failure, or a non-JSON body is an error, code `http`;
+  the failures read as one `http:` prefix whatever the errno.
+- Cancel ends the socket at once (`shutdown` both ways) — staleness and
+  timeout both; a reply that races its deadline loses to the deadline (
+  `pump`'s tie rule: an event stamped at the wake's instant is a tie, and
+  the wake armed at the call's start owns it, per 6.2 rule 7; measured on
+  this machine with 1-in-4 runs losing that tie before it was fixed).
+- **`https://` is refused at plant time**: no TLS in a std-only crate. This
+  is an honest limitation against SPEC 3.3, not a reading of it ("the http
+  neuron names 'https://…', and this engine has no TLS").
+- `check` keeps its `http` warning (2.7's table; an engine cannot reach the
+  network without asking for it), and `run` now RUNS it — the M2 choice,
+  where Appendix C's reference engine still refuses.
+- Covered by `tests/http.rs` (11): answers, quiet, errors, refusal,
+  timeout/error and timeout/`unknown` for an effect, staleness cancel with
+  the late reply discarded, the threshold body shape, a composed instance,
+  and a no-link neuron's answer on stdout.
+
+### The desk: `human` neurons run for real
+
+- `src/desk.rs`: one page per run (Appendix D), bound to 127.0.0.1 only, a
+  random 128-bit token (checked in constant time everywhere), exact `Host`
+  and `Origin`, a nonce CSP with no outside request, every payload value
+  rendered as text. The address line `desk: <url>` goes to stderr.
+- The API behind the page: `GET /?token=…` (the page, its script inline and
+  nonced), `GET /state` (the items in ask order with their instance paths,
+  titles, notes and statuses — `waiting`, `withdrawn`, `timed-out`,
+  `answered` — and the run's `over`), `POST /answer` (`approve` sends
+  `proposal`, else a string input, else the input as JSON text; `edit`
+  sends the person's text, an empty one refused 400; `no` sends quiet).
+- A human neuron inside a composed instance asks on the same page, its item
+  named by instance path (`box/who`); `effect` human calls behave as the
+  fixtures of M0 prove (a timeout is `unknown`); withdrawn and timed-out
+  items refuse answers (410) as Appendix D says.
+- The M0 fixtures are unchanged: the virtual host still refuses `human`
+  without its scripted person, and `conform` never serves a page.
+- Covered by `tests/desk.rs` (11): the three answers with the page's rules,
+  a withdrawn item, a timed-out effect, the credential and path refusals,
+  the page's CSP and values-as-text, and the composed instance — all driven
+  through the API the browser uses, no browser needed.
+
+### Gates measured when M2 closed
+
+- `conform spec/fixtures` 201/0/0 and `conform py/probes` 10/0/0 — unchanged.
+- `cargo test`: unit 1, check 11, desk 11, http 11, real 27, all green over
+  four consecutive full runs; the http tests are serialized per binary
+  (`.cargo/config.toml`: real ports and real deadlines are timing-sensitive,
+  and one test at a time keeps them deterministic).
+- `cargo fmt --check` and `clippy --all-targets -- -D warnings` clean.
+- The three alert smokes still write their traces (324/316/580 events —
+  counts vary run to run with the machine's load, as the M1 section notes).
 
 ## Design in one page
 
@@ -220,6 +283,12 @@ Lines as committed (`wc -l`), formatted at `max_width = 140`:
 | source total | 7934 |
 | `tests/real.rs` | 784 |
 | `tests/check.rs` | 493 |
+
+Updated after M2 (`wc -l` of the same files, plus the new ones): `engine.rs`
+4075, `net.rs` 1083, `host.rs` 942, `desk.rs` (new) 938, `http.rs` (new) 465,
+`check.rs` 257, `trace.rs` 204, `run.rs` 98; tests: `real.rs` 802,
+`check.rs` 493, `desk.rs` (new) 664, `http.rs` (new) 394; unit tests
+included. Sources 8666, tests 2353, 12045 all told.
 
 For scale: the TypeScript reference engine (`src/engine/`) is 1353 by
 `wc -l` (decision 0005's table). This crate is larger for the same honest

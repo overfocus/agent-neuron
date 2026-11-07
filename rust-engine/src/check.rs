@@ -2,7 +2,8 @@
 // without running anything.
 //
 // Each file is validated with the errors of net.rs; this layer adds 2.7's
-// warnings (an `http` neuron, an executable that cannot be found, a cost
+// warnings (an `http` neuron — run performs its request over the network,
+// which a check cannot —, an executable that cannot be found, a cost
 // above the file's ceiling, a composed file whose neurons cost a unit the
 // declaring neuron's cost does not name), walks every composed file the tree
 // names (relative to the file that declares the neuron, 2.4), and returns the
@@ -105,14 +106,18 @@ fn warnings(net: &crate::net::Network, scan: &Scan, file: &str, dir: &Path) -> V
         let span = neuron_spans.get(i).copied().unwrap_or(NONE_SPAN);
         match &n.kind {
             crate::net::Kind::Http(http) => {
-                // `http` is a warning here and a refusal to run (9.2's page is
-                // M2's surface).
+                // `http` runs for real (M2): `run` performs the request over
+                // the network; `check` cannot reach it, and says so (2.7's
+                // note, this engine's M2 choice).
                 out.push(warn(
                     scan,
                     span,
                     "http",
                     file,
-                    &format!("an http neuron does not run yet (a run of the file refuses it: '{}')", http),
+                    &format!(
+                        "an http neuron ('{}') needs the network: run performs the request; check cannot reach it",
+                        http
+                    ),
                 ));
             }
             crate::net::Kind::Run(cmd) | crate::net::Kind::Serve(cmd) => {
