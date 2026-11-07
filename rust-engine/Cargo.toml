@@ -1,0 +1,18 @@
+[package]
+name = "agent-neuron-engine-rs"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "The agent-neuron engine, second implementation (M0: sans-IO core on the virtual host, conformance only)."
+default-run = "neuron-engine"
+
+[lib]
+name = "rust_engine"
+path = "src/lib.rs"
+
+[[bin]]
+name = "neuron-engine"
+path = "src/main.rs"
+
+[profile.dev]
+opt-level = 1
