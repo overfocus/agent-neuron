@@ -370,7 +370,7 @@ impl Server {
                 "describe_network",
                 "The shape of a network file tree, for drawing it before any traffic: its name, \
                  description, entry, exit and budget, every neuron as a v1 trace declares it \
-                 (TRACE.md) and every link; a composed neuron carries its inner network the same \
+                 (TRACE.md) with effect: true where the file declares it, and every link; a composed neuron carries its inner network the same \
                  way under 'network'. The file is checked first, and a check with errors is this \
                  tool's error, with the diagnostics. Nothing runs; events never name inner neurons.",
                 file_schema(),
@@ -793,7 +793,8 @@ fn refused_body(reason: String) -> Value {
 
 /// One network file as `describe_network` gives it: `file` (the name as the
 /// caller or the declaring file wrote it, never a resolved path), the header
-/// fields the file sets, `neurons` in the trace's own shape and `links`. A
+/// fields the file sets, `neurons` in the trace's own shape (plus `effect:
+/// true` where the file declares it) and `links`. A
 /// composed neuron's inner file is resolved against its declaring file's
 /// directory, as the runner resolves it; a file already open further up the
 /// tree is not described again but marked `cycle`, so a tree that loops back
@@ -806,6 +807,15 @@ fn describe(path: &Path, file: &str, composed: bool, open: &mut Vec<PathBuf>) ->
     let mut neurons = Vec::new();
     for n in &net.nodes {
         let mut o = trace::neuron_value(n);
+        // `effect` is not in the trace's neuron shape (TRACE.md), but a client
+        // drawing the network needs to know which calls are never cut and end
+        // `unknown` on a crash (SPEC 11): the description adds it, the trace
+        // header stays as it is.
+        if n.opts.effect {
+            if let Value::Obj(ref mut entries) = o {
+                entries.push(("effect".to_string(), Value::Bool(true)));
+            }
+        }
         if let crate::net::Kind::Network(rel) = &n.kind {
             let inner_path = dir.join(rel);
             let inner_real = std::fs::canonicalize(&inner_path).unwrap_or_else(|_| inner_path.clone());

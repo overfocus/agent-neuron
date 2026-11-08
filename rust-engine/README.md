@@ -247,8 +247,10 @@ surface.
   where `network` is `{file, name, description, entry?, exit?, budget?,
   neurons, links}` — `file` the name as the caller or the declaring file
   wrote it (never a resolved path), every neuron in the v1 trace's own shape
-  (TRACE.md "neurons", built by the one function the trace writer uses) and
-  every link. A composed neuron carries its inner file the same way under
+  (TRACE.md "neurons", built by the one function the trace writer uses),
+  plus `effect: true` on a neuron the file declares `effect` (SPEC 11: the
+  trace's neuron shape does not carry it, and a drawing needs to mark the
+  calls that are never cut), and every link. A composed neuron carries its inner file the same way under
   `network`, resolved against its declaring file's directory as the runner
   resolves it; a file already open further up the tree is marked
   `{file, cycle: true}` instead of described again (`check` passes a

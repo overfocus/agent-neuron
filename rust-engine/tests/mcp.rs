@@ -641,6 +641,37 @@ fn describe_network_gives_the_shape_with_composed_networks_inside() {
 }
 
 #[test]
+fn describe_network_marks_effect_neurons() {
+    let mut c = Client::start();
+    handshake(&mut c);
+    let file = format!("{}/notify.network.json", spec_examples());
+    let reply = c.rpc(2, &describe_call(&file));
+    let (body, is_error) = c.tool_body(&reply);
+    assert!(!is_error, "{}", json::write(&body));
+    let neurons = body
+        .get("network")
+        .and_then(|n| n.get("neurons"))
+        .and_then(|n| n.as_arr())
+        .expect("neurons")
+        .to_vec();
+    let effect = |id: &str| {
+        neurons
+            .iter()
+            .find(|n| n.get("id").and_then(|i| i.as_str()) == Some(id))
+            .expect("the neuron")
+            .get("effect")
+            .and_then(|e| e.as_bool())
+    };
+    // `notify` is declared effect; the others carry no mark at all.
+    assert_eq!(effect("notify"), Some(true));
+    let unmarked = neurons
+        .iter()
+        .filter(|n| n.get("effect").is_none())
+        .count();
+    assert_eq!(unmarked, neurons.len() - 1);
+}
+
+#[test]
 fn describe_network_refuses_what_does_not_check_and_ends_a_loop() {
     let mut c = Client::start();
     handshake(&mut c);
