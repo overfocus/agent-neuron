@@ -1,0 +1,25 @@
+{
+  "$schema": "../../spec/network.schema.json",
+  "version": 0,
+  "name": "team-decisions",
+  "description": "A team decides which agent patch lands: one candidate ask goes to two human reviewers of the desk (ic1, ic2), their text votes join through a threshold-2 tally that answers the direction, the direction's summary is one run stdout line, and the same answer is the gate item the lead answers; the lead's call drives the merge, an effect that runs git merge --no-ff on the branch the argv whitelist names, in the scratch repo examples/team/prepare-repo.mjs builds.",
+  "budget": { "credits": 12 },
+  "neurons": [
+    { "id": "review", "description": "Where the candidate enters: the ask whole (title, why, draft, proposal, options, answerable_by), keyed by the candidate's id (replaces).", "source": true },
+    { "id": "ic1", "description": "Ada's review: which patch this team merges. The desk item carries answerable_by: ic.", "human": true, "timeout": 1800000, "cost": { "credits": 1 } },
+    { "id": "ic2", "description": "Lin's review: the same item, one desk item of its own. answerable_by: ic.", "human": true, "timeout": 1800000, "cost": { "credits": 1 } },
+    { "id": "tally", "description": "The quorum join (5.2, on the file-mode pattern of timbre's reviewers): holds one vote, fires when both ICs have voted, and answers the direction - { mode: quorum, branch } or { mode: tie }; agreement settles it, disagreement leaves it to the lead.", "run": [ "node", "neurons/tally.mjs" ], "threshold": 2, "within": 1800000, "cost": { "credits": 1 } },
+    { "id": "direction", "description": "Prints the direction as its stdout summary: 'settled by quorum: agent/patch-a' or 'tie - the lead decides'. No outgoing links: the run's stdout carries it, and the demo prints it from the live stream.", "run": [ "node", "neurons/direction.mjs" ], "cost": { "credits": 1 } },
+    { "id": "lead", "description": "The gate of the lead (Sam): merge the settled branch, or refuse - on a tie, break it. The desk item carries answerable_by: lead.", "human": true, "timeout": 1800000, "cost": { "credits": 1 } },
+    { "id": "apply", "description": "The merge (11, effect: a started call is never cut, a failure records unknown): merge.mjs receives the lead's answer, validates the branch against the argv whitelist (nothing else, no shell, no eval) and runs git merge --no-ff it in the scratch repo, tagging team-decision on success.", "run": [ "node", "neurons/merge.mjs", "/tmp/agent-neuron-team-demo", "agent/patch-a", "agent/patch-b" ], "effect": true, "cost": { "credits": 3 } }
+  ],
+  "links": [
+    { "from": "review", "to": "ic1" },
+    { "from": "review", "to": "ic2" },
+    { "from": "ic1", "to": "tally" },
+    { "from": "ic2", "to": "tally" },
+    { "from": "tally", "to": "direction" },
+    { "from": "tally", "to": "lead" },
+    { "from": "lead", "to": "apply" }
+  ]
+}
