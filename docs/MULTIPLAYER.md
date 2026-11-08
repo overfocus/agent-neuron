@@ -62,6 +62,61 @@ re-armed instance of it — stays the referee; the website is surface.
 | Escalation chains | ordinary links and routing: a lead's neuron listens where the IC's answers arrive |
 | The compliance record | the desk's answer lines land as accepted, in the moment — with item, kind, text (the family's one-line recording convention) |
 
+## The colony reading
+
+The "neuron" name is already a loose analogy (the README says so). Ant
+colonies earn a closer look in this note because they are the canonical
+working systems for three things the family cares about: coordination
+without a manager (stigmergy), the strengthen-and-weaken link layer this
+family has left planned, and scale-out worker behaviour of exactly the
+shape the claiming axis needs (response thresholds). The mapping, per
+mechanism:
+
+| Colony mechanic | In agent-neuron | Built? |
+|---|---|---|
+| Stigmergy: coordination through deposits in a shared environment, not messages (Grassé) | the run folder, the desk and the trace are that environment; open asks are the trail the next worker or person reads | built — the desk and trace already work this way |
+| Pheromone reinforcement: a useful trail strengthens with each pass | strengthen-on-use: an event deposits strength on the links its chain crossed; `weight()` today always returns 1 | links: planned (whitepaper, "adaptive (planned, not built)") |
+| Evaporation: unused trails decay | staleness is built for *work* (`replaces`, the `'expired'` drop); link-strength decay between runs is not | work: built; links: planned |
+| Response thresholds: a worker self-selects when a stimulus passes its own bar; no scheduler assigns tasks (Bonabeau et al.; Gordon's task allocation) | `threshold` is already per-neuron — a worker host acting on "an item waits for me" is a threshold neuron over exactly that stimulus | semantics: built; network-hosted workers: the claiming axis below |
+| Alarm and recruitment: cheap, scoped, local signals bring the right neighbours | the page-pending notification with a token-scoped handle | gap (issue #30 item 3) |
+| Polyethism: role specialisation with no identity infrastructure | grants and roles on the desk | gap (issue #30 item 2) |
+| Nest state that outlives any individual: the trail persists between visits | durable run state (holds, grants, deposits) beside the run | gap (issue #30 item 1) |
+
+Three conclusions the reading gives the build order, stated honestly:
+
+1. **The colony names the mechanism the whitepaper left open.** The planned
+   adaptive layer (connections strengthen and weaken, carry over between
+   runs) has a working external model with a handful of local rules:
+   reinforce on use, evaporate over time, choose proportionally to
+   strength at a decision point. Each rule is spec-writable — a deposit
+   rule (which events strengthen which links), an evaporation rule (what
+   decays, when), a selection rule (which is threshold again). What it
+   costs: carry-over between runs is colony-style durable state, so the
+   learning layer waits on the same key as async play — issue #30 item 1
+   (durable run state) is the keystone under both.
+2. **No scheduler is the shared discovery, not a borrowed one.** Colonies
+   coordinate at scale with nobody assigning tasks; this family's pitch —
+   no central controller, the graph is the referee — is the same
+   statement. The protocol shape for claiming a worker axis is then
+   colony-shaped: workers self-select on stimulus they are gated for
+   (grants as the threshold table), duplicates are tolerated and pruned by
+   staleness, and the house rules (the network file) say which stimulus
+   opens which bar.
+3. **Duplication is a price, priced.** Colonies pay for redundancy among
+   foragers; in money terms this family already measured the analogue — a
+   claim race is roughly 2× the single call ($0.0994 for the two-hunk
+   bridge edit, 2026-11-08). The colony reading adds the discrimination:
+   tolerate duplication when the item is cheap, respond to the threshold
+   when it is dear — budgets are where that line is drawn, per trace.
+
+Design references (named, not pinned): stigmergy, P.-P. Grassé; response
+thresholds and self-organised task allocation, Bonabeau, Dorigo et al.;
+colony task allocation under fluctuating stimulus, Deborah Gordon; ant
+colony optimisation as the algorithmic form, Dorigo & Stützle. The discipline
+the README's analogy sentence sets holds here: the colony is a design
+reference for the unbuilt layers, not biology cosplay — every mapping above
+lands on a named rule the SPEC could carry or already carries.
+
 ## The org layer, in build order
 
 Cheap to expensive; 1–4 implement issue #30's items in this order, each
