@@ -357,13 +357,22 @@ impl Server {
 
     // -- The tools ----------------------------------------------------------
 
-    /// The five tools, each with its closed schema (`required` marked).
+    /// The six tools, each with its closed schema (`required` marked).
     fn tools(&self) -> Result<Value, Rpc> {
         let tools = vec![
             tool(
                 "check_network",
                 "Check a network file tree against the closed schema (SPEC 2.7): the diagnostics, \
                  errors and warnings, each with its file, position and message; nothing runs.",
+                file_schema(),
+            ),
+            tool(
+                "describe_network",
+                "The shape of a network file tree, for drawing it before any traffic: its name, \
+                 description, entry, exit and budget, every neuron as a v1 trace declares it \
+                 (TRACE.md) and every link; a composed neuron carries its inner network the same \
+                 way under 'network'. The file is checked first, and a check with errors is this \
+                 tool's error, with the diagnostics. Nothing runs; events never name inner neurons.",
                 file_schema(),
             ),
             tool(
@@ -413,6 +422,7 @@ impl Server {
         let args = params.get("arguments").cloned().unwrap_or(Value::Obj(Vec::new()));
         let (body, is_error) = match name {
             "check_network" => self.tool_check_network(&args),
+            "describe_network" => self.tool_describe_network(&args),
             "run_network" => self.tool_run_network(&args),
             "start_run" => self.tool_start_run(&args),
             "poll_run" => self.tool_poll_run(&args),
@@ -472,6 +482,42 @@ impl Server {
                 .build(),
             !ok,
         )
+    }
+
+    /// The network's shape, checked first: a tree that does not check is the
+    /// tool's error with the check's own diagnostics, as `check_network`
+    /// gives them; one that does is `{ok, warnings, network}`.
+    fn tool_describe_network(&mut self, args: &Value) -> (Value, bool) {
+        if let Some(why) = self.unknown_field("describe_network", args, &["file"]) {
+            return (fail_body(&why), true);
+        }
+        let Some(file) = args.get("file").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) else {
+            return (fail_body("describe_network needs a network file ('file')"), true);
+        };
+        let diags = check::tree(file);
+        let errors: Vec<Value> = diags.iter().filter(|d| d.error).map(diag_json).collect();
+        let warnings: Vec<Value> = diags.iter().filter(|d| !d.error).map(diag_json).collect();
+        if !errors.is_empty() {
+            return (
+                Obj::new()
+                    .set("ok", Value::Bool(false))
+                    .set("errors", Value::Arr(errors))
+                    .set("warnings", Value::Arr(warnings))
+                    .build(),
+                true,
+            );
+        }
+        match describe(Path::new(file), file, false, &mut Vec::new()) {
+            Ok(network) => (
+                Obj::new()
+                    .set("ok", Value::Bool(true))
+                    .set("warnings", Value::Arr(warnings))
+                    .set("network", network)
+                    .build(),
+                false,
+            ),
+            Err(why) => (fail_body(&why), true),
+        }
     }
 
     /// The synchronous run: the engine's real route on this thread. A
@@ -743,6 +789,49 @@ fn refused_body(reason: String) -> Value {
         .set("answers", Value::Arr(Vec::new()))
         .set("events", Value::Arr(Vec::new()))
         .build()
+}
+
+/// One network file as `describe_network` gives it: `file` (the name as the
+/// caller or the declaring file wrote it, never a resolved path), the header
+/// fields the file sets, `neurons` in the trace's own shape and `links`. A
+/// composed neuron's inner file is resolved against its declaring file's
+/// directory, as the runner resolves it; a file already open further up the
+/// tree is not described again but marked `cycle`, so a tree that loops back
+/// on itself ends.
+fn describe(path: &Path, file: &str, composed: bool, open: &mut Vec<PathBuf>) -> Result<Value, String> {
+    let net = crate::net::load(&path.to_string_lossy(), composed).map_err(|errs| errs.join("; "))?;
+    let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    open.push(real);
+    let dir = path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+    let mut neurons = Vec::new();
+    for n in &net.nodes {
+        let mut o = trace::neuron_value(n);
+        if let crate::net::Kind::Network(rel) = &n.kind {
+            let inner_path = dir.join(rel);
+            let inner_real = std::fs::canonicalize(&inner_path).unwrap_or_else(|_| inner_path.clone());
+            let inner = if open.contains(&inner_real) {
+                Obj::new().str("file", rel.clone()).set("cycle", Value::Bool(true)).build()
+            } else {
+                describe(&inner_path, rel, true, open)?
+            };
+            if let Value::Obj(ref mut entries) = o {
+                entries.push(("network".to_string(), inner));
+            }
+        }
+        neurons.push(o);
+    }
+    open.pop();
+    let opt_str = |v: &Option<String>| v.clone().map(Value::Str);
+    Ok(Obj::new()
+        .str("file", file)
+        .str("name", net.name.clone())
+        .str("description", net.description.clone())
+        .set_if("entry", opt_str(&net.entry))
+        .set_if("exit", opt_str(&net.exit))
+        .set_if("budget", net.budget.as_ref().map(trace::units_value))
+        .set("neurons", Value::Arr(neurons))
+        .set("links", Value::Arr(net.links.iter().map(trace::link_value).collect()))
+        .build())
 }
 
 fn tool(name: &str, description: &str, schema: Value) -> Value {
