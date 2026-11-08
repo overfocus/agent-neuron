@@ -10,9 +10,14 @@ export type NeuronSpec = {
   source?: true; run?: string[]; serve?: string[]; http?: string; human?: true; network?: string;
   threshold?: number; within?: number; maxHops?: number; timeout?: number; env?: string[]; cwd?: string; cost?: Record<string, number>; effect?: true;
 };
+/** The ground (SPEC 4.5, decision 0012): deposits per place, evaporation, and one-link routing for replies that name no `to`. */
+export type GroundSpec = {
+  deposit?: { on: string; add: string; by?: string }; // the payload fields a reply deposits: the place name and the amount
+  evaporate?: number; select?: true; base?: number; power?: number; seed?: number;
+};
 export type NetworkFile = {
   version: 0; name?: string; description?: string; entry?: string; exit?: string;
-  neurons: NeuronSpec[]; links?: { from: string; to: string }[]; budget?: Record<string, number>;
+  neurons: NeuronSpec[]; links?: { from: string; to: string }[]; budget?: Record<string, number>; ground?: GroundSpec;
 };
 export type Finding = { severity: 'error' | 'warning'; file: string; line?: number; column?: number; message: string };
 
@@ -47,6 +52,7 @@ export function validate(value: unknown, node: Schema = loadSchema(), path = '$'
   if (typeof value === 'number') {
     if (typeof node.minimum === 'number' && value < node.minimum) fail(`below ${node.minimum}`);
     if (typeof node.maximum === 'number' && value > node.maximum) fail(`above ${node.maximum}`);
+    if (typeof node.exclusiveMinimum === 'number' && value <= node.exclusiveMinimum) fail(`above ${node.exclusiveMinimum}`);
   }
   if (Array.isArray(value)) {
     if (typeof node.minItems === 'number' && value.length < node.minItems) fail(`needs at least ${node.minItems} items`);
@@ -191,6 +197,8 @@ export function check(file: string, seen: string[] = [], shown?: string): Findin
   // with a budget every neuron but a source declares a cost, 0 allowed: a neuron that could spend without one would escape it (SPEC 10.1)
   if (net.budget) net.neurons.forEach((n, i) => { if (!n.source && !n.cost) add('error', `$.neurons[${i}]`, `neuron "${n.id}" has no cost, and the file has a budget: every neuron but a source declares one (0 is allowed)`); });
   for (const key of ['entry', 'exit'] as const) if (net[key] && !ids.has(net[key]!)) add('error', `$.${key}`, unknown(`"${key}"`, net[key]!));
+  // the ground's deposit rule may restrict its writes to one declared neuron (SPEC 4.5, decision 0012)
+  if (net.ground?.deposit?.by !== undefined && !ids.has(net.ground.deposit.by)) add('error', '$.ground.deposit.by', unknown('"deposit.by"', net.ground.deposit.by));
   // a cycle in which no neuron has maxHops never ends
   const open = (id: string) => byId.get(id)?.maxHops === undefined;
   const state = new Map<string, 1 | 2>();
@@ -224,6 +232,7 @@ export function check(file: string, seen: string[] = [], shown?: string): Findin
     for (const key of ['entry', 'exit'] as const) if (!sub[key]) add('error', `${at}.network`, `${n.network} is used as a composed neuron and needs "${key}"`);
     if (sub.neurons.some((x) => x.effect)) add('error', `${at}.network`, `${n.network} is used as a composed neuron and may not contain an effect neuron (SPEC 11.5)`);
     if (sub.neurons.some((x) => x.source)) add('error', `${at}.network`, `${n.network} is used as a composed neuron and may not contain a source`);
+    if (sub.ground !== undefined) add('error', `${at}.network`, `${n.network} is used as a composed neuron and may not declare a ground (SPEC 4.5)`);
     const lacking = [...new Set(sub.neurons.flatMap((x) => Object.keys(x.cost ?? {})))].filter((u) => n.cost && !(u in n.cost));
     if (lacking.length) add('warning', at, `${n.network} has neurons costing ${lacking.join(', ')}, which the cost of "${n.id}" does not name: those calls are always refused (SPEC 10.5)`);
     if (sub.exit && (sub.links ?? []).some((l) => l.from === sub.exit)) add('error', `${at}.network`, `${n.network}: "exit" may not have outgoing links`);

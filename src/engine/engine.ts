@@ -9,7 +9,7 @@ import { spawn, type ChildProcessWithoutNullStreams as Proc } from 'node:child_p
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { VERSION } from '../index.js';
-import { check, formatFinding, readNetwork, type NeuronSpec } from './check.js';
+import { check, formatFinding, readNetwork, type GroundSpec, type NeuronSpec } from './check.js';
 
 export type Units = Record<string, number>;
 export type Injection = { at: number; source: string; payload: unknown; replaces?: string; budget?: Units };
@@ -399,8 +399,14 @@ class Run {
   events: Event[] = [];
   rootScope: Scope;
   open = new Map<string, number>(); // outer trace -> unfinished works; at none the trace is finished
+  // ---- the ground (SPEC 4.5, decision 0012): one trail and one generator per run; only the outer file declares a ground ----
+  ground?: GroundSpec | undefined;
+  trail = new Map<string, { v: number; at: number }>(); // the entries: a place's (stored value, instant of its last write)
+  gen = 0; // the generator's 32-bit state
   constructor(readonly root: Instance, readonly inner?: (path: string, e: Event) => void, readonly result?: (neuron: string, t: number, payload: unknown) => void, readonly observer?: Observer, readonly onEvent?: (e: Event) => unknown, readonly desk?: Desk) {
     this.rootScope = new Scope('', root, (e) => (this.events.push(e), this.observe(e), this.stream(e)), root.net.budget);
+    this.ground = root.net.ground;
+    this.gen = (root.net.ground?.seed ?? 0) >>> 0; // one 32-bit state, started at the ground's seed (0)
   }
 
   /** The live stream (SPEC 9.1): every outer event, once, in written order, offered to `onEvent` from a microtask, never inside the routing.
@@ -767,6 +773,48 @@ class Run {
     }
   }
 
+  // ---- the ground (SPEC 4.5, decision 0012) ----
+  /** A place's effective value at `t`: the stored `v` aged by the evaporate rate; a read never changes the entry. */
+  private effective(place: string, t: number): number {
+    const e = this.trail.get(place);
+    return e ? e.v * Math.exp(-(this.ground!.evaporate ?? 0) * (t - e.at) / 1000) : 0;
+  }
+
+  /** The generator (SPEC 4.5): one 32-bit state, started at the seed, advanced once per draw; the word, with 32-bit wrap add and multiply and zero-fill right shifts. */
+  private word(): number {
+    this.gen = (this.gen + 0x6D2B79F5) | 0; // 32-bit wrap add
+    let t = this.gen;
+    t = Math.imul(t ^ (t >>> 15), t | 1); // (t xor (t >> 15)) × (1 | t)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61); // ((t + ((t xor (t >> 7)) × (61 | t))) xor t)
+    return ((t ^ (t >>> 14)) >>> 0) / 2 ** 32; // (t xor (t >> 14)) (unsigned) / 2^32
+  }
+
+  /** A write (SPEC 4.5): a reply's payload carrying the named fields, the place aged then the amount added; one `ground` event, right after the answer's. */
+  private deposit(node: Node, replyId: string, t: number, payload: unknown) {
+    const d = this.ground?.deposit;
+    if (!d) return;
+    if (d.by !== undefined && d.by !== node.id) return;
+    const fields = payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>) : undefined;
+    const place = fields?.[d.on], amount = fields?.[d.add];
+    if (typeof place !== 'string' || typeof amount !== 'number' || !Number.isFinite(amount)) return;
+    const e = this.trail.get(place);
+    const v = (e ? e.v * Math.exp(-(this.ground!.evaporate ?? 0) * (t - e.at) / 1000) : 0) + amount;
+    this.trail.set(place, { v, at: t });
+    this.report(this.rootScope, { type: 'ground', place, v, cause: replyId });
+  }
+
+  /** The draw (SPEC 4.5): one word, then the first out-link, in declaration order, whose cumulative weight is greater than u·total; a zero total forwards nothing. */
+  private drawn(node: Node, t: number): Node[] {
+    const g = this.ground!;
+    const u = this.word(); // exactly one word per omitted-`to` reply, whatever the outcome
+    const weights = node.out.map((n) => Math.pow(Math.max(0, (g.base ?? 1) + this.effective(n.id, t)), g.power ?? 1));
+    const total = weights.reduce((a, w) => a + w, 0);
+    if (total <= 0) return [];
+    let acc = 0;
+    for (let i = 0; i < node.out.length; i++) if ((acc += weights[i]!) > u * total) return [node.out[i]!];
+    return [node.out[node.out.length - 1]!]; // rounding left none: the last link
+  }
+
   // ---- replies (SPEC 4.3, 4.4) ----
   private fail(w: Work, o: { error: string; code: string; started?: false }) {
     w.scope.failed = true;
@@ -783,8 +831,15 @@ class Run {
     else this.report(scope, { type: 'answer', ...this.fields(reply), ...(stale && { forwarded: false }), payload: this.payload(o.answer) });
     if (node === scope.inst.nodes.get(scope.inst.net.exit ?? '')) scope.onExit?.(o);
     if ('answer' in o && !node.out.length && scope === this.rootScope) this.result?.(node.id, this.now(), o.answer);
-    // a level 1 reply may name some of the outgoing links (kept in declaration order) and set or clear the key (SPEC 4.4)
-    const to = 'answer' in o && !stale ? node.out.filter((n) => !o.to || o.to.includes(n.id)) : [];
+    if ('answer' in o && scope === this.rootScope) this.deposit(node, reply.id, this.now(), o.answer); // the write lands right after the answer's event (SPEC 4.5)
+    // the forward's targets (SPEC 4.4): a level 1 reply may name some of the outgoing links, kept in declaration order; a reply that
+    // names no `to` takes them all — or, with the ground's select (SPEC 4.5), the one link the draw picks
+    const named = 'answer' in o && !stale;
+    const to = named
+      ? o.to !== undefined
+        ? node.out.filter((n) => !o.to || o.to.includes(n.id))
+        : scope === this.rootScope && this.ground?.select ? this.drawn(node, this.now()) : node.out
+      : [];
     if ('answer' in o && to.length) {
       const key = o.replaces === undefined ? sig.replaces : (o.replaces ?? undefined);
       this.send({ id: scope.next(), trace: sig.trace, from: node.id, to: to.map((n) => n.id), hops: reply.hops + 1, cause: reply.id, payload: o.answer, ...withKey(key) }, scope);
