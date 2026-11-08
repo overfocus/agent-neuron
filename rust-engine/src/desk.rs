@@ -1147,6 +1147,9 @@ const PAGE: &str = r#"<!doctype html>
   #table .p.me { color: #e5e7eb; }
   #table .p.busy b { color: #39ff00; font-weight: normal; }
   .card.theirs { opacity: .62; }
+  .card.compact { padding: 8px 16px; margin-bottom: 10px; }
+  .card.compact h2 { margin: 0; font-size: 14px; }
+  .card.compact .done, .card.compact .waits { margin-top: 2px; }
   .card.theirs h2, .card.answered h2, .card.withdrawn h2, .card.timed-out h2 { color: #9ca3af; }
   .waits { color: #9ca3af; font-size: 13px; margin-top: 8px; }
   .options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
@@ -1405,18 +1408,28 @@ function render(state) {
     if (state.over) { root.appendChild(el("p", null, "No questions were asked.")); }
     return;
   }
-  for (const item of state.items) {
-    const card = el("div", "card " + item.status + (item.yours === false ? " theirs" : ""));
+  // What waits on this viewer comes first, in ask order; then what waits on
+  // the others; then what is settled. Only the viewer's own waiting items are
+  // shown whole: the rest are one line each, so the page reads as "your turn".
+  const rank = (i) => (i.status === "waiting" && i.yours !== false ? 0 : i.status === "waiting" ? 1 : 2);
+  const ordered = state.items.map((item, at) => ({ item, at })).sort((a, b) => rank(a.item) - rank(b.item) || a.at - b.at);
+  for (const { item } of ordered) {
+    const compact = rank(item) !== 0;
+    const card = el("div", "card " + item.status + (item.yours === false ? " theirs" : "") + (compact ? " compact" : ""));
     card.dataset.item = item.id;
     card.appendChild(el("div", "neuron", item.neuron));
     card.appendChild(el("h2", null, item.title || item.neuron));
-    if (item.notes && item.notes.length) {
+    if (compact) {
+      // nothing more than the line that says where it stands (below)
+    } else if (item.notes && item.notes.length) {
       const notes = el("ul", "notes");
       for (const note of item.notes) { notes.appendChild(el("li", null, note)); }
       card.appendChild(notes);
     }
     const hasOptions = item.payload && Array.isArray(item.payload.options) && item.payload.options.length > 0;
-    if (item.draft !== undefined && item.proposal !== undefined) {
+    if (compact) {
+      // the body is for whoever answers it, while it waits
+    } else if (item.draft !== undefined && item.proposal !== undefined) {
       showPair(card, item);
     } else if (item.text !== undefined && !hasOptions) {
       card.appendChild(el("div", "single", item.text));
