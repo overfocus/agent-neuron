@@ -1,0 +1,58 @@
+{
+  "version": 0,
+  "name": "deposit-by-names-one-neuron",
+  "description": "deposit.by filters the replying neuron (SPEC 4.5).",
+  "neurons": [
+    {
+      "id": "s1",
+      "source": true
+    },
+    {
+      "id": "s2",
+      "source": true
+    },
+    {
+      "id": "w",
+      "run": [
+        "neuron-w"
+      ]
+    },
+    {
+      "id": "r",
+      "run": [
+        "neuron-r"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s1",
+      "to": "w"
+    },
+    {
+      "from": "s2",
+      "to": "r"
+    },
+    {
+      "from": "w",
+      "to": "b"
+    },
+    {
+      "from": "r",
+      "to": "b"
+    }
+  ],
+  "ground": {
+    "deposit": {
+      "on": "place",
+      "add": "amount",
+      "by": "w"
+    }
+  }
+}

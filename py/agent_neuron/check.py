@@ -4,6 +4,7 @@ Standard library only. Written from SPEC section 2 and spec/network.schema.json'
 description (closed schema, literal values), not from the TypeScript checker.
 """
 import json
+import math
 import os
 import re
 
@@ -19,7 +20,8 @@ OPTS = {
     "human": {"threshold", "within", "maxHops", "timeout", "cost", "effect"},
     "network": {"maxHops", "timeout", "cost"},
 }
-TOP = {"$schema", "version", "name", "description", "neurons", "links", "entry", "exit", "budget"}
+TOP = {"$schema", "version", "name", "description", "neurons", "links", "entry", "exit", "budget", "ground"}
+GROUND = {"deposit", "evaporate", "select", "base", "power", "seed"}
 MAX_AMOUNT = 2**53 - 1
 
 
@@ -29,6 +31,16 @@ class CheckError(Exception):
 
 def _isint(v):
     return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _isnum(v):
+    """A JSON number (4.5): not a bool, and one a double can hold, since the engine ages values in floats."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return False
+    try:
+        return math.isfinite(v)
+    except OverflowError:
+        return False
 
 
 def _literal(s, what):
@@ -44,6 +56,42 @@ def _units(v, what):
             raise CheckError(f"{what}: bad unit name {k!r}")
         if not _isint(a) or a < 0 or a > MAX_AMOUNT:
             raise CheckError(f"{what}: amount of {k} must be a whole number from 0 to 2^53-1")
+
+
+def _ground(g, ids, path):
+    """A `ground` of SPEC 4.5 (decision 0012 item 5): the closed shape, and the name `by` must declare."""
+    if not isinstance(g, dict):
+        raise CheckError(f"{path}: ground must be an object")
+    extra = set(g) - GROUND
+    if extra:
+        raise CheckError(f"{path}: ground: unknown field {sorted(extra)[0]}")
+    if "deposit" in g:
+        dep = g["deposit"]
+        if not isinstance(dep, dict):
+            raise CheckError(f"{path}: deposit must be an object")
+        extra = set(dep) - {"on", "add", "by"}
+        if extra:
+            raise CheckError(f"{path}: deposit: unknown field {sorted(extra)[0]}")
+        for f in ("on", "add"):
+            if f not in dep:
+                raise CheckError(f"{path}: deposit needs a {f}")
+            if not isinstance(dep[f], str) or not ID_RE.match(dep[f]):
+                raise CheckError(f"{path}: deposit.{f} must be a name")
+        if "by" in dep:
+            if not isinstance(dep["by"], str) or not ID_RE.match(dep["by"]):
+                raise CheckError(f"{path}: deposit.by must be a name")
+            if dep["by"] not in ids:
+                raise CheckError(f"{path}: deposit.by {dep['by']!r} names no declared neuron")
+    if "evaporate" in g and (not _isnum(g["evaporate"]) or g["evaporate"] < 0):
+        raise CheckError(f"{path}: evaporate must be a number from 0 up")
+    if "select" in g and g["select"] is not True:
+        raise CheckError(f"{path}: select must be true")
+    if "base" in g and (not _isnum(g["base"]) or g["base"] < 0):
+        raise CheckError(f"{path}: base must be a number from 0 up")
+    if "power" in g and (not _isnum(g["power"]) or g["power"] <= 0):
+        raise CheckError(f"{path}: power must be a number above 0")
+    if "seed" in g and (not _isint(g["seed"]) or g["seed"] < 0):
+        raise CheckError(f"{path}: seed must be a whole number from 0 up")
 
 
 def _neuron(n, i):
@@ -168,6 +216,8 @@ def load(path, _stack=()):
                     raise CheckError(f"{path}: cost names unit {u} the budget lacks")
         elif budget is not None and kind != "source":
             raise CheckError(f"{path}: neuron {n['id']} has no cost under a budget")
+    if "ground" in data:
+        _ground(data["ground"], ids, path)
     # a cycle in which no neuron has maxHops
     nohop = {i for i, (n, k) in ids.items() if "maxHops" not in n}
     adj = {i: [l["to"] for l in links if l["from"] == i and l["to"] in nohop] for i in nohop}
@@ -196,6 +246,8 @@ def load(path, _stack=()):
                 raise CheckError(f"{n['network']}: exit has outgoing links")
             if any("effect" in x for x in sub["neurons"]):
                 raise CheckError(f"{n['network']}: composed file may not contain an effect neuron")
+            if "ground" in sub:
+                raise CheckError(f"{n['network']}: composed file may not declare ground")
             inner[i] = sub
     data = dict(data)
     data["_inner"] = inner

@@ -176,6 +176,22 @@ describe('network schema v0', () => {
     expect(broken(() => {}, (s) => (s.exit = 'nobody')).join()).toContain('names unknown neuron "nobody"');
     expect(broken(() => {}, (s) => (s.neurons.push({ id: 'extra', run: ['true'] }), s.links.push({ from: 'check', to: 'extra' }))).join()).toContain('"exit" may not have outgoing links');
   });
+
+  it('checks the ground: shape unknowns, a by that names nobody, power at or below 0, and none in a composed file', () => {
+    const ground = (g: unknown) => broken((n) => (n.ground = g));
+    expect(ground({ select: true, seed: 5 })).toEqual([]);
+    expect(ground('trail').join()).toContain('expected an object');
+    expect(ground({ select: true, salt: 3 }).join()).toContain('unknown field "salt"');
+    expect(ground({ deposit: { add: 'amount' } }).join()).toContain('missing "on"');
+    expect(ground({ deposit: { on: 'place' } }).join()).toContain('missing "add"');
+    expect(ground({ select: true, base: -1 }).join()).toContain('below 0');
+    expect(ground({ deposit: { on: 'place', add: 'amount' }, evaporate: -0.5 }).join()).toContain('below 0');
+    expect(ground({ select: true, power: 0 }).join()).toContain('above 0');
+    expect(ground({ select: true, seed: -1 }).join()).toContain('below 0');
+    expect(ground({ select: true, seed: 1.5 }).join()).toContain('expected an integer');
+    expect(ground({ deposit: { on: 'place', add: 'amount', by: 'ghost' } }).join()).toContain('unknown neuron "ghost"');
+    expect(broken(() => {}, (s) => (s.ground = { select: true })).join()).toContain('may not declare a ground');
+  });
 });
 
 describe('the alert storm programs (level 0)', () => {

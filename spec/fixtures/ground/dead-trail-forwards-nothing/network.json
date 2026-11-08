@@ -1,0 +1,51 @@
+{
+  "version": 0,
+  "name": "dead-trail-forwards-nothing",
+  "description": "A total weight of 0 forwards nothing (SPEC 4.5).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "r",
+      "run": [
+        "neuron-r"
+      ]
+    },
+    {
+      "id": "b1",
+      "run": [
+        "neuron-b1"
+      ]
+    },
+    {
+      "id": "b2",
+      "run": [
+        "neuron-b2"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "r"
+    },
+    {
+      "from": "r",
+      "to": "b1"
+    },
+    {
+      "from": "r",
+      "to": "b2"
+    }
+  ],
+  "ground": {
+    "select": true,
+    "base": 0,
+    "deposit": {
+      "on": "place",
+      "add": "amount"
+    }
+  }
+}

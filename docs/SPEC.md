@@ -291,7 +291,8 @@ refused, 10.5) (warnings); an executable that cannot be found (warning).
 
 ### 2.8 Field budget (informative)
 
-9 top-level fields; per neuron `id`, `description`, `at`, one kind field, at most 8
+10 top-level fields (`budget` is the ninth, `ground` the tenth — [decision
+0012](decisions/0012-the-ground.md)); per neuron `id`, `description`, `at`, one kind field, at most 8
 options; 2 per link. A new field must answer one question: does it say how
 neurons connect, or how one decides? Deciders are programs. A second, closed
 class of field is descriptive (for people and tools, acted on by no engine):
@@ -372,7 +373,8 @@ is sent only when nothing is running; no `pong` within `timeout` is a hang.
 
 **Reply `to`.** A set of neuron ids, each an outgoing link of the neuron; the
 forward lists them in link declaration order whatever the order given.
-`to: []` forwards nothing but the answer is still reported. A reply's `replaces`
+`to: []` forwards nothing but the answer is still reported. With the network's
+`ground` (4.5), an omitted `to` is the draw: one outgoing link by weight. A reply's `replaces`
 longer than 256 bytes, or a `to` that names a non-linked neuron, or an
 `answer` without `payload`, is an error (6.1, code `protocol`).
 
@@ -463,7 +465,8 @@ that crossed.
 Right after an answer that is not stale, the engine emits one forward: `from`
 *N*, `payload` the answer's, `cause` the answer's id, `trace` the answer's,
 `hops` answer hops + 1, `to` *N*'s outgoing links in declaration order (or the
-subset the reply names), `replaces` the reply's value (string sets, `null`
+subset the reply names; a network that declares `ground` and a reply that names
+no `to` route by the draw of 4.5 instead), `replaces` the reply's value (string sets, `null`
 clears) or else *s*'s key, inherited. Quiet, an error, a refused input, stale
 work and a neuron with no outgoing links forward nothing. Forwarding along
 links is the only way a neuron reaches another neuron.
@@ -474,6 +477,47 @@ count, not on neurons deep: a limit of 4 lets a chain reach its third neuron.
 
 A run's result is not a return value: read the answers of neurons with no
 outgoing links from the trace.
+
+### 4.5 The ground (normative)
+
+A network file MAY declare `ground` ([decision 0012](decisions/0012-the-ground.md)): the link layer's strength — a
+value kept per *place* (a place is a neuron id), a rule that deposits on places,
+and, when chosen, one-link routing for a reply that names no `to`. Without the
+field this section does not apply and every out-link counts 1. `ground` is
+`{deposit, evaporate, select, base, power, seed}`, every field optional. A
+composed network's inner file MUST NOT declare one; the scope question waits.
+
+- **State.** A place's entry is `(v, at)`: the value and the instant of its last
+  write. A place never written starts absent: an effective value of 0 at every
+  instant. An entry's effective value at `t` is `v·exp(-evaporate·(t − at)/1000)`;
+  a read never changes the entry. The state lives for the run; carrying it
+  between runs is durable state (Appendix B).
+- **Deposit.** With `deposit` declared, the engine checks every reply's payload
+  for the fields `deposit.on` (a string) and `deposit.add` (a finite number).
+  Both present, and `deposit.by` absent or the replying neuron: one write —
+  entry present: `v := v·exp(-evaporate·(t − at)/1000) + add`; entry absent:
+  `v := add`; `at := t`. A negative `add` lowers a place (a trail marked dead).
+  `evaporate` is a per-second rate; 0 when absent. Every write is one `ground`
+  event (7.2), emitted immediately after its answer's event; a payload missing
+  either field deposits nothing, and a reply deposits at most one place.
+- **Selection.** With `select` true, a reply that names no `to` forwards along
+  exactly one of *N*'s outgoing links, in declaration order, chosen by weight
+  `max(0, base + effectiveValue(to))^power`; `base` 1, `power` 1, `seed` 0 as the
+  defaults. A total weight of 0 forwards nothing, reported like a `to` of `[]`
+  (4.4). A reply that names a `to` never draws, nor does an injection (4.1).
+- **The generator is pinned.** The engine keeps one 32-bit state, started at
+  `seed`, drawn exactly once per omitted-`to` reply — whatever the outcome,
+  however few the links. The word, with 32-bit wrap add and multiply and
+  zero-fill right shifts:
+
+      s := s + 0x6D2B79F5
+      t := s
+      t := (t xor (t >> 15)) × (1 | t)
+      t := ((t + ((t xor (t >> 7)) × (61 | t))) xor t)
+      u := (t xor (t >> 14)) (unsigned) / 2^32
+
+  The pick is the first link, in declaration order, whose cumulative weight is
+  greater than `u·total`; if rounding leaves none, the last link.
 
 ## 5. Threshold, hops and staleness (normative)
 
@@ -654,6 +698,7 @@ inside never appears.
 | `unknown` | a failure of a started effect call whose outcome cannot be known (11.3) |
 | `finished` | a trace has no unfinished work left (below) |
 | `note` | process facts |
+| `ground` | a deposit wrote a place (4.5): `place`, `v`, `cause`; emitted immediately after its answer's event |
 
 `t` is whole ms since the run started (virtual in fixtures). Payloads as v1:
 text `{"type":"text","text":...}` for a string, else `{"type":"json","data":...}`
@@ -676,6 +721,7 @@ v1 readers, which ignore what they do not know, are unaffected):
 | `note` event: `what` is `junk` (with `line`, `text`), `cancel`, `term`, `kill`, `restart` or `inject` (with `trigger`) | MUST, as 6.3 says (fixtures with `notes` compare them) |
 | `note` event: `what` is `reserve` (with `units`) or `commit` (with `units`, `ms`, `basis`) | MUST for every call when the network has a `budget`; otherwise MUST NOT (10) |
 | `finished` event: `trace`, `status`, and `remaining` | MUST, once per trace of the outer network, as below |
+| `ground` event: `place` (the key string), `v` (the stored value after the write), `cause` (the depositing answer's id) | MUST on every deposit of a network that declares `ground` (4.5); MUST NOT otherwise; carries no signal fields |
 | `budget` and `neurons[].cost` header fields | MUST when the file has them |
 | `engine` header field | MAY |
 
@@ -1097,7 +1143,10 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
 ## Appendix B. Out of version 0.1 (informative)
 
 - Strength: a state file keyed by instance path, adjusted by the caller. Until
-  then every sender counts 1.
+  then every sender counts 1. (The in-run half is built: `ground`, decision
+  0012 — deposits per place, evaporation, one-link routing for replies that
+  name no `to`. Still out: carry-over between runs, per-link strength, and the
+  caller-side file; they wait on durable run state, issue #30 item 1.)
 - Passive and active channels (open; no field reserved); link attributes.
 - `http` authentication and headers; a `human` wait that survives a restart, several people and who may answer
   ([decision 0008](decisions/0008-human-neurons-on-a-page.md)); Wasm neurons;

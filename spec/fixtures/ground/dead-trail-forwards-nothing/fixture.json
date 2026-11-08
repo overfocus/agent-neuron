@@ -1,0 +1,16 @@
+{
+  "fixture": 0,
+  "description": "With base 0 a trail is the only weight there is: +3 forwards down b1, and the negative deposit that brings its value back to 0 makes every weight 0 — the reply is reported and nothing is forwarded.",
+  "inputs": [{"at":0,"source":"s","payload":{"place":"b1","amount":3}}, {"at":10,"source":"s","payload":{"place":"b1","amount":-3}}],
+  "script": {"r": {"calls":[{"when":{"place":"b1","amount":3},"reply":{"answer":{"place":"b1","amount":3}}},{"when":{"place":"b1","amount":-3},"reply":{"answer":{"place":"b1","amount":-3}}}]}, "b1": {"calls":[{"when":{"place":"b1","amount":3},"reply":{"quiet":true}}]}},
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["r"],"trace":"#1","hops":0,"payload":{"type":"json","data":{"place":"b1","amount":3}}},
+    {"type":"answer","t":0,"id":"#2","from":"r","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"place":"b1","amount":3}}},
+    {"type":"ground","t":0,"place":"b1","v":3,"cause":"#2"},
+    {"type":"signal","t":0,"id":"#3","from":"r","to":["b1"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":{"place":"b1","amount":3}}},
+    {"type":"quiet","t":0,"id":"#4","from":"b1","to":["r"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"signal","t":10,"id":"#5","from":"s","to":["r"],"trace":"#5","hops":0,"payload":{"type":"json","data":{"place":"b1","amount":-3}}},
+    {"type":"answer","t":10,"id":"#6","from":"r","to":["s"],"trace":"#5","replyTo":"#5","hops":1,"payload":{"type":"json","data":{"place":"b1","amount":-3}}},
+    {"type":"ground","t":10,"place":"b1","v":0,"cause":"#6"}
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "version": 0,
+  "name": "refuses-a-deposit-by-that-names-an-unknown-neuron",
+  "description": "A deposit.by must name a declared neuron (SPEC 4.5, decision 0012): \"ghost\" is declared nowhere, so check refuses, and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "r",
+      "run": [
+        "neuron-r"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "r"
+    }
+  ],
+  "ground": {
+    "deposit": {
+      "on": "place",
+      "add": "amount",
+      "by": "ghost"
+    }
+  }
+}

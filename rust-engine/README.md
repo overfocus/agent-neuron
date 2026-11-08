@@ -100,8 +100,8 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 89: mcp 19, real 27, check 13, desk 17, http 11, unit 2
-cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 203, 0, 0
+cargo test                                          # 92: mcp 19, real 27, check 16, desk 17, http 11, unit 2
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 224, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
 target/debug/neuron-engine run spec/examples/alerts-python-serve.network.json --inputs spec/examples/alerts.inputs.jsonl

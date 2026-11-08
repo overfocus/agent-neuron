@@ -1,0 +1,18 @@
+{
+  "version": 0,
+  "name": "inner",
+  "entry": "e",
+  "exit": "e",
+  "neurons": [
+    {
+      "id": "e",
+      "run": [
+        "neuron-e"
+      ]
+    }
+  ],
+  "ground": {
+    "select": true,
+    "seed": 1
+  }
+}

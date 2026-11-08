@@ -1,0 +1,8 @@
+{
+  "fixture": 0,
+  "description": "A deposit.by must name a declared neuron (SPEC 4.5, decision 0012): \"ghost\" is declared nowhere, so check refuses, and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [{"at":0,"source":"s","payload":1}],
+  "expect": [
+  ]
+}

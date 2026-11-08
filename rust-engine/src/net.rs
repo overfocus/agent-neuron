@@ -56,6 +56,30 @@ pub struct Node {
     pub opts: Opts,
 }
 
+/// The ground (SPEC 4.5, decision 0012): the link layer's strength — a value
+/// kept per place, a rule that deposits on places, and, when `select` is
+/// true, one-link routing for a reply that names no `to`. The defaults the
+/// SPEC sets (`evaporate` 0, `select` off, `base` 1, `power` 1, `seed` 0) are
+/// resolved here; the file carries literals only.
+#[derive(Debug, Clone)]
+pub struct Ground {
+    pub deposit: Option<GroundDeposit>,
+    pub evaporate: f64,
+    pub select: bool,
+    pub base: f64,
+    pub power: f64,
+    pub seed: i64,
+}
+
+/// A deposit rule: which payload field names the place, which one the amount,
+/// and (optionally) the one neuron whose replies deposit (4.5).
+#[derive(Debug, Clone)]
+pub struct GroundDeposit {
+    pub on: String,
+    pub add: String,
+    pub by: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Link {
     pub from: String,
@@ -75,6 +99,7 @@ pub struct Network {
     pub name: String,
     pub description: String,
     pub budget: Option<Units>,
+    pub ground: Option<Ground>,
     pub entry: Option<String>,
     pub exit: Option<String>,
     pub nodes: Vec<Node>,
@@ -427,6 +452,7 @@ fn empty_network() -> Network {
         name: String::new(),
         description: String::new(),
         budget: None,
+        ground: None,
         entry: None,
         exit: None,
         nodes: Vec::new(),
@@ -539,7 +565,7 @@ fn from_json(v: &Value, scan: &Scan, out: &mut Vec<Diag>) -> Network {
     for k in v.keys() {
         if !matches!(
             k,
-            "$schema" | "version" | "name" | "description" | "entry" | "exit" | "neurons" | "links" | "budget"
+            "$schema" | "version" | "name" | "description" | "entry" | "exit" | "neurons" | "links" | "budget" | "ground"
         ) {
             push(FILE_SPAN, scan, k, &format!("unknown top-level field '{}'", k), out);
         }
@@ -606,15 +632,159 @@ fn from_json(v: &Value, scan: &Scan, out: &mut Vec<Diag>) -> Network {
             None => push(FILE_SPAN, scan, "links", "links is an array", out),
         }
     }
+    // The ground (4.5): parsed after the neurons, for a `deposit.by` that
+    // names one of them.
+    let known: HashSet<&str> = nodes.iter().map(|n| n.id.as_str()).collect();
+    let ground = v.get("ground").and_then(|gv| ground(gv, &known, scan, out));
     Network {
         name,
         description,
         budget,
+        ground,
         entry,
         exit,
         nodes,
         links,
     }
+}
+
+/// The `ground` (SPEC 4.5, decision 0012): the section and each of its
+/// fields, with the refusals of 0012 item 5. Whole-section rules sit at the
+/// file's `ground` key, the field rules inside it (`probe`).
+fn ground(v: &Value, ids: &HashSet<&str>, scan: &Scan, out: &mut Vec<Diag>) -> Option<Ground> {
+    let hay = scan.len();
+    let (anchor, probe) = anchor_point(scan, (0, hay), "ground");
+    let entries = match v {
+        Value::Obj(entries) => entries,
+        _ => {
+            push(anchor, scan, "ground", "ground is not an object", out);
+            return None;
+        }
+    };
+    for (k, _) in entries {
+        if !matches!(k.as_str(), "deposit" | "evaporate" | "select" | "base" | "power" | "seed") {
+            push(probe, scan, k, &format!("ground: unknown field '{}'", k), out);
+        }
+    }
+    let deposit = v.get("deposit").and_then(|dv| ground_deposit(dv, ids, scan, probe, out));
+    let select = match v.get("select") {
+        None => false,
+        Some(Value::Bool(true)) => true,
+        Some(_) => {
+            push(probe, scan, "select", "ground: select is true", out);
+            false
+        }
+    };
+    let evaporate = ground_number(v, "evaporate", probe, scan, out);
+    let base = ground_number(v, "base", probe, scan, out);
+    let power = ground_number(v, "power", probe, scan, out);
+    let seed = match v.get("seed") {
+        None => 0,
+        Some(x) => match x.as_i64() {
+            Some(n) if n >= 0 => n,
+            Some(_) => {
+                push(probe, scan, "seed", "ground: seed is an integer at least 0", out);
+                0
+            }
+            None => {
+                push(probe, scan, "seed", "ground: seed is an integer at least 0", out);
+                0
+            }
+        },
+    };
+    if evaporate.is_some_and(|x| x < 0.0) {
+        push(probe, scan, "evaporate", "ground: evaporate is at least 0", out);
+    }
+    if base.is_some_and(|x| x < 0.0) {
+        push(probe, scan, "base", "ground: base is at least 0", out);
+    }
+    if power.is_some_and(|x| x <= 0.0) {
+        push(probe, scan, "power", "ground: power is a number above 0", out);
+    }
+    Some(Ground {
+        deposit,
+        evaporate: evaporate.unwrap_or(0.0),
+        select,
+        base: base.unwrap_or(1.0),
+        power: power.unwrap_or(1.0),
+        seed,
+    })
+}
+
+/// A value of the ground's own fields: a number, or the refusal the schema's
+/// type demands.
+fn ground_number(v: &Value, key: &str, probe: Span, scan: &Scan, out: &mut Vec<Diag>) -> Option<f64> {
+    match v.get(key) {
+        None => None,
+        Some(Value::Int(i)) => Some(*i as f64),
+        Some(Value::Float(f)) => Some(*f),
+        Some(_) => {
+            push(probe, scan, key, &format!("ground: {} is a number", key), out);
+            None
+        }
+    }
+}
+
+/// The `deposit` of a ground (4.5): both payload fields are required and
+/// name-shaped; `by`, when present, names a neuron the file declares.
+fn ground_deposit(v: &Value, ids: &HashSet<&str>, scan: &Scan, probe: Span, out: &mut Vec<Diag>) -> Option<GroundDeposit> {
+    let entries = match v {
+        Value::Obj(entries) => entries,
+        _ => {
+            push(probe, scan, "deposit", "ground: deposit is an object", out);
+            return None;
+        }
+    };
+    for (k, _) in entries {
+        if !matches!(k.as_str(), "on" | "add" | "by") {
+            push(probe, scan, k, &format!("ground: unknown field '{}' in the deposit", k), out);
+        }
+    }
+    let mut named = |key: &str| -> Option<String> {
+        match v.get(key) {
+            None => {
+                push(probe, scan, key, &format!("ground: the deposit needs '{}'", key), out);
+                None
+            }
+            Some(Value::Str(s)) if is_id(s) => Some(s.clone()),
+            Some(Value::Str(_)) => {
+                push(probe, scan, key, &format!("ground: deposit.{} must be an id", key), out);
+                None
+            }
+            Some(_) => {
+                push(probe, scan, key, &format!("ground: deposit.{} is a string", key), out);
+                None
+            }
+        }
+    };
+    let on = named("on")?;
+    let add = named("add")?;
+    let by = match v.get("by") {
+        None => None,
+        Some(Value::Str(s)) if is_id(s) => {
+            if !ids.contains(s.as_str()) {
+                push(
+                    probe,
+                    scan,
+                    "by",
+                    &format!("ground: deposit.by names '{}', which is not a neuron of the file", s),
+                    out,
+                );
+                None
+            } else {
+                Some(s.clone())
+            }
+        }
+        Some(Value::Str(_)) => {
+            push(probe, scan, "by", "ground: deposit.by must be an id", out);
+            None
+        }
+        Some(_) => {
+            push(probe, scan, "by", "ground: deposit.by is a string", out);
+            None
+        }
+    };
+    Some(GroundDeposit { on, add, by })
 }
 
 /// The `entry`/`exit` pair: both a neuron id or both absent, and set together
@@ -1086,6 +1256,11 @@ fn composed_rules(net: &Network, used_as_composed: bool, scan: &Scan, out: &mut 
         return;
     }
     let neuron_spans = scan.array_spans("neurons");
+    if net.ground.is_some() {
+        // 4.5: a composed network's inner file MUST NOT declare a ground;
+        // the scope question waits (decision 0012).
+        push(FILE_SPAN, scan, "ground", "a composed file declares a ground (4.5)", out);
+    }
     if net.source() {
         let first = net.nodes.iter().position(|n| n.kind == Kind::Source).unwrap_or(0);
         let span = neuron_spans.get(first).copied().unwrap_or(NONE_SPAN);

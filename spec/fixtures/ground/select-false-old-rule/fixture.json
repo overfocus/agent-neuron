@@ -1,0 +1,15 @@
+{
+  "fixture": 0,
+  "description": "A ground without select changes no routing: the omitted-`to` reply still forwards to all outgoing links (and the deposit still writes its ground event).",
+  "inputs": [{"at":0,"source":"s","payload":{"place":"b2","amount":4}}],
+  "script": {"r": {"calls":[{"reply":{"answer":{"place":"b2","amount":4}}}]}, "b1": {"calls":[{"reply":{"quiet":true}}]}, "b2": {"calls":[{"reply":{"quiet":true}}]}, "b3": {"calls":[{"reply":{"quiet":true}}]}},
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["r"],"trace":"#1","hops":0,"payload":{"type":"json","data":{"place":"b2","amount":4}}},
+    {"type":"answer","t":0,"id":"#2","from":"r","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"place":"b2","amount":4}}},
+    {"type":"ground","t":0,"place":"b2","v":4,"cause":"#2"},
+    {"type":"signal","t":0,"id":"#3","from":"r","to":["b1","b2","b3"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":{"place":"b2","amount":4}}},
+    {"type":"quiet","t":0,"id":"#4","from":"b1","to":["r"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"quiet","t":0,"id":"#5","from":"b2","to":["r"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"quiet","t":0,"id":"#6","from":"b3","to":["r"],"trace":"#1","replyTo":"#3","hops":3}
+  ]
+}

@@ -7,6 +7,7 @@ Standard library only, Python 3.11+.
 """
 import heapq
 import json
+import math
 from collections import deque
 
 from .check import CheckError, load
@@ -606,6 +607,23 @@ class Run:
         self.observer = [dict(r, _fired=False) for r in (observer or [])]
         self.root = Instance(self, data, "", True)
         self.ctx = Ctx(self.root, True)
+        # the ground (4.5): one state per run — places, the pinned generator, the config's numbers
+        g = data.get("ground")
+        self.ground = g
+        self.places = {}  # a place -> [value, instant of the last write]; a read ages to its instant and never mutates
+        self.select = False
+        self.dep = None
+        self.evap = 0.0
+        self.base = 1.0
+        self.power = 1.0
+        self.rng = 0  # the generator's 32-bit state, seeded once by ground.seed
+        if g is not None:
+            self.dep = g.get("deposit")
+            self.select = g.get("select") is True
+            self.evap = float(g.get("evaporate", 0))
+            self.base = float(g.get("base", 1))
+            self.power = float(g.get("power", 1))
+            self.rng = g.get("seed", 0)
         self.inputs = inputs
         self.epoch = 0
         self.stopped = False
@@ -975,10 +993,15 @@ class Run:
         if eff_stale:
             ev["forwarded"] = False
         self.emit(ctx, ev)
+        if ctx.report:  # the ground is the declaring network's bookkeeping: a composed inner reply never deposits
+            self.deposit(ctx, n, payload, a.id)
         if not eff_stale:
-            targets = n.out
             if to is not None:
                 targets = [t for t in n.out if t in to]
+            elif self.select:
+                targets = self.ground_draw(n)  # the reply names no `to`: one drawn link of 4.5
+            else:
+                targets = n.out
             if targets:
                 key = cross.key if replaces is UNSET else replaces
                 f = Sig(self.nid("s"), call.trace, n.id, list(targets), payload, a.hops + 1, key, cause=a.id)
@@ -986,6 +1009,75 @@ class Run:
                 self.send(ctx, f)
         self.release(call)
         self.maybe_exit(ctx, n, "answer", payload, replaces)
+
+    # --- the ground (SPEC 4.5, decision 0012)
+
+    def draw_word(self):
+        """One step of the pinned generator: 32-bit wrap add and multiply, zero-fill right shifts, masked at every step."""
+        m = 0xFFFFFFFF
+        s = self.rng = (self.rng + 0x6D2B79F5) & m
+        t = s
+        t = ((t ^ (t >> 15)) * (t | 1)) & m
+        t = (((t + (((t ^ (t >> 7)) * (t | 61)) & m)) & m) ^ t) & m
+        return ((t ^ (t >> 14)) & m) / 4294967296.0
+
+    def eff_value(self, place):
+        """A place's effective value at the current instant: v·exp(-evaporate·(t − at)/1000); absent is 0; never mutates."""
+        ent = self.places.get(place)
+        if ent is None:
+            return 0.0
+        return ent[0] * math.exp(-(self.evap * (self.sched.now - ent[1]) / 1000))
+
+    def ground_draw(self, n):
+        """One of the neuron's out-links for a reply that names no `to` (4.5).
+
+        The word is drawn first, whatever the outcome; the weights are max(0, base + effectiveValue)^power over
+        the out-links in declaration order; the pick is the first cumulative weight greater than u·total, or the
+        last link when rounding leaves none.  A total of 0 forwards nothing.
+        """
+        u = self.draw_word()
+        weights = []
+        for tgt in n.out:
+            w = self.base + self.eff_value(tgt)
+            if w < 0.0:
+                w = 0.0
+            weights.append(w ** self.power)
+        total = 0.0
+        for w in weights:
+            total += w
+        if not n.out or total == 0.0:
+            return []
+        limit = u * total
+        run = 0.0
+        for tgt, w in zip(n.out, weights):
+            run += w
+            if run > limit:
+                return [tgt]
+        return [n.out[-1]]
+
+    def deposit(self, ctx, n, payload, cause):
+        """The reply's deposit (4.5): the named payload fields, the old value aged at the write, `add` last."""
+        if self.dep is None or not ctx.report:
+            return
+        if "by" in self.dep and self.dep["by"] != n.id:
+            return
+        if not isinstance(payload, dict):
+            return
+        place = payload.get(self.dep["on"])
+        if not isinstance(place, str):
+            return
+        add = payload.get(self.dep["add"])
+        if not isinstance(add, (int, float)) or isinstance(add, bool) or not math.isfinite(add):
+            return
+        add = float(add)
+        t = self.sched.now
+        old = self.places.get(place)
+        if old is None:
+            v = add
+        else:
+            v = old[0] * math.exp(-(self.evap * (t - old[1]) / 1000)) + add
+        self.places[place] = [v, t]
+        self.emit(ctx, {"type": "ground", "place": place, "v": v, "cause": cause})
 
     def maybe_exit(self, ctx, n, kind, payload, replaces):
         if ctx.call is not None and n.id == ctx.inst.exit and not ctx.closed:

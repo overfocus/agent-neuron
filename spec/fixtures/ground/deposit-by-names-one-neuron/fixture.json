@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "A deposit.by restricts the writes to the neuron it names: w's reply deposits and r's, carrying the same fields, deposits nothing.",
+  "inputs": [{"at":0,"source":"s1","payload":{"place":"b","amount":9}}, {"at":10,"source":"s2","payload":{"place":"b","amount":8}}],
+  "script": {"w": {"calls":[{"when":{"place":"b","amount":9},"reply":{"answer":{"place":"b","amount":9}}}]}, "r": {"calls":[{"when":{"place":"b","amount":8},"reply":{"answer":{"place":"b","amount":8}}}]}, "b": {"calls":[{"reply":{"quiet":true}},{"reply":{"quiet":true}}]}},
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s1","to":["w"],"trace":"#1","hops":0,"payload":{"type":"json","data":{"place":"b","amount":9}}},
+    {"type":"answer","t":0,"id":"#2","from":"w","to":["s1"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"place":"b","amount":9}}},
+    {"type":"ground","t":0,"place":"b","v":9,"cause":"#2"},
+    {"type":"signal","t":0,"id":"#3","from":"w","to":["b"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":{"place":"b","amount":9}}},
+    {"type":"quiet","t":0,"id":"#4","from":"b","to":["w"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"signal","t":10,"id":"#5","from":"s2","to":["r"],"trace":"#5","hops":0,"payload":{"type":"json","data":{"place":"b","amount":8}}},
+    {"type":"answer","t":10,"id":"#6","from":"r","to":["s2"],"trace":"#5","replyTo":"#5","hops":1,"payload":{"type":"json","data":{"place":"b","amount":8}}},
+    {"type":"signal","t":10,"id":"#7","from":"r","to":["b"],"trace":"#5","cause":"#6","hops":2,"payload":{"type":"json","data":{"place":"b","amount":8}}},
+    {"type":"quiet","t":10,"id":"#8","from":"b","to":["r"],"trace":"#5","replyTo":"#7","hops":3}
+  ]
+}
