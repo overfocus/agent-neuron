@@ -75,8 +75,10 @@ There is no linter yet; `tsc` in strict mode is the static check.
   anything, it does not belong in the file (gates, filters, transforms and
   prompt templates are programs, and a filter is a small neuron). Values are
   literals: no `${}`, no conditions, no expressions. The schema
-  (`spec/network.schema.json`) is closed. **Field budget**: a network file has
-  9 top-level fields (`budget` is the ninth), a neuron has `id`, `description`, one kind field and at
+  (`spec/network.schema.json`) is closed. (One exception, decision 0012: the
+  ground's deposit rule names the payload fields it records — the engine's own
+  bookkeeping, as `replaces` keys the producer's inputs.) **Field budget**: a network file has
+  10 top-level fields (`budget` is the ninth, `ground` the tenth — decision 0012), a neuron has `id`, `description`, one kind field and at
   most 8 options (`threshold`, `within`, `maxHops`, `timeout`, `env`, `cwd`, `cost`, `effect`; `effect` is
   the eighth and the last planned), a link has `from` and `to`. Test every proposed field with one question:
   *does it say how neurons connect, or how one decides?* Only the first kind

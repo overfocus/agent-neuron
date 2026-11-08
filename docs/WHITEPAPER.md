@@ -426,8 +426,12 @@ has no OpenTelemetry equivalent; I would export it as status Error plus an attri
 
 ## 8. Non-goals and what is not built
 
-- **Link strength and learning** are planned, not specified: `weight()` always returns 1
-  (`src/network.ts`), the file has no strength field (SPEC 2.5, Appendix B), nothing is kept between runs.
+- **Link strength and learning**: the in-run half is built — `ground`
+  (decision 0012: deposits kept per place, evaporation, a seeded one-link
+  routing for replies that name no `to`; `weight()` chooses in the TS library,
+  the engines conform on `spec/fixtures/ground/`). Still planned: carry-over
+  between runs (durable run state, issue #30 item 1), per-link strength, and
+  the caller-side strength file of Appendix B.
 - **`http` and `human` neurons** run from a network file in the Rust engine (SPEC 3.3, 3.4; the desk is
   decision 0008's, section 5.5); the reference engine still `check`-warns and `run`-refuses them (SPEC
   Appendix C). The `http` failure row has no fixture (decision 0004).

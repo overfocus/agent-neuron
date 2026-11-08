@@ -54,9 +54,57 @@
     "budget": {
       "description": "The most one trace may spend, in named units. With a budget, every neuron but a source declares a cost (0 allowed); `check` enforces it, as a schema cannot. See docs/SPEC.md section 10.",
       "$ref": "#/$defs/units"
+    },
+    "ground": {
+      "description": "The link layer's strength (SPEC 4.5, decision 0012): deposits kept per place, evaporation, and one-link routing for replies that name no `to`.",
+      "$ref": "#/$defs/ground"
     }
   },
   "$defs": {
+    "ground": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deposit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "on",
+            "add"
+          ],
+          "properties": {
+            "by": {
+              "$ref": "#/$defs/id"
+            },
+            "on": {
+              "$ref": "#/$defs/id"
+            },
+            "add": {
+              "$ref": "#/$defs/id"
+            }
+          }
+        },
+        "evaporate": {
+          "type": "number",
+          "minimum": 0
+        },
+        "select": {
+          "const": true
+        },
+        "base": {
+          "type": "number",
+          "minimum": 0
+        },
+        "power": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
     "id": {
       "type": "string",
       "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
