@@ -484,7 +484,8 @@ A network file MAY declare `ground` ([decision 0012](decisions/0012-the-ground.m
 value kept per *place* (a place is a neuron id), a rule that deposits on places,
 and, when chosen, one-link routing for a reply that names no `to`. Without the
 field this section does not apply and every out-link counts 1. `ground` is
-`{deposit, evaporate, select, base, power, seed}`, every field optional.
+`{deposit, evaporate, select, base, power, seed}`, every field optional. A
+composed network's inner file MUST NOT declare one; the scope question waits.
 
 - **State.** A place's entry is `(v, at)`: the value and the instant of its last
   write. A place never written starts absent: an effective value of 0 at every
