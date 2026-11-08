@@ -27,11 +27,53 @@
 use crate::fixture::{CallEntry, Input, Prog, Rule, Units};
 use crate::host::{self, Host, Line};
 use crate::json::{self, Obj, Value};
-use crate::net::{Kind, NetFile, Network};
+use crate::net::{Ground, Kind, NetFile, Network};
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
+
+/// The ground as the engine runs it (SPEC 4.5, decision 0012): the section of
+/// the one network file that may declare it (2.6 refuses a composed one, so
+/// there is at most one per run), the per-place state — a value and the
+/// instant of its last write, an unwritten place reading 0 — and the one
+/// 32-bit state of the pinned generator, seeded once by `ground.seed` here at
+/// the plant and advanced one word per omitted-`to` reply.
+struct GroundState {
+    deposit: Option<crate::net::GroundDeposit>,
+    evaporate: f64,
+    select: bool,
+    base: f64,
+    power: f64,
+    /// Place -> (value, instant of the last write). A read never changes an
+    /// entry; a write stores the old value aged to its instant plus the
+    /// amount (4.5).
+    places: HashMap<String, (f64, i64)>,
+    rng: u32,
+}
+
+impl GroundState {
+    fn of(g: &Ground) -> GroundState {
+        GroundState {
+            deposit: g.deposit.clone(),
+            evaporate: g.evaporate,
+            select: g.select,
+            base: g.base,
+            power: g.power,
+            places: HashMap::new(),
+            // The generator is 32-bit: the seed rides its low 32 bits, the
+            // same place the first add's wrap lands (4.5).
+            rng: (g.seed as u64 & 0xFFFF_FFFF) as u32,
+        }
+    }
+
+    /// The effective value of one entry at `t` (4.5): the stored value aged
+    /// by `evaporate` a second since its write. Ageing for both a write (the
+    /// old value, before the amount adds) and a read.
+    fn effective(&self, (v, at): (f64, i64), t: i64) -> f64 {
+        v * (-self.evaporate * (t - at) as f64 / 1000.0).exp()
+    }
+}
 
 /// The staleness and sealing scope of a signal and the work it starts: the
 /// outer instance is one scope; a composed neuron's inside is one scope per
@@ -497,6 +539,10 @@ pub struct Engine {
     wants_desk: bool,
     /// The people at the desk (decision 0010), when the run names them.
     grants: Option<crate::desk::Grants>,
+    /// The ground of the network that declared one, if any (SPEC 4.5,
+    /// decision 0012): 2.6 refuses a ground in a composed file, so only the
+    /// outer network's — instance 0 — can ever sit here.
+    ground: Option<GroundState>,
 }
 
 impl Engine {
@@ -552,6 +598,7 @@ impl Engine {
             deadline: None,
             wants_desk: true,
             grants: None,
+            ground: None,
         }
     }
 
@@ -770,6 +817,12 @@ impl Engine {
             budget: net.budget.clone(),
         });
         let mut local: HashMap<String, usize> = HashMap::new();
+        if inst == 0 {
+            // Only the outer network can carry a ground (4.5; 2.6 refuses a
+            // composed one): its instance is 0 here, and the generator and
+            // the per-place state start with the run.
+            self.ground = net.ground.as_ref().map(GroundState::of);
+        }
         for n in net.nodes.iter() {
             let node = self.nodes.len();
             local.insert(n.id.clone(), node);
@@ -2594,6 +2647,11 @@ impl Engine {
                     self.answers.push((self.disp(node), payload.clone()));
                 }
                 self.emit(rec.inst, ev);
+                // The ground's deposit (4.5): the engine reads the reply's
+                // payload for the named record fields — its own bookkeeping,
+                // never a routing read — and a write is one `ground` event,
+                // emitted immediately after its answer's event.
+                self.ground_deposit(rec.inst, node, reply, &payload);
                 // The forward is a signal on the same key and must not cut
                 // the call that made it; the slot of a level 1 call frees
                 // after the forward (6.2).
@@ -2642,22 +2700,35 @@ impl Engine {
     /// the subset the reply names).
     fn forward_answer(&mut self, work: usize, reply: u64, to: &Option<Vec<usize>>, replaces: &KeyThree, payload: PVal) {
         let node = self.works[work].node;
-        let incoming = &self.sigs[&self.works[work].sig];
+        let incoming_key = self.sigs[&self.works[work].sig].replaces.clone();
         let rec = self.sigs[&reply].clone();
         let targets = match to {
             Some(subset) => {
                 let named: HashSet<usize> = subset.iter().copied().collect();
                 self.nodes[node].out.iter().copied().filter(|n| named.contains(n)).collect()
             }
-            None => self.nodes[node].out.clone(),
+            None => {
+                // 4.4 and 4.5: an omitted `to` routes by the draw of 4.5 when
+                // the network declares `select`, and along every link as at
+                // v0.1 otherwise. A reply that names a `to` never draws.
+                let select = self.nodes[node].inst == 0 && self.ground.as_ref().is_some_and(|g| g.select);
+                if select {
+                    match self.ground_draw(node) {
+                        Some(link) => vec![link],
+                        None => return, // an empty out-list or a total weight of 0
+                    }
+                } else {
+                    self.nodes[node].out.clone()
+                }
+            }
         };
         if targets.is_empty() {
             return;
         }
         let key = match replaces {
-            None => incoming.replaces.clone(), // absent: inherit the input's key
-            Some(None) => None,                // null: clear it
-            Some(Some(s)) => Some(s.clone()),  // a string: set it
+            None => incoming_key,             // absent: inherit the input's key
+            Some(None) => None,               // null: clear it
+            Some(Some(s)) => Some(s.clone()), // a string: set it
         };
         let fsig = self.new_signal(
             node,
@@ -2672,6 +2743,113 @@ impl Engine {
             rec.owner_call,
         );
         self.deliver_signal(fsig);
+    }
+
+    /// A reply's deposit (4.5, decision 0012): the engine checks every
+    /// reply's payload for the record fields `deposit.on` (a string) and
+    /// `deposit.add` (a finite number), and, with `deposit.by`, the replying
+    /// neuron must be the one named — the engine's own bookkeeping, as
+    /// staleness is keyed by `replaces`; nothing routes by it and nothing a
+    /// program sees changes. A write ages the old value to the reply's
+    /// instant before it adds, and is one `ground` event (7.2) with no
+    /// signal fields, emitted right after its answer's event — `cause` is
+    /// that answer's id. A reply without both fields, a `by` that is not the
+    /// replying neuron, a `quiet`, or a failure: no deposit at all.
+    fn ground_deposit(&mut self, inst: u32, node: usize, cause: u64, payload: &PVal) {
+        if inst != 0 {
+            return; // the ground is the outer network's (4.5, 2.6)
+        }
+        let (on, add, by) = match self.ground.as_ref().and_then(|g| g.deposit.clone()) {
+            Some(d) => (d.on, d.add, d.by),
+            None => return,
+        };
+        let fields = match payload {
+            PVal::Json(Value::Obj(entries)) => entries.clone(),
+            _ => return,
+        };
+        let place = match fields.iter().find(|(k, _)| *k == on).map(|(_, v)| v) {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return,
+        };
+        let amount = match fields.iter().find(|(k, _)| *k == add).map(|(_, v)| v) {
+            Some(Value::Int(n)) => *n as f64,
+            Some(Value::Float(f)) if f.is_finite() => *f,
+            _ => return,
+        };
+        if by.is_some_and(|b| b != self.nodes[node].display) {
+            return;
+        }
+        let t = self.now_t();
+        let ground = self.ground.as_mut().expect("a ground above");
+        let value = match ground.places.get(&place) {
+            Some(&ent) => ground.effective(ent, t) + amount,
+            None => amount,
+        };
+        ground.places.insert(place.clone(), (value, t));
+        let ev = Obj::new()
+            .str("type", "ground")
+            .int("t", t)
+            .str("place", place.clone())
+            .set("v", Value::Float(value))
+            .str("cause", cause.to_string())
+            .build();
+        self.emit(inst, ev);
+    }
+
+    /// The draw of 4.5 (selection, opt-in): one word of the pinned
+    /// generator — spent whatever the outcome, however few the links — and
+    /// the link it picks: weights `max(0, base + effectiveValue)^power` from
+    /// the values aged to the reply's instant, weights taken in the
+    /// declaration order, the first cumulative weight above `u·total`
+    /// winning, the last link when the rounding leaves none. `None` — an
+    /// empty out-list, or a total weight of 0 (every trail dead) — forwards
+    /// nothing, reported like a `to` of `[]` (4.4).
+    fn ground_draw(&mut self, node: usize) -> Option<usize> {
+        // The generator, one word (4.5): 32-bit wrap add and multiply,
+        // zero-fill right shifts, the division by 2^32 unsigned.
+        let word = {
+            let ground = self.ground.as_mut().expect("a ground above");
+            let s = ground.rng.wrapping_add(0x6D2B79F5);
+            ground.rng = s;
+            let t = (s ^ (s >> 15)).wrapping_mul(s | 1);
+            let t = t ^ t.wrapping_add((t ^ (t >> 7)).wrapping_mul(t | 61));
+            t ^ (t >> 14)
+        };
+        let u = word as f64 / 4294967296.0;
+        let out = self.nodes[node].out.clone();
+        if out.is_empty() {
+            return None;
+        }
+        let t = self.now_t();
+        let (weights, total) = {
+            let ground = self.ground.as_ref().expect("a ground above");
+            let mut weights = Vec::with_capacity(out.len());
+            let mut total = 0.0;
+            for &link in &out {
+                let eff = ground
+                    .places
+                    .get(&self.nodes[link].display)
+                    .copied()
+                    .map(|ent| ground.effective(ent, t))
+                    .unwrap_or(0.0);
+                let w = (ground.base + eff).max(0.0).powf(ground.power);
+                weights.push(w);
+                total += w;
+            }
+            (weights, total)
+        };
+        if total == 0.0 {
+            return None;
+        }
+        let bound = u * total;
+        let mut cum = 0.0;
+        for (i, w) in weights.iter().enumerate() {
+            cum += *w;
+            if cum > bound {
+                return Some(out[i]);
+            }
+        }
+        Some(out[out.len() - 1]) // the rounding left none: the last link
     }
 
     /// A failing call (SPEC 6.1): an error for the signal the call answers,
