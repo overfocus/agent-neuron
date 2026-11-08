@@ -669,6 +669,31 @@ fn describe_network_marks_effect_neurons() {
 }
 
 #[test]
+fn describe_network_passes_at_through() {
+    let mut c = Client::start();
+    handshake(&mut c);
+    let file = format!("{}/../fixtures/descriptive/at-changes-nothing/network.json", spec_examples());
+    let reply = c.rpc(2, &describe_call(&file));
+    let (body, is_error) = c.tool_body(&reply);
+    assert!(!is_error, "{}", json::write(&body));
+    let neurons = body
+        .get("network")
+        .and_then(|n| n.get("neurons"))
+        .and_then(|n| n.as_arr())
+        .expect("neurons")
+        .to_vec();
+    let at = |id: &str| {
+        neurons
+            .iter()
+            .find(|n| n.get("id").and_then(|i| i.as_str()) == Some(id))
+            .and_then(|n| n.get("at"))
+            .map(json::write)
+    };
+    assert_eq!(at("s").as_deref(), Some("[0,0,0]"));
+    assert_eq!(at("b").as_deref(), Some("[20,-5,2.5]"));
+}
+
+#[test]
 fn describe_network_refuses_what_does_not_check_and_ends_a_loop() {
     let mut c = Client::start();
     handshake(&mut c);

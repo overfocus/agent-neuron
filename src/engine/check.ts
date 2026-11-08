@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { delimiter, dirname, join, normalize, resolve } from 'node:path';
 
 export type NeuronSpec = {
-  id: string; description?: string;
+  id: string; description?: string; at?: [number, number, number];
   source?: true; run?: string[]; serve?: string[]; http?: string; human?: true; network?: string;
   threshold?: number; within?: number; maxHops?: number; timeout?: number; env?: string[]; cwd?: string; cost?: Record<string, number>; effect?: true;
 };
@@ -37,6 +37,7 @@ export function validate(value: unknown, node: Schema = loadSchema(), path = '$'
   if (type === 'array' && !Array.isArray(value)) return [{ path, message: 'expected an array' }];
   if (type === 'string' && typeof value !== 'string') return [{ path, message: 'expected a string' }];
   if (type === 'integer' && !Number.isInteger(value)) return [{ path, message: 'expected an integer' }];
+  if (type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) return [{ path, message: 'expected a number' }];
   if ('const' in node && !same(value, node.const)) fail(`expected ${JSON.stringify(node.const)}`);
   if (typeof value === 'string') {
     if (typeof node.pattern === 'string' && !new RegExp(node.pattern).test(value)) fail(`does not match ${node.pattern}`);
@@ -49,6 +50,7 @@ export function validate(value: unknown, node: Schema = loadSchema(), path = '$'
   }
   if (Array.isArray(value)) {
     if (typeof node.minItems === 'number' && value.length < node.minItems) fail(`needs at least ${node.minItems} items`);
+    if (typeof node.maxItems === 'number' && value.length > node.maxItems) fail(`has more than ${node.maxItems} items`);
     if (node.uniqueItems && new Set(value.map((v) => JSON.stringify(v))).size !== value.length) fail('items must be unique');
     if (isObject(node.items)) value.forEach((v, i) => errors.push(...validate(v, node.items as Schema, `${path}[${i}]`)));
   }

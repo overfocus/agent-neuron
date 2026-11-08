@@ -81,7 +81,9 @@ There is no linter yet; `tsc` in strict mode is the static check.
   the eighth and the last planned), a link has `from` and `to`. Test every proposed field with one question:
   *does it say how neurons connect, or how one decides?* Only the first kind
   gets in, and only with a decision record in `docs/decisions/` that says what
-  it costs against the budget. A change to the file, the protocol or the
+  it costs against the budget. Descriptive fields are a second, closed class:
+  for people and tools, acted on by no engine. There are two, `description` and
+  `at` (decision 0011); another needs its own record. A change to the file, the protocol or the
   routing is a change to `docs/SPEC.md`, the schema and the fixtures (once they exist) together.
 - Every feature that adds or changes visible behaviour adds or updates a demo
   and its row in `docs/DEMOS.md`.

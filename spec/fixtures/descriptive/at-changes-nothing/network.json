@@ -1,0 +1,48 @@
+{
+  "version": 0,
+  "name": "at-changes-nothing",
+  "description": "SPEC 8.4's worked fixture with an `at` on every neuron: a descriptive field (2.2, decision 0011) changes nothing an engine does, so the events are those of routing/chain-forward-with-cause.",
+  "neurons": [
+    {
+      "id": "s",
+      "at": [
+        0,
+        0,
+        0
+      ],
+      "source": true
+    },
+    {
+      "id": "a",
+      "at": [
+        10,
+        0,
+        0
+      ],
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "at": [
+        20,
+        -5,
+        2.5
+      ],
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}
