@@ -114,7 +114,7 @@ The whole storm is this file, `spec/examples/alerts.network.json`. The programs 
 ## How it compares
 
 - **Unix pipes.** A level-0 neuron is a filter: a program that reads JSON on stdin and writes JSON on stdout. The difference is that neurons form a graph (many in, many out, loops allowed and bounded), not a line.
-- **Node-RED and similar flow files.** The shape is similar: a JSON file lists nodes and links. The difference I am trying for is that each node carries its own firing rules (threshold, staleness, budget, effect), and that those rules have a written specification and conformance fixtures, so another engine can be checked against the first. That has now happened three times: the TypeScript reference, a Python protocol test, and a complete Rust engine — all three pass all three pass the same 224 fixtures (the 21 of decision 0012 included).
+- **Node-RED and similar flow files.** The shape is similar: a JSON file lists nodes and links. The difference I am trying for is that each node carries its own firing rules (threshold, staleness, budget, effect), and that those rules have a written specification and conformance fixtures, so another engine can be checked against the first. That has now happened three times: the TypeScript reference, a Python protocol test, and a complete Rust engine — all three pass the same 224 fixtures (the 21 of decision 0012 included).
 - **Agent frameworks.** They usually put a controller or planner in the middle. Here nothing in the middle decides; and no model is required, since a neuron can be any program. And the top-level deciding can belong to the team: quorum, gates and budgets are neuron fields, so three people agreeing on a merge is the same graph that triages forty alerts by itself (`npm run demo:team`).
 
 I have not benchmarked any of these against it, and this one is far smaller and younger than all of them.
@@ -131,10 +131,12 @@ I have not benchmarked any of these against it, and this one is far smaller and 
 - **Many-to-many connections.** Every connection can be bidirectional. A
   neuron can also be told to ignore input from a connection when other
   conditions hold.
-- **Adaptive (planned, not built).** The aim is a network that can rewire
-  itself, with connections that strengthen and weaken over time and carry over
-  from one run to the next. Today every link counts the same (`weight` in
-  `src/network.ts` always returns 1) and nothing is kept between runs.
+- **Adaptive (the trail is built; habits between runs are planned).** The
+  ground ([decision 0012](docs/decisions/0012-the-ground.md)) keeps strength
+  per place, evaporates it, and routes replies that name no `to` by a seeded
+  draw — the colony demo runs on it. What is still planned: carry-over
+  between runs, so a network brings its trails with it, and a network that
+  rewires itself.
 - **Simple at the core.** The neuron interface is most valuable the simpler
   it is: wrapping something should stay a few lines, whatever the network
   learns to do around it.
@@ -151,8 +153,10 @@ specified in [docs/SPEC.md](docs/SPEC.md) (version 0.1, draft).
 
 The name is a loose analogy, not a model of biology. A neuron here stands for
 connective tissue between arbitrary functions and agents: the part that
-decides what is connected to what and what flows between them. How strongly
-things are connected is the planned part.
+decides what is connected to what and what flows between them. The in-run
+part of how strongly things are connected is built (`ground`,
+[decision 0012](docs/decisions/0012-the-ground.md)); the part that keeps
+habits between runs is still planned.
 
 ## What the wrapper gives what's inside it
 
@@ -343,7 +347,8 @@ npm run engine -- conform spec/fixtures   # pass or fail per fixture; non-zero e
 
 The format and the command-line contract any engine implements are in
 [docs/CONFORMANCE.md](docs/CONFORMANCE.md). None is pending; the fixtures under `budget/` pin the budget
-of version 0.1 and the `finished` event, `effect/` the effect option and the `unknown` outcome, and `stream/` the live stream.
+of version 0.1 and the `finished` event, `effect/` the effect option and the `unknown` outcome, `stream/` the live stream, and
+`ground/` the trail layer ([decision 0012](docs/decisions/0012-the-ground.md): deposits, ageing, the seeded draw).
 
 #### A second engine, in Python
 
@@ -365,7 +370,7 @@ What it passed, what the specification left open and where the two engines diffe
 [`rust-engine/`](rust-engine/) is the engine the fixtures were asking for: written from [SPEC](docs/SPEC.md), [CONFORMANCE](docs/CONFORMANCE.md), the network schema and the fixtures alone (the TypeScript engine was used as a black box), in Rust with the standard library only (a one-package `Cargo.lock`, nothing fetched). It is the only engine so far that runs a real network end to end: the process layer (level 0 `run`, level 1 `serve`, pings, restart backoff, SIGTERM then SIGKILL after the kill grace with the 6.3 notes), real `http` neurons (`https` is refused honestly — no TLS in a std-only crate), `human` neurons answered on the desk of Appendix D ([decision 0008](docs/decisions/0008-human-neurons-on-a-page.md)), budgets, effects and the live stream. It carries the family's MCP surface: `neuron-engine mcp` speaks JSON-RPC 2.0 over stdio with `check_network`, `describe_network` (the shape of a network file tree, composed networks inside, for drawing it before any traffic), `run_network`, `start_run`/`poll_run` (a run as a job, with live `run://{id}` resources and notifications) and `read_trace`, and serves SPEC, CONFORMANCE, TRACE and the schema as embedded `spec://` resources. `conform`, the fixtures and human networks are deliberately unexposed there: the desk is the person's surface, not an MCP surface. Every trace it writes declares its ids scheme in the header (`{"signal":"run-numbered","trace":"run-numbered"}` — ids are opaque strings, compared, never parsed, per [TRACE.md](docs/TRACE.md)).
 
 ```sh
-cargo test --manifest-path rust-engine/Cargo.toml                            # 80 tests, 0 failed
+cargo test --manifest-path rust-engine/Cargo.toml                            # 92 tests, 0 failed
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures    # 224 passed, 0 failed, 0 pending
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes        # 10 passed, 0 failed, 0 pending
 cargo run --manifest-path rust-engine/Cargo.toml -- mcp                      # the MCP server on stdio
@@ -464,13 +469,18 @@ All of these are up for debate; experiments should inform them.
 The first example works: shell, HTTP and human adapters, neurons with
 bidirectional links, and a network that broadcasts or targets signals
 (`src/`). A send that does not wait for answers (`emit`) can replace older work from
-the same sender, and adapters stop when it is dropped. A neuron can wait for a `threshold` of distinct senders on one trace (`npm run demo:suggest`); its running call is cut when any input it acted on is replaced. An alert storm demo (`npm run demo:alerts`) puts threshold, stale-work dropping, wrapped scripts and a composed diagnosis neuron together. Link strength,
-rewiring, ignore conditions, limits other than `maxHops`, and passive/active channels are not
+the same sender, and adapters stop when it is dropped. A neuron can wait for a `threshold` of distinct senders on one trace (`npm run demo:suggest`); its running call is cut when any input it acted on is replaced. An alert storm demo (`npm run demo:alerts`) puts threshold, stale-work dropping, wrapped scripts and a composed diagnosis neuron together. The trail layer
+(`ground`, [decision 0012](docs/decisions/0012-the-ground.md)) is built; carry-over between runs, rewiring, ignore conditions, limits other than `maxHops`, and passive/active channels are not
 built yet. Every signal carries a `trace` shared by everything it leads to;
 answers record the signal they answer (`replyTo`), and `send` and `emit` take
 an optional `cause` to continue a trace. Nothing passes answers on by itself,
 and the network keeps no store of past signals. Listeners for `emit` work (`onSignal`, `onError`, `onDrop`) are
-called safely: if one throws, the error is swallowed. A small Rust program also runs as a neuron through the shell adapter (`npm run demo:rust`), showing the wrapper is not tied to one language. A local page draws any of three demos live as they run (`npm run view`). The team demo (`npm run demo:team`) runs the same engine's desk as a shared decision surface for three people over real git branches, the merge among them an effect — the multiplayer protocol pieces around it (grants at the desk's POST, durable holds, presence, quiescence) are [issue #30](https://github.com/overfocus/agent-neuron/issues/30)'s SPEC gaps, positioned in [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md). Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md).
+called safely: if one throws, the error is swallowed. A small Rust program also runs as a neuron through the shell adapter (`npm run demo:rust`), showing the wrapper is not tied to one language. A local page draws any of three demos live as they run (`npm run view`). The team demo (`npm run demo:team`) runs the same engine's desk as a shared decision surface for three people over real git branches, the merge among them an effect — the multiplayer protocol pieces around it (grants at the desk's POST, durable holds, presence, quiescence) are [issue #30](https://github.com/overfocus/agent-neuron/issues/30)'s SPEC gaps, positioned in [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md). Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md). The decision-surface demos
+series — `quorum`, `backlog`, `spend`, `refunds`, `oncall` and `colony` ([decision 0012](docs/decisions/0012-the-ground.md)'s
+first user: the ants' returns routed by the engine's ground) — lives in
+[agent-neuron-demos](https://github.com/overfocus/agent-neuron-demos), watched in 3D by
+[agent-neuron-viz](https://github.com/overfocus/agent-neuron-viz), and rendered from
+their own recorded runs as social videos in that repo's `video/`.
 
 ## Run the first example
 
