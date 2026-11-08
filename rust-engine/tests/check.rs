@@ -507,3 +507,65 @@ fn check_takes_at_on_every_neuron() {
     let diags = check::tree(path.to_string_lossy().as_ref());
     assert!(err_lines(&diags).is_empty(), "{}", err_lines(&diags).join("\n"));
 }
+
+/// The refusals of a bad `ground` (decision 0012 item 5): one fixture per
+/// refusal, the message the rule's own.
+#[test]
+fn check_refusals_of_the_ground() {
+    for (fixture, want) in [
+        ("ground/refuses-a-ground-that-is-not-an-object", "ground is not an object"),
+        ("ground/refuses-an-unknown-field-in-ground", "ground: unknown field 'salt'"),
+        ("ground/refuses-a-deposit-without-on", "ground: the deposit needs 'on'"),
+        ("ground/refuses-a-deposit-without-add", "ground: the deposit needs 'add'"),
+        (
+            "ground/refuses-a-deposit-by-that-names-an-unknown-neuron",
+            "ground: deposit.by names 'ghost', which is not a neuron of the file",
+        ),
+        ("ground/refuses-a-negative-base", "ground: base is at least 0"),
+        ("ground/refuses-a-negative-evaporate", "ground: evaporate is at least 0"),
+        ("ground/refuses-a-power-of-zero", "ground: power is a number above 0"),
+        ("ground/refuses-a-negative-seed", "ground: seed is an integer at least 0"),
+        (
+            "ground/refuses-a-seed-that-is-not-an-integer",
+            "ground: seed is an integer at least 0",
+        ),
+    ] {
+        let path = fixture_network(fixture);
+        let diags = check::tree(path.to_string_lossy().as_ref());
+        let errs = err_lines(&diags);
+        assert!(errs.iter().any(|e| e.contains(want)), "{}: {}", fixture, errs.join("\n"));
+    }
+}
+
+/// A ground in a composed file is refused (4.5): the error is the inner
+/// file's, under its own name; the outer file checks clean.
+#[test]
+fn check_refusal_a_ground_inside_a_composed_file() {
+    let path = fixture_network("ground/refuses-a-ground-inside-a-composed-file");
+    let diags = check::tree(path.to_string_lossy().as_ref());
+    let errs = err_lines(&diags);
+    assert!(
+        errs.iter().any(|e| e.contains("a composed file declares a ground (4.5)")),
+        "{}",
+        errs.join("\n")
+    );
+    let inner: Vec<&rust_engine::net::Diag> = diags.iter().filter(|d| d.error && d.message.contains("composed file")).collect();
+    assert!(inner
+        .iter()
+        .all(|d| d.file.as_deref().unwrap_or("").ends_with("inner.network.json")));
+}
+
+/// A valid ground checks clean with warnings only (the stand-in executables
+/// of the fixture's own two run neurons), and nothing is refused.
+#[test]
+fn check_takes_a_valid_ground() {
+    for fixture in [
+        "ground/deposit-writes-one-place",
+        "ground/select-draw-follows-the-seed",
+        "ground/no-ground-old-rule",
+    ] {
+        let path = fixture_network(fixture);
+        let diags = check::tree(path.to_string_lossy().as_ref());
+        assert!(err_lines(&diags).is_empty(), "{}: {}", fixture, err_lines(&diags).join("\n"));
+    }
+}
