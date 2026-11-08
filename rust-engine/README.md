@@ -100,7 +100,7 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 78: mcp 15, real 28, check 11, desk 12, http 11, unit 2
+cargo test                                          # 80: mcp 17, real 27, check 11, desk 12, http 11, unit 2
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 201, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
@@ -228,7 +228,7 @@ surface.
   `-32601`, bad params on the wire `-32600`/`-32602`. Tool failures that are
   the subject's fault — a check that found errors, a refused run, a timed-out
   one — are RESULTS with `isError: true`, not wire errors.
-- `tools/list` carries five tools, each with its description and a closed
+- `tools/list` carries six tools (five at M3; `describe_network` came after), each with its description and a closed
   JSON-schema `inputSchema` (`required` marked, `additionalProperties`:
   false); the schemas are built, not guessed — an unknown field of the
   arguments is refused as the schema promised. `tools/call` answers
@@ -240,6 +240,21 @@ surface.
   server's working directory: `{ok, errors, warnings}`, each diagnostic with
   its file, line, column and message. A check with errors is `isError` too:
   the subject is the thing at fault.
+- `describe_network {file}` — the shape of a network file tree, for a
+  client that draws the network before any traffic: the file is checked
+  first (the `check_network` surface: a tree with errors is `isError` with
+  `{ok: false, errors, warnings}`), then `{ok: true, warnings, network}`
+  where `network` is `{file, name, description, entry?, exit?, budget?,
+  neurons, links}` — `file` the name as the caller or the declaring file
+  wrote it (never a resolved path), every neuron in the v1 trace's own shape
+  (TRACE.md "neurons", built by the one function the trace writer uses) and
+  every link. A composed neuron carries its inner file the same way under
+  `network`, resolved against its declaring file's directory as the runner
+  resolves it; a file already open further up the tree is marked
+  `{file, cycle: true}` instead of described again (`check` passes a
+  composed file that composes itself, so the description has to end the loop
+  itself). Static only: a run's events never name inner neurons (TRACE.md:
+  a composed neuron is one neuron).
 - `run_network {file, inputs, timeout_ms? = 60000, cap 600000,
   keep_trace? = false}` — a synchronous run through the engine's real route:
   `{status: "done"|"refused"|"failed", answers, summary, events}` where the

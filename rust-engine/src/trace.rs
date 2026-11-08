@@ -41,8 +41,49 @@ fn kind_of(k: &Kind) -> &'static str {
     }
 }
 
-fn units_value(units: &crate::fixture::Units) -> Value {
+/// Units to whole-number amounts, as a trace writes a budget or a cost.
+pub fn units_value(units: &crate::fixture::Units) -> Value {
     Value::Obj(units.iter().map(|(u, amt)| (u.clone(), Value::Int(*amt))).collect())
+}
+
+/// One neuron as a v1 trace declares it (TRACE.md "neurons"): `id`, `kind`,
+/// a `description` that is never empty (the file's own words, or `<kind>
+/// neuron`, SPEC 7.1), `options` when set and `cost` when declared. The
+/// trace and the MCP `describe_network` tool share it, so the two never
+/// describe one neuron two ways.
+pub fn neuron_value(n: &crate::net::Node) -> Value {
+    let kind = kind_of(&n.kind);
+    let mut o = Obj::new().str("id", n.id.clone()).str("kind", kind);
+    let desc = if n.desc.is_empty() {
+        format!("<{}> neuron", kind)
+    } else {
+        n.desc.clone()
+    };
+    o = o.str("description", desc);
+    let mut options = Obj::new();
+    if let Some(t) = n.opts.threshold {
+        options = options.int("threshold", t as i64);
+    }
+    if let Some(w) = n.opts.within {
+        options = options.int("within", w as i64);
+    }
+    if let Some(m) = n.opts.max_hops {
+        options = options.int("maxHops", m as i64);
+    }
+    if let Value::Obj(entries) = options.build() {
+        if !entries.is_empty() {
+            o = o.set("options", Value::Obj(entries));
+        }
+    }
+    if let Some(cost) = &n.opts.cost {
+        o = o.set("cost", units_value(cost));
+    }
+    o.build()
+}
+
+/// One link as a v1 trace declares it: `from`, `to`.
+pub fn link_value(l: &crate::net::Link) -> Value {
+    Obj::new().str("from", l.from.clone()).str("to", l.to.clone()).build()
 }
 
 /// The trace file, per format v1 (docs/TRACE.md) and SPEC 7.1: the header
@@ -73,42 +114,15 @@ pub fn build(net: &Network, demo_fallback: &str, events: &[Value]) -> String {
     // words, or `<kind> neuron` (SPEC 7.1).
     let mut neurons = String::from("  \"neurons\": [\n");
     for (i, n) in net.nodes.iter().enumerate() {
-        let kind = kind_of(&n.kind);
-        let mut o = Obj::new().str("id", n.id.clone()).str("kind", kind);
-        let desc = if n.desc.is_empty() {
-            format!("<{}> neuron", kind)
-        } else {
-            n.desc.clone()
-        };
-        o = o.str("description", desc);
-        let mut options = Obj::new();
-        if let Some(t) = n.opts.threshold {
-            options = options.int("threshold", t as i64);
-        }
-        if let Some(w) = n.opts.within {
-            options = options.int("within", w as i64);
-        }
-        if let Some(m) = n.opts.max_hops {
-            options = options.int("maxHops", m as i64);
-        }
-        if let Value::Obj(entries) = options.build() {
-            if !entries.is_empty() {
-                o = o.set("options", Value::Obj(entries));
-            }
-        }
-        if let Some(cost) = &n.opts.cost {
-            o = o.set("cost", units_value(cost));
-        }
         let comma = if i + 1 < net.nodes.len() { "," } else { "" };
-        neurons.push_str(&format!("    {}{}\n", write(&o.build()), comma));
+        neurons.push_str(&format!("    {}{}\n", write(&neuron_value(n)), comma));
     }
     neurons.push_str("  ]");
     lines.push(neurons);
     let mut links = String::from("  \"links\": [\n");
     for (i, l) in net.links.iter().enumerate() {
-        let o = Obj::new().str("from", l.from.clone()).str("to", l.to.clone()).build();
         let comma = if i + 1 < net.links.len() { "," } else { "" };
-        links.push_str(&format!("    {}{}\n", write(&o), comma));
+        links.push_str(&format!("    {}{}\n", write(&link_value(l)), comma));
     }
     links.push_str("  ]");
     lines.push(links);

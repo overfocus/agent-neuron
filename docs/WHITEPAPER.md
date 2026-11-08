@@ -272,7 +272,7 @@ plus 78 Rust tests on its own gates and 256 vitest tests on the merged tree, rer
 the 6.3 notes), real `http` neurons (`https` refused honestly: no TLS in a std-only crate), `human`
 neurons answered on the desk of Appendix D (decision 0008), budgets, effects, the live stream and
 traces. It is also the family's MCP surface: `neuron-engine mcp` speaks JSON-RPC 2.0 over stdio
-(`check_network`, `run_network`, `start_run`/`poll_run` as a job with live `run://{id}` resources and
+(`check_network`, `describe_network`, `run_network`, `start_run`/`poll_run` as a job with live `run://{id}` resources and
 notifications, `read_trace`), serves SPEC, CONFORMANCE, TRACE and the schema as embedded `spec://`
 resources, and deliberately exposes neither the fixtures nor `human` networks — the desk is the person's
 surface, not an MCP surface. Every trace it writes declares its ids scheme in the header

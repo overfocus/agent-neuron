@@ -280,6 +280,10 @@ fn check_call(file: &str) -> String {
     format!(r#"{{"jsonrpc":"2.0","id":"ID","method":"tools/call","params":{{"name":"check_network","arguments":{{"file":"{file}"}}}}}}"#)
 }
 
+fn describe_call(file: &str) -> String {
+    format!(r#"{{"jsonrpc":"2.0","id":"ID","method":"tools/call","params":{{"name":"describe_network","arguments":{{"file":"{file}"}}}}}}"#)
+}
+
 fn read_trace_call(path: &str) -> String {
     format!(r#"{{"jsonrpc":"2.0","id":"ID","method":"tools/call","params":{{"name":"read_trace","arguments":{{"path":"{path}"}}}}}}"#)
 }
@@ -376,7 +380,7 @@ fn a_malformed_line_is_a_parse_error_and_the_server_stays_up() {
 }
 
 #[test]
-fn tools_list_the_five_tools() {
+fn tools_list_the_six_tools() {
     let mut c = Client::start();
     handshake(&mut c);
     let reply = c.rpc(2, r#"{"jsonrpc":"2.0","id":"ID","method":"tools/list"}"#);
@@ -385,7 +389,14 @@ fn tools_list_the_five_tools() {
     let names: Vec<&str> = tools.iter().filter_map(|t| t.get("name").and_then(|n| n.as_str())).collect();
     assert_eq!(
         names,
-        vec!["check_network", "run_network", "start_run", "poll_run", "read_trace"],
+        vec![
+            "check_network",
+            "describe_network",
+            "run_network",
+            "start_run",
+            "poll_run",
+            "read_trace"
+        ],
         "{}",
         json::write(&result)
     );
@@ -587,6 +598,104 @@ fn check_network_reports_the_check_surfaces_findings() {
     let (body, is_error) = c.tool_body(&reply);
     assert!(is_error);
     assert!(body.get("error").and_then(|e| e.as_str()).is_some_and(|e| e.contains("'file'")));
+}
+
+#[test]
+fn describe_network_gives_the_shape_with_composed_networks_inside() {
+    let mut c = Client::start();
+    handshake(&mut c);
+    let file = format!("{}/alerts.network.json", spec_examples());
+    let reply = c.rpc(2, &describe_call(&file));
+    let (body, is_error) = c.tool_body(&reply);
+    assert!(!is_error, "{}", json::write(&body));
+    assert_eq!(body.get("ok").and_then(|b| b.as_bool()), Some(true));
+    let net = body.get("network").expect("network");
+    assert_eq!(net.get("file").and_then(|f| f.as_str()), Some(file.as_str()));
+    assert_eq!(net.get("name").and_then(|n| n.as_str()), Some("alerts"));
+    let neurons = net.get("neurons").and_then(|n| n.as_arr()).expect("neurons").to_vec();
+    let ids: Vec<&str> = neurons.iter().filter_map(|n| n.get("id").and_then(|i| i.as_str())).collect();
+    assert_eq!(ids, vec!["alerts", "logs", "deploys", "metrics", "hypothesis", "diagnosis"]);
+    // The trace's own neuron shape: kind words of SPEC 7.1, options when set.
+    let kind = |id: &str| {
+        neurons
+            .iter()
+            .find(|n| n.get("id").and_then(|i| i.as_str()) == Some(id))
+            .expect("the neuron")
+            .clone()
+    };
+    assert_eq!(kind("alerts").get("kind").and_then(|k| k.as_str()), Some("source"));
+    let hyp = kind("hypothesis");
+    assert_eq!(
+        hyp.get("options").and_then(|o| o.get("threshold")).and_then(|t| t.as_i64()),
+        Some(2)
+    );
+    assert_eq!(net.get("links").and_then(|l| l.as_arr()).map(|l| l.len()), Some(7));
+    // The composed neuron carries its inner network, named as the file names it.
+    let diag = kind("diagnosis");
+    assert_eq!(diag.get("kind").and_then(|k| k.as_str()), Some("composed"));
+    let inner = diag.get("network").expect("the inner network");
+    assert_eq!(inner.get("file").and_then(|f| f.as_str()), Some("diagnosis.network.json"));
+    assert_eq!(inner.get("entry").and_then(|e| e.as_str()), Some("topology"));
+    assert_eq!(inner.get("exit").and_then(|e| e.as_str()), Some("check"));
+    assert_eq!(inner.get("neurons").and_then(|n| n.as_arr()).map(|n| n.len()), Some(2));
+}
+
+#[test]
+fn describe_network_refuses_what_does_not_check_and_ends_a_loop() {
+    let mut c = Client::start();
+    handshake(&mut c);
+    let temp = Temp::new("describe");
+    // A file with errors: the check's diagnostics, and the tool's error.
+    let bad = temp.write("bad.json", &bad_network("bad"));
+    let reply = c.rpc(2, &describe_call(&bad));
+    let (body, is_error) = c.tool_body(&reply);
+    assert!(is_error);
+    assert_eq!(body.get("ok").and_then(|b| b.as_bool()), Some(false));
+    assert!(!body.get("errors").and_then(|e| e.as_arr()).expect("errors").is_empty());
+    assert!(body.get("network").is_none());
+    // A composed file that composes itself checks clean; the description
+    // ends at the loop and marks it rather than recursing.
+    let top = temp.write(
+        "top.json",
+        r#"{"version":0,"name":"top","description":"t","neurons":[{"id":"src","description":"in","source":true},{"id":"c","description":"c","network":"loop.json"}],"links":[{"from":"src","to":"c"}]}"#,
+    );
+    temp.write(
+        "loop.json",
+        r#"{"version":0,"name":"loop","description":"l","entry":"x","exit":"y","neurons":[{"id":"x","description":"x","network":"loop.json"},{"id":"y","description":"y","run":["cat"]}],"links":[{"from":"x","to":"y"}]}"#,
+    );
+    let reply = c.rpc(3, &describe_call(&top));
+    let (body, is_error) = c.tool_body(&reply);
+    assert!(!is_error, "{}", json::write(&body));
+    let inner = body
+        .get("network")
+        .and_then(|n| n.get("neurons"))
+        .and_then(|n| n.as_arr())
+        .and_then(|n| n.get(1))
+        .and_then(|n| n.get("network"))
+        .expect("the composed file")
+        .clone();
+    assert_eq!(inner.get("name").and_then(|n| n.as_str()), Some("loop"));
+    let again = inner
+        .get("neurons")
+        .and_then(|n| n.as_arr())
+        .and_then(|n| n.first())
+        .and_then(|n| n.get("network"))
+        .expect("the loop's mark")
+        .clone();
+    assert_eq!(again.get("cycle").and_then(|b| b.as_bool()), Some(true));
+    assert_eq!(again.get("file").and_then(|f| f.as_str()), Some("loop.json"));
+    assert!(again.get("neurons").is_none());
+    // A field the schema does not hold is refused, with the tool's name.
+    let reply = c.rpc(
+        4,
+        r#"{"jsonrpc":"2.0","id":"ID","method":"tools/call","params":{"name":"describe_network","arguments":{"file":"x","deep":true}}}"#,
+    );
+    let (body, is_error) = c.tool_body(&reply);
+    assert!(is_error);
+    assert!(body
+        .get("error")
+        .and_then(|e| e.as_str())
+        .is_some_and(|e| e.contains("describe_network")));
 }
 
 #[test]
