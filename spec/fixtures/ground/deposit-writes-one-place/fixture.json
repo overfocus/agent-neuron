@@ -1,0 +1,13 @@
+{
+  "fixture": 0,
+  "description": "A deposit writes one place: the ground event carries the place, the stored value after the write and the depositing answer's id, right after the answer's event and before the forward.",
+  "inputs": [{"at":0,"source":"s","payload":{"place":"b","amount":5}}],
+  "script": {"r": {"calls":[{"reply":{"answer":{"place":"b","amount":5}}}]}, "b": {"calls":[{"reply":{"quiet":true}}]}},
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["r"],"trace":"#1","hops":0,"payload":{"type":"json","data":{"place":"b","amount":5}}},
+    {"type":"answer","t":0,"id":"#2","from":"r","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"place":"b","amount":5}}},
+    {"type":"ground","t":0,"place":"b","v":5,"cause":"#2"},
+    {"type":"signal","t":0,"id":"#3","from":"r","to":["b"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":{"place":"b","amount":5}}},
+    {"type":"quiet","t":0,"id":"#4","from":"b","to":["r"],"trace":"#1","replyTo":"#3","hops":3}
+  ]
+}

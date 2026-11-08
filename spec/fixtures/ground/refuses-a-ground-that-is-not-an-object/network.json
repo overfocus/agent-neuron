@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "refuses-a-ground-that-is-not-an-object",
+  "description": "`ground` is an object (SPEC 4.5): a string is refused by the schema, so the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "r",
+      "run": [
+        "neuron-r"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "r"
+    }
+  ],
+  "ground": "trail"
+}

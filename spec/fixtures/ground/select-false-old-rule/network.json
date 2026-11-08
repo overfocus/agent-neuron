@@ -1,0 +1,59 @@
+{
+  "version": 0,
+  "name": "select-false-old-rule",
+  "description": "Ground without select keeps the v0.1 rule (SPEC 4.5).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "r",
+      "run": [
+        "neuron-r"
+      ]
+    },
+    {
+      "id": "b1",
+      "run": [
+        "neuron-b1"
+      ]
+    },
+    {
+      "id": "b2",
+      "run": [
+        "neuron-b2"
+      ]
+    },
+    {
+      "id": "b3",
+      "run": [
+        "neuron-b3"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "r"
+    },
+    {
+      "from": "r",
+      "to": "b1"
+    },
+    {
+      "from": "r",
+      "to": "b2"
+    },
+    {
+      "from": "r",
+      "to": "b3"
+    }
+  ],
+  "ground": {
+    "deposit": {
+      "on": "place",
+      "add": "amount"
+    }
+  }
+}

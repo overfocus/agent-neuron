@@ -1,0 +1,32 @@
+{
+  "fixture": 0,
+  "description": "Weights are max(0, base + value) aged to the reply's instant, and a reply's own deposit counts in its own draw: b2 (+3 at t 0) draws itself; b1 marked -8 is clamped at 0 and never drawn; a reply without the fields deposits nothing; and the fifth draw (base 0, after +5 at b3) takes b3 over the decayed b2.",
+  "inputs": [{"at":0,"source":"s","payload":{"place":"b2","amount":3}}, {"at":100,"source":"s","payload":{"place":"b1","amount":-8}}, {"at":600,"source":"s","payload":"poke"}, {"at":800,"source":"s","payload":{"place":"b1","amount":1}}, {"at":900,"source":"s","payload":{"place":"b3","amount":5}}],
+  "script": {"r": {"calls":[{"when":{"place":"b2","amount":3},"reply":{"answer":{"place":"b2","amount":3}}},{"when":{"place":"b1","amount":-8},"reply":{"answer":{"place":"b1","amount":-8}}},{"when":"poke","reply":{"answer":"poke"}},{"when":{"place":"b1","amount":1},"reply":{"answer":{"place":"b1","amount":1}}},{"when":{"place":"b3","amount":5},"reply":{"answer":{"place":"b3","amount":5}}}]}, "b2": {"calls":[{"when":{"place":"b2","amount":3},"reply":{"quiet":true}},{"when":{"place":"b1","amount":-8},"reply":{"quiet":true}},{"when":"poke","reply":{"quiet":true}},{"when":{"place":"b1","amount":1},"reply":{"quiet":true}}]}, "b3": {"calls":[{"when":{"place":"b3","amount":5},"reply":{"quiet":true}}]}},
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["r"],"trace":"#1","hops":0,"payload":{"type":"json","data":{"place":"b2","amount":3}}},
+    {"type":"answer","t":0,"id":"#2","from":"r","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"place":"b2","amount":3}}},
+    {"type":"ground","t":0,"place":"b2","v":3,"cause":"#2"},
+    {"type":"signal","t":0,"id":"#3","from":"r","to":["b2"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":{"place":"b2","amount":3}}},
+    {"type":"quiet","t":0,"id":"#4","from":"b2","to":["r"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"signal","t":100,"id":"#5","from":"s","to":["r"],"trace":"#5","hops":0,"payload":{"type":"json","data":{"place":"b1","amount":-8}}},
+    {"type":"answer","t":100,"id":"#6","from":"r","to":["s"],"trace":"#5","replyTo":"#5","hops":1,"payload":{"type":"json","data":{"place":"b1","amount":-8}}},
+    {"type":"ground","t":100,"place":"b1","v":-8,"cause":"#6"},
+    {"type":"signal","t":100,"id":"#7","from":"r","to":["b2"],"trace":"#5","cause":"#6","hops":2,"payload":{"type":"json","data":{"place":"b1","amount":-8}}},
+    {"type":"quiet","t":100,"id":"#8","from":"b2","to":["r"],"trace":"#5","replyTo":"#7","hops":3},
+    {"type":"signal","t":600,"id":"#9","from":"s","to":["r"],"trace":"#9","hops":0,"payload":{"type":"text","text":"poke"}},
+    {"type":"answer","t":600,"id":"#10","from":"r","to":["s"],"trace":"#9","replyTo":"#9","hops":1,"payload":{"type":"text","text":"poke"}},
+    {"type":"signal","t":600,"id":"#11","from":"r","to":["b2"],"trace":"#9","cause":"#10","hops":2,"payload":{"type":"text","text":"poke"}},
+    {"type":"quiet","t":600,"id":"#12","from":"b2","to":["r"],"trace":"#9","replyTo":"#11","hops":3},
+    {"type":"signal","t":800,"id":"#13","from":"s","to":["r"],"trace":"#13","hops":0,"payload":{"type":"json","data":{"place":"b1","amount":1}}},
+    {"type":"answer","t":800,"id":"#14","from":"r","to":["s"],"trace":"#13","replyTo":"#13","hops":1,"payload":{"type":"json","data":{"place":"b1","amount":1}}},
+    {"type":"ground","t":800,"place":"b1","v":-4.6375047177497075,"cause":"#14"},
+    {"type":"signal","t":800,"id":"#15","from":"r","to":["b2"],"trace":"#13","cause":"#14","hops":2,"payload":{"type":"json","data":{"place":"b1","amount":1}}},
+    {"type":"quiet","t":800,"id":"#16","from":"b2","to":["r"],"trace":"#13","replyTo":"#15","hops":3},
+    {"type":"signal","t":900,"id":"#17","from":"s","to":["r"],"trace":"#17","hops":0,"payload":{"type":"json","data":{"place":"b3","amount":5}}},
+    {"type":"answer","t":900,"id":"#18","from":"r","to":["s"],"trace":"#17","replyTo":"#17","hops":1,"payload":{"type":"json","data":{"place":"b3","amount":5}}},
+    {"type":"ground","t":900,"place":"b3","v":5,"cause":"#18"},
+    {"type":"signal","t":900,"id":"#19","from":"r","to":["b3"],"trace":"#17","cause":"#18","hops":2,"payload":{"type":"json","data":{"place":"b3","amount":5}}},
+    {"type":"quiet","t":900,"id":"#20","from":"b3","to":["r"],"trace":"#17","replyTo":"#19","hops":3}
+  ]
+}

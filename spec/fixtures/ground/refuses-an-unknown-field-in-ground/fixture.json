@@ -1,0 +1,8 @@
+{
+  "fixture": 0,
+  "description": "Unknown fields inside `ground` are refused by the schema (SPEC 4.5, decision 0012): the engine refuses to start.",
+  "refuses": true,
+  "inputs": [{"at":0,"source":"s","payload":1}],
+  "expect": [
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "A network without ground: an omitted-`to` reply forwards to all outgoing links, the v0.1 rule (SPEC 4.4); nothing draws, no ground event appears.",
+  "inputs": [{"at":0,"source":"s","payload":1}],
+  "script": {"r": {"calls":[{"reply":{"answer":1}}]}, "b1": {"calls":[{"reply":{"quiet":true}}]}, "b2": {"calls":[{"reply":{"quiet":true}}]}, "b3": {"calls":[{"reply":{"quiet":true}}]}},
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["r"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":0,"id":"#2","from":"r","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":1}},
+    {"type":"signal","t":0,"id":"#3","from":"r","to":["b1","b2","b3"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":1}},
+    {"type":"quiet","t":0,"id":"#4","from":"b1","to":["r"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"quiet","t":0,"id":"#5","from":"b2","to":["r"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"quiet","t":0,"id":"#6","from":"b3","to":["r"],"trace":"#1","replyTo":"#3","hops":3}
+  ]
+}

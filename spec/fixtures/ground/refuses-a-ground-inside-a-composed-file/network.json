@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "refuses-a-ground-inside-a-composed-file",
+  "description": "A network file used as a composed neuron may not declare a ground (SPEC 4.5, decision 0012): check refuses, so the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    }
+  ]
+}

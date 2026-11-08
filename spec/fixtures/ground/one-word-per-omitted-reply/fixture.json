@@ -1,0 +1,16 @@
+{
+  "fixture": 0,
+  "description": "Each omitted-`to` reply consumes exactly one word: with seed 8 the first reply draws u = 0.1563.. (c1) and the second u = 0.6252.. (c2); drawing twice per reply or never would land the second on c1 (the next word, 0.3007.., is back below 0.5).",
+  "inputs": [{"at":0,"source":"s","payload":21}, {"at":10,"source":"s","payload":22}],
+  "script": {"r": {"calls":[{"reply":{"answer":21}},{"reply":{"answer":22}}]}, "c1": {"calls":[{"when":21,"reply":{"quiet":true}}]}, "c2": {"calls":[{"when":22,"reply":{"quiet":true}}]}},
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["r"],"trace":"#1","hops":0,"payload":{"type":"json","data":21}},
+    {"type":"answer","t":0,"id":"#2","from":"r","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":21}},
+    {"type":"signal","t":0,"id":"#3","from":"r","to":["c1"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":21}},
+    {"type":"quiet","t":0,"id":"#4","from":"c1","to":["r"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"signal","t":10,"id":"#5","from":"s","to":["r"],"trace":"#5","hops":0,"payload":{"type":"json","data":22}},
+    {"type":"answer","t":10,"id":"#6","from":"r","to":["s"],"trace":"#5","replyTo":"#5","hops":1,"payload":{"type":"json","data":22}},
+    {"type":"signal","t":10,"id":"#7","from":"r","to":["c2"],"trace":"#5","cause":"#6","hops":2,"payload":{"type":"json","data":22}},
+    {"type":"quiet","t":10,"id":"#8","from":"c2","to":["r"],"trace":"#5","replyTo":"#7","hops":3}
+  ]
+}

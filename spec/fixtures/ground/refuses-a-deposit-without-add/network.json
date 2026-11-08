@@ -1,0 +1,28 @@
+{
+  "version": 0,
+  "name": "refuses-a-deposit-without-add",
+  "description": "A deposit names both payload fields, `on` and `add`; without `add` the schema refuses, so the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "r",
+      "run": [
+        "neuron-r"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "r"
+    }
+  ],
+  "ground": {
+    "deposit": {
+      "on": "place"
+    }
+  }
+}

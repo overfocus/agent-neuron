@@ -1,0 +1,27 @@
+{
+  "version": 0,
+  "name": "refuses-a-negative-seed",
+  "description": "A `seed` below 0 is refused by the schema (SPEC 4.5): the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "r",
+      "run": [
+        "neuron-r"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "r"
+    }
+  ],
+  "ground": {
+    "select": true,
+    "seed": -1
+  }
+}

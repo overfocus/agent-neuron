@@ -1,0 +1,16 @@
+{
+  "fixture": 0,
+  "description": "A reply naming `to` (a serve neuron) never draws: with seed 24 the later omitted-`to` reply still consumes word 1 (u = 0.3320.., which routes c2) — had the named reply drawn first, it would route c3 with u = 0.9638...",
+  "inputs": [{"at":0,"source":"s1","payload":{"kind":"named"}}, {"at":10,"source":"s2","payload":{"kind":"draw"}}],
+  "script": {"n1": {"calls":[{"when":{"kind":"named"},"reply":{"answer":{"kind":"named"},"to":["c1"]}}]}, "n2": {"calls":[{"when":{"kind":"draw"},"reply":{"answer":{"kind":"draw"}}}]}, "c1": {"calls":[{"when":{"kind":"named"},"reply":{"quiet":true}}]}, "c2": {"calls":[{"when":{"kind":"draw"},"reply":{"quiet":true}}]}},
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s1","to":["n1"],"trace":"#1","hops":0,"payload":{"type":"json","data":{"kind":"named"}}},
+    {"type":"answer","t":0,"id":"#2","from":"n1","to":["s1"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"kind":"named"}}},
+    {"type":"signal","t":0,"id":"#3","from":"n1","to":["c1"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":{"kind":"named"}}},
+    {"type":"quiet","t":0,"id":"#4","from":"c1","to":["n1"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"signal","t":10,"id":"#5","from":"s2","to":["n2"],"trace":"#5","hops":0,"payload":{"type":"json","data":{"kind":"draw"}}},
+    {"type":"answer","t":10,"id":"#6","from":"n2","to":["s2"],"trace":"#5","replyTo":"#5","hops":1,"payload":{"type":"json","data":{"kind":"draw"}}},
+    {"type":"signal","t":10,"id":"#7","from":"n2","to":["c2"],"trace":"#5","cause":"#6","hops":2,"payload":{"type":"json","data":{"kind":"draw"}}},
+    {"type":"quiet","t":10,"id":"#8","from":"c2","to":["n2"],"trace":"#5","replyTo":"#7","hops":3}
+  ]
+}

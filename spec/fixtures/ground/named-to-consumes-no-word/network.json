@@ -1,0 +1,71 @@
+{
+  "version": 0,
+  "name": "named-to-consumes-no-word",
+  "description": "A reply naming `to` consumes no word (SPEC 4.5).",
+  "neurons": [
+    {
+      "id": "s1",
+      "source": true
+    },
+    {
+      "id": "s2",
+      "source": true
+    },
+    {
+      "id": "n1",
+      "serve": [
+        "neuron-n1"
+      ]
+    },
+    {
+      "id": "n2",
+      "run": [
+        "neuron-n2"
+      ]
+    },
+    {
+      "id": "c1",
+      "run": [
+        "neuron-c1"
+      ]
+    },
+    {
+      "id": "c2",
+      "run": [
+        "neuron-c2"
+      ]
+    },
+    {
+      "id": "c3",
+      "run": [
+        "neuron-c3"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s1",
+      "to": "n1"
+    },
+    {
+      "from": "s2",
+      "to": "n2"
+    },
+    {
+      "from": "n1",
+      "to": "c1"
+    },
+    {
+      "from": "n2",
+      "to": "c2"
+    },
+    {
+      "from": "n2",
+      "to": "c3"
+    }
+  ],
+  "ground": {
+    "select": true,
+    "seed": 24
+  }
+}

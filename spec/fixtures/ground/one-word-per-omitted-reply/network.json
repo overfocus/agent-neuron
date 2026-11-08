@@ -1,0 +1,47 @@
+{
+  "version": 0,
+  "name": "one-word-per-omitted-reply",
+  "description": "One drawn word per omitted-`to` reply (SPEC 4.5).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "r",
+      "run": [
+        "neuron-r"
+      ]
+    },
+    {
+      "id": "c1",
+      "run": [
+        "neuron-c1"
+      ]
+    },
+    {
+      "id": "c2",
+      "run": [
+        "neuron-c2"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "r"
+    },
+    {
+      "from": "r",
+      "to": "c1"
+    },
+    {
+      "from": "r",
+      "to": "c2"
+    }
+  ],
+  "ground": {
+    "select": true,
+    "seed": 8
+  }
+}
