@@ -495,6 +495,8 @@ pub struct Engine {
     /// (decision 0008). The `run` route does (default); an MCP route does not:
     /// the desk is the person's surface, and such a route refuses at plant.
     wants_desk: bool,
+    /// The people at the desk (decision 0010), when the run names them.
+    grants: Option<crate::desk::Grants>,
 }
 
 impl Engine {
@@ -549,6 +551,7 @@ impl Engine {
             https: Vec::new(),
             deadline: None,
             wants_desk: true,
+            grants: None,
         }
     }
 
@@ -574,6 +577,12 @@ impl Engine {
     /// a whole run's budget to one call of it.
     pub fn set_deadline_ms(&mut self, ms: u64) {
         self.deadline = Some(host::clock_ms().saturating_add(ms));
+    }
+
+    /// The people the desk serves (decision 0010): their tokens, roles and
+    /// the human neurons each may answer. Set before the plant.
+    pub fn set_grants(&mut self, grants: crate::desk::Grants) {
+        self.grants = Some(grants);
     }
 
     /// No desk on this route: a network with `human` neurons is refused at
@@ -735,7 +744,7 @@ impl Engine {
             // the page "at the first question"; this engine opens it at the
             // plant; with no questions it closes again, unanswered.
             let post = self.host().post_handle();
-            match crate::desk::Desk::open(std::sync::Arc::new(move || post.post(host::Ev::Desk))) {
+            match crate::desk::Desk::open(std::sync::Arc::new(move || post.post(host::Ev::Desk)), self.grants.take()) {
                 Ok(desk) => self.desk = Some(desk),
                 Err(why) => {
                     self.refused = Some(format!("the desk for the network's human neurons could not be opened ({why})"));
@@ -2512,7 +2521,7 @@ impl Engine {
                     replaces: None,
                 }
             }
-            crate::desk::Kind::Edit => Outcome::Answer {
+            crate::desk::Kind::Edit | crate::desk::Kind::Choose => Outcome::Answer {
                 payload: PVal::Text(reply.text),
                 to: None,
                 replaces: None,
@@ -2535,6 +2544,11 @@ impl Engine {
     /// The desk's address line, for the run's stderr: `desk: <url>`.
     pub fn desk_line(&self) -> Option<String> {
         self.desk.as_ref().map(|d| format!("desk: {}", d.url()))
+    }
+
+    /// One line per person of the grants: `desk person: {id, name, roles, url}`.
+    pub fn desk_people_lines(&self) -> Vec<String> {
+        self.desk.as_ref().map(|d| d.people_lines()).unwrap_or_default()
     }
 
     // -- The reply step (SPEC 4.3, 4.4) -------------------------------------

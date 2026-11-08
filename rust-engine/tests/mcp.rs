@@ -664,10 +664,7 @@ fn describe_network_marks_effect_neurons() {
     };
     // `notify` is declared effect; the others carry no mark at all.
     assert_eq!(effect("notify"), Some(true));
-    let unmarked = neurons
-        .iter()
-        .filter(|n| n.get("effect").is_none())
-        .count();
+    let unmarked = neurons.iter().filter(|n| n.get("effect").is_none()).count();
     assert_eq!(unmarked, neurons.len() - 1);
 }
 

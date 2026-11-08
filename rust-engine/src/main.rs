@@ -1,5 +1,5 @@
 // The command line: `neuron-engine conform <dir> [--only <text>]` and
-// `neuron-engine run <file> --inputs <jsonl> [--trace <out.json>] [--stream
+// `neuron-engine run <file> --inputs <jsonl> [--trace <out.json>] [--grants <json>] [--stream
 // <path>] [--ping <ms>]`.
 //
 // `conform` is the contract of CONFORMANCE 8: one line per fixture, `pass`/
@@ -17,7 +17,7 @@ use std::path::Path;
 
 fn usage() -> ! {
     eprintln!("usage: neuron-engine conform <dir> [--only <text>]");
-    eprintln!("       neuron-engine run <file> --inputs <jsonl> [--trace <out.json>] [--stream <path>] [--ping <ms>]");
+    eprintln!("       neuron-engine run <file> --inputs <jsonl> [--trace <out.json>] [--stream <path>] [--ping <ms>] [--grants <json>]");
     eprintln!("       neuron-engine check <file>");
     eprintln!("       neuron-engine mcp");
     std::process::exit(2);
@@ -125,7 +125,7 @@ fn run(args: &[String]) {
     if flags
         .named
         .iter()
-        .any(|(n, _)| !matches!(n.as_str(), "inputs" | "trace" | "stream" | "ping"))
+        .any(|(n, _)| !matches!(n.as_str(), "inputs" | "trace" | "stream" | "ping" | "grants"))
     {
         usage();
     }
@@ -168,6 +168,7 @@ fn run(args: &[String]) {
     let opts = RunOpts {
         inputs: inputs.clone(),
         ping_every,
+        grants: get("grants"),
     };
     match run::run_with_stream(&file, &opts, sink) {
         Ok(result) => {

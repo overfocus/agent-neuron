@@ -1221,6 +1221,12 @@ interface to the engine.
   Other fields are not shown.
 - **Withdrawn.** A call cancelled by staleness (5.4), `timeout` or the end of the run takes its item down: the page
   says it is no longer waiting, and an answer to it is refused.
+- **A table of people (the reference engine, [decision 0010](decisions/0010-the-desk-at-a-table.md)).** A run may be
+  given grants: the people who may answer, each with their own address, the roles they hold and the human neurons
+  whose items they may answer; an ask's `answerable_by` field, a role or a list of roles, narrows an item further.
+  The page shows each person what waits on them and on the others, and the answers taken so far, with who gave them.
+  An input with an `options` array of `{id, label, text}` is shown as its title, notes and one button per option (not
+  as JSON); choosing one replies with its `text`, else its `id`. A one-line *why* may ride on any answer, for the record only: it is never sent.
 - **Nothing is fetched from elsewhere.** The page loads its fonts from its own origin and runs one inline script under
   a nonce; every value from an input is shown as text, never parsed as HTML.
 

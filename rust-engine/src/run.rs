@@ -26,6 +26,8 @@ pub struct RunResult {
 pub struct RunOpts {
     pub inputs: String,
     pub ping_every: u64,
+    /// A grants file for the desk (decision 0010): who may answer what.
+    pub grants: Option<String>,
 }
 
 /// The inputs file: JSONL entries `{ at, source, payload, replaces?, budget? }`
@@ -81,12 +83,26 @@ pub fn run_with_stream(file: &str, opts: &RunOpts, sink: Option<StreamSink>) -> 
         .map(std::path::Path::to_path_buf)
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     let mut eng = Engine::new_real(inputs, opts.ping_every);
+    if let Some(g) = &opts.grants {
+        let grants = crate::desk::Grants::load(g).map_err(|e| format!("cannot run: the grants {e}"))?;
+        let humans: Vec<String> = outer
+            .nodes
+            .iter()
+            .filter(|n| matches!(n.kind, crate::net::Kind::Human))
+            .map(|n| n.id.clone())
+            .collect();
+        grants.check_against(&humans).map_err(|e| format!("cannot run: {e}"))?;
+        eng.set_grants(grants);
+    }
     if let Err(e) = eng.plant(&outer, &files, Some(&base)) {
         return Err(format!("cannot run: {}", e));
     }
     // The desk's address (decision 0008, Appendix D): one page per run, its
     // token in the query, on the stderr lines (stdout carries the answers).
     if let Some(line) = eng.desk_line() {
+        eprintln!("{}", line);
+    }
+    for line in eng.desk_people_lines() {
         eprintln!("{}", line);
     }
     if let Some(sink) = sink {
