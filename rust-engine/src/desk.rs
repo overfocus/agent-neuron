@@ -585,6 +585,12 @@ pub(crate) fn approve_text_of(input: &Value) -> String {
 // token, and serve one of three routes (or refuse). One request per
 // connection; every response says `Connection: close`.
 fn serve(mut stream: TcpStream, shared: Arc<Shared>, wake: impl Fn() + Send + Sync) {
+    // The listener is non-blocking (its accept loop polls the closed flag),
+    // and on some platforms (macOS) an accepted socket inherits that: a read
+    // before the request has arrived would fail at once and drop the
+    // connection unanswered. Blocking, with the read timeout below, is what
+    // the request reader expects.
+    let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(REQUEST_TIMEOUT));
     let _ = stream.set_write_timeout(Some(REQUEST_TIMEOUT));
     let Some(req) = read_request(&mut stream) else {
