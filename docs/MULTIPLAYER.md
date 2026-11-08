@@ -67,7 +67,7 @@ neighbour of, the network file:
 | What must never happen without a person | `effect: true` — never cut, `unknown` on crash, never retried (decision 0007) | built |
 | How many must agree | `threshold` N-of-M distinct senders on one trace (SPEC 5) | built |
 | What the neuron may read | the file's `env`: the engine passes through, by name, only what the file names (SPEC section 0) — a spec doc the network chose to hand it, not whatever the agent globs | built |
-| Who decides | `answerable_by` on the item payload; the grants-on-the-desk spike carries it into the desk's POST validation | payload shape: built; enforcement: next |
+| Who decides | `answerable_by` on the item payload, checked at the desk's POST against the run's grants (decision 0010) | built |
 | How the work is judged | the guide and rules as data — timbre's proven pattern: the guide is a draft to correct, learning folds the person's edits back, reviewers score each answer against the guide, and keep-token invariants fail a rewrite before anyone approves | built, on prose; generalises to code review against the spec |
 | What supersedes what | `replaces`, `maxHops`, staleness — the amended rule cuts the old rule's running work (SPEC 5.4, 7.2) | built |
 
@@ -178,8 +178,9 @@ Cheap to expensive; 1–4 implement issue #30's items in this order, each
 keeping the boundary rule from the lenov analysis (2026-11-07): **MCP moves
 payloads; the page moves people; the desk moves answers.**
 
-1. **Grants on the desk.** Who may answer which item, from a grant list
-   (YAML today, the org's directory later), validated at the desk's POST;
+1. **Grants on the desk** *(built: decision 0010, `run --grants`)*. Who may
+   answer which item, from a grant list (a JSON file today, the org's
+   directory later), validated at the desk's POST;
    anyone outside gets a refusal the desk logs the way it logs the person's
    refusals on stderr today. The token stays the root; the org shape rides
    on it. No new identity system. *(issue #30 item 2)*
@@ -195,7 +196,8 @@ payloads; the page moves people; the desk moves answers.**
    approximation first (no open desk items, no pending wakes — the ids
    header makes two reads of one run agree which event is which), the Flow
    answer second. *(item 4)*
-5. **Decision kinds.** What #30 does not cover: choose-between-options and
+5. **Decision kinds** *(choose-between-options built: decision 0010)*. What
+   #30 does not cover: choose-between-options and
    delegate/escalate are payload and page surface first; parameter changes
    (budget, worker choice, timeout) want small protocol verbs with the same
    recording conventions. Keep the list closed — every new kind is a

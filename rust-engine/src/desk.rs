@@ -9,15 +9,25 @@
 // cap; a nonce CSP that fetches nothing anywhere but the page itself; every
 // value from an input rendered as text, never as HTML. The page runs one
 // inline script under the CSP's nonce.
+//
+// Grants (decision 0010): a run may name the people at the table, each with
+// their own token, the roles they hold and the human neurons whose items they
+// may answer. The desk checks every answer against them at the POST and logs
+// a refusal on stderr; the run's token stays the owner's and answers anything.
+// Who answered rides on the `desk answer:` line and in the shared record
+// `/state` serves; it never enters the network, which still gets the
+// person's text (3.4).
 use crate::json::{self, Value};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// A POST's JSON body cap: an edit's text is a paragraph, not a file.
 pub const ANSWER_BODY_CAP: usize = 32_768;
+/// A `why` line's cap: one line for the record, not an essay.
+pub const WHY_CAP: usize = 500;
 /// A request's head cap (request line and headers).
 const HEAD_CAP: usize = 8_192;
 /// How long a connection may sit without a request before it is dropped.
@@ -49,6 +59,9 @@ pub enum Kind {
     Approve,
     Edit,
     No,
+    /// One of the item's `options` (decision 0010): the reply is the
+    /// option's `text` (else its `id`), computed at the POST.
+    Choose,
 }
 
 /// What the engine registers when a human call starts (Appendix D: the
@@ -75,8 +88,186 @@ impl Kind {
             Kind::Approve => "approve",
             Kind::Edit => "edit",
             Kind::No => "no",
+            Kind::Choose => "choose",
         }
     }
+}
+
+// -- Grants (decision 0010) ---------------------------------------------------
+
+/// A person at the table: an id (on the answer lines and the record), a name
+/// (shown), the roles an item's `answerable_by` is matched against, and the
+/// human neurons whose items they may answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Person {
+    pub id: String,
+    pub name: String,
+    pub roles: Vec<String>,
+    pub answers: Vec<String>,
+}
+
+/// The grants file: `{"version": 0, "people": [{id, name?, roles?, answers}]}`,
+/// closed like the network file.
+#[derive(Debug, Clone, Default)]
+pub struct Grants {
+    pub people: Vec<Person>,
+}
+
+fn is_grant_id(s: &str) -> bool {
+    let mut cs = s.chars();
+    matches!(cs.next(), Some(c) if c.is_ascii_lowercase())
+        && s.len() <= 32
+        && cs.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+}
+
+impl Grants {
+    pub fn load(path: &str) -> Result<Grants, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: cannot read ({e})"))?;
+        Grants::parse(&text).map_err(|e| format!("{path}: {e}"))
+    }
+
+    pub fn parse(text: &str) -> Result<Grants, String> {
+        let v = json::parse(text).map_err(|e| format!("not JSON ({e})"))?;
+        if !v.is_obj() {
+            return Err("the grants are not an object".into());
+        }
+        for k in v.keys() {
+            if !matches!(k, "$schema" | "version" | "people") {
+                return Err(format!("the grants have a field '{k}' they do not know"));
+            }
+        }
+        if v.get("version").and_then(|n| n.as_i64()) != Some(0) {
+            return Err("the grants need \"version\": 0".into());
+        }
+        let people = v.get("people").and_then(|p| p.as_arr()).ok_or("the grants need a people array")?;
+        if people.is_empty() {
+            return Err("the grants name nobody".into());
+        }
+        let mut out: Vec<Person> = Vec::new();
+        for (i, p) in people.iter().enumerate() {
+            let at = format!("people[{i}]");
+            if !p.is_obj() {
+                return Err(format!("{at} is not an object"));
+            }
+            for k in p.keys() {
+                if !matches!(k, "id" | "name" | "roles" | "answers") {
+                    return Err(format!("{at} has a field '{k}' the grants do not know"));
+                }
+            }
+            let id = p.get("id").and_then(|x| x.as_str()).ok_or(format!("{at} has no id"))?;
+            if !is_grant_id(id) {
+                return Err(format!("{at}: the id '{id}' is not lowercase letters, digits, - or _ (at most 32)"));
+            }
+            if id == "owner" {
+                return Err(format!("{at}: 'owner' is the run's own token, not a person"));
+            }
+            if out.iter().any(|q| q.id == id) {
+                return Err(format!("{at}: the id '{id}' is there twice"));
+            }
+            let name = match p.get("name") {
+                None => id.to_string(),
+                Some(Value::Str(n)) if !n.trim().is_empty() && n.chars().count() <= 64 => n.clone(),
+                Some(_) => return Err(format!("{at}: the name is not a string of 1 to 64 characters")),
+            };
+            let strings = |key: &str| -> Result<Vec<String>, String> {
+                match p.get(key) {
+                    None => Ok(Vec::new()),
+                    Some(Value::Arr(xs)) => xs
+                        .iter()
+                        .map(|x| {
+                            x.as_str()
+                                .map(str::to_string)
+                                .ok_or(format!("{at}: {key} holds a value that is not a string"))
+                        })
+                        .collect(),
+                    Some(_) => Err(format!("{at}: {key} is not an array")),
+                }
+            };
+            let roles = strings("roles")?;
+            let answers = strings("answers")?;
+            if answers.is_empty() {
+                return Err(format!("{at}: '{id}' answers no neuron"));
+            }
+            out.push(Person {
+                id: id.to_string(),
+                name,
+                roles,
+                answers,
+            });
+        }
+        Ok(Grants { people: out })
+    }
+
+    /// Every neuron a grant names must be one of the run's human neurons.
+    pub fn check_against(&self, humans: &[String]) -> Result<(), String> {
+        for p in &self.people {
+            for n in &p.answers {
+                if !humans.contains(n) {
+                    return Err(format!(
+                        "the grants let '{}' answer '{}', which is not a human neuron of the network",
+                        p.id, n
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Person {
+    /// May this person answer an item of `neuron` whose ask is `payload`?
+    /// The neuron must be granted, and the payload's `answerable_by` (a
+    /// role, or a list of roles), when it has one, must name a role of theirs.
+    fn may_answer(&self, neuron: &str, payload: &Value) -> bool {
+        if !self.answers.iter().any(|n| n == neuron) {
+            return false;
+        }
+        match payload.get("answerable_by") {
+            None => true,
+            Some(Value::Str(r)) => self.roles.iter().any(|x| x == r),
+            Some(Value::Arr(rs)) => rs.iter().any(|r| r.as_str().is_some_and(|r| self.roles.iter().any(|x| x == r))),
+            Some(_) => false,
+        }
+    }
+
+    fn public(&self) -> Value {
+        json::Obj::new()
+            .str("id", &self.id)
+            .str("name", &self.name)
+            .set("roles", Value::Arr(self.roles.iter().map(|r| Value::Str(r.clone())).collect()))
+            .build()
+    }
+}
+
+/// Who a request speaks for: the run's owner (the `desk:` token) or one of
+/// the people the grants name (an index into them).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Who {
+    Owner,
+    Person(usize),
+}
+
+/// One accepted answer, as the shared record keeps it.
+struct Record {
+    item: String,
+    neuron: String,
+    kind: Kind,
+    text: String,
+    by: Option<String>,
+    option: Option<String>,
+    why: Option<String>,
+    ms: u64,
+}
+
+/// What an item's `options` say: `[{id, label?, text?}]`; the reply of a
+/// choice is `text` when it is a string, else the `id`.
+fn option_text(payload: &Value, option: &str) -> Option<String> {
+    let opts = payload.get("options")?.as_arr()?;
+    let o = opts.iter().find(|o| o.get("id").and_then(|i| i.as_str()) == Some(option))?;
+    Some(match o.get("text") {
+        Some(Value::Str(t)) => t.clone(),
+        _ => option.to_string(),
+    })
 }
 
 /// One answer the desk accepted and the engine has not settled yet.
@@ -112,6 +303,8 @@ struct Book {
     closed: bool,
     /// Accepted answers, waiting for the engine's settle.
     replies: Vec<Reply>,
+    /// Every accepted answer, in order: the shared record `/state` serves.
+    record: Vec<Record>,
 }
 
 impl Book {
@@ -147,11 +340,17 @@ impl Book {
         }
     }
 
-    fn state_json(&self) -> Value {
+    fn state_json(&self, who: Who, people: &[Person]) -> Value {
+        let granted = !people.is_empty();
         let items: Vec<Value> = self
             .items
             .iter()
             .map(|i| {
+                let can: Vec<&Person> = people.iter().filter(|p| p.may_answer(&i.neuron, &i.payload)).collect();
+                let yours = match who {
+                    Who::Owner => true,
+                    Who::Person(k) => people[k].may_answer(&i.neuron, &i.payload),
+                };
                 json::Obj::new()
                     .str("id", &i.id)
                     .str("neuron", &i.neuron)
@@ -163,12 +362,55 @@ impl Book {
                     .set("payload", i.payload.clone())
                     .int("t", i.t as i64)
                     .str("status", i.status.name())
+                    .set("yours", Value::Bool(yours))
+                    .set_if(
+                        "answerable_by",
+                        granted.then(|| Value::Arr(can.iter().map(|p| Value::Str(p.id.clone())).collect())),
+                    )
                     .build()
+            })
+            .collect();
+        let record: Vec<Value> = self
+            .record
+            .iter()
+            .map(|r| {
+                json::Obj::new()
+                    .str("item", &r.item)
+                    .str("neuron", &r.neuron)
+                    .str("kind", r.kind.name())
+                    .str("text", &r.text)
+                    .set_if("by", r.by.clone().map(Value::Str))
+                    .set_if("option", r.option.clone().map(Value::Str))
+                    .set_if("why", r.why.clone().map(Value::Str))
+                    .int("ms", r.ms as i64)
+                    .build()
+            })
+            .collect();
+        let me = match who {
+            Who::Owner => json::Obj::new().str("id", "owner").str("name", "owner").build(),
+            Who::Person(k) => people[k].public(),
+        };
+        let table: Vec<Value> = people
+            .iter()
+            .map(|p| {
+                let waiting = self
+                    .items
+                    .iter()
+                    .filter(|i| i.status == Status::Waiting && p.may_answer(&i.neuron, &i.payload))
+                    .count();
+                let mut v = p.public();
+                if let Value::Obj(ref mut e) = v {
+                    e.push(("waiting".into(), Value::Int(waiting as i64)));
+                }
+                v
             })
             .collect();
         json::Obj::new()
             .set("over", Value::Bool(self.over))
             .set("items", Value::Arr(items))
+            .set("record", Value::Arr(record))
+            .set_if("me", granted.then_some(me))
+            .set_if("people", granted.then_some(Value::Arr(table)))
             .build()
     }
 }
@@ -178,11 +420,38 @@ struct Shared {
     nonce: String,
     port: u16,
     book: Mutex<Book>,
+    /// The people of the grants, and each one's own token, in the same order.
+    people: Vec<Person>,
+    tokens: Vec<String>,
+    opened: Instant,
 }
 
 impl Shared {
     fn book(&self) -> MutexGuard<'_, Book> {
         self.book.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The token's owner, compared in constant time against every token
+    /// (the owner's and each person's), whichever matches.
+    fn who(&self, token: &str) -> Option<Who> {
+        let mut found = None;
+        if ct_eq(token.as_bytes(), self.token.as_bytes()) {
+            found = Some(Who::Owner);
+        }
+        for (k, t) in self.tokens.iter().enumerate() {
+            if ct_eq(token.as_bytes(), t.as_bytes()) && found.is_none() {
+                found = Some(Who::Person(k));
+            }
+        }
+        found
+    }
+
+    fn by(&self, who: Who) -> Option<String> {
+        match who {
+            Who::Owner if self.people.is_empty() => None,
+            Who::Owner => Some("owner".into()),
+            Who::Person(k) => Some(self.people[k].id.clone()),
+        }
     }
 }
 
@@ -197,18 +466,23 @@ pub struct Desk {
 impl Desk {
     /// Bind the listener on 127.0.0.1 and start its accept loop. `wake` runs
     /// when an answer is accepted, so the engine's pump wakes at once.
-    pub fn open(wake: Arc<dyn Fn() + Send + Sync>) -> Result<Desk, String> {
+    pub fn open(wake: Arc<dyn Fn() + Send + Sync>, grants: Option<Grants>) -> Result<Desk, String> {
         let listener = TcpListener::bind((IpAddr::from([127, 0, 0, 1]), 0)).map_err(|e| e.to_string())?;
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
         let _ = listener.set_nonblocking(true);
         let token = random_hex(16);
         let nonce = random_hex(16);
         let serving = listener;
+        let people = grants.map(|g| g.people).unwrap_or_default();
+        let tokens = people.iter().map(|_| random_hex(16)).collect();
         let shared = Arc::new(Shared {
             token: token.clone(),
             nonce: nonce.clone(),
             port,
             book: Mutex::new(Book::default()),
+            people,
+            tokens,
+            opened: Instant::now(),
         });
         let accept_book = shared.clone();
         let conn_book = shared.clone();
@@ -240,6 +514,23 @@ impl Desk {
     /// The page's address: `http://127.0.0.1:<port>/?token=<token>`.
     pub fn url(&self) -> &str {
         &self.url
+    }
+
+    /// One stderr line per person of the grants, with their own address:
+    /// `desk person: {"id", "name", "roles", "url"}`.
+    pub fn people_lines(&self) -> Vec<String> {
+        let s = &self.shared;
+        s.people
+            .iter()
+            .zip(&s.tokens)
+            .map(|(p, t)| {
+                let mut v = p.public();
+                if let Value::Obj(ref mut e) = v {
+                    e.push(("url".into(), Value::Str(format!("http://127.0.0.1:{}/?token={t}", s.port))));
+                }
+                format!("desk person: {}", json::write(&v))
+            })
+            .collect()
     }
 
     /// One question, asked in order (the ask order is the page's).
@@ -332,7 +623,7 @@ fn serve(mut stream: TcpStream, shared: Arc<Shared>, wake: impl Fn() + Send + Sy
             .query
             .iter()
             .find(|(k, _)| k == "token")
-            .is_some_and(|(_, v)| ct_eq(v.as_bytes(), shared.token.as_bytes()));
+            .is_some_and(|(_, v)| shared.who(v).is_some());
         if !ok {
             let _ = write_response(&mut stream, 403, PLAIN, "no page here\n");
             return;
@@ -351,14 +642,11 @@ fn serve(mut stream: TcpStream, shared: Arc<Shared>, wake: impl Fn() + Send + Sy
     }
     if method == "GET" && route == "/state" {
         // The page's poll: the token rides in a header.
-        let ok = req
-            .header("x-desk-token")
-            .is_some_and(|t| ct_eq(t.as_bytes(), shared.token.as_bytes()));
-        if !ok {
+        let Some(who) = req.header("x-desk-token").and_then(|t| shared.who(&t)) else {
             let _ = write_response(&mut stream, 401, PLAIN, "no state here\n");
             return;
-        }
-        let text = json::write(&shared.book().state_json());
+        };
+        let text = json::write(&shared.book().state_json(who, &shared.people));
         let head = [
             ("content-type", "application/json; charset=utf-8"),
             ("cache-control", "no-store"),
@@ -369,18 +657,67 @@ fn serve(mut stream: TcpStream, shared: Arc<Shared>, wake: impl Fn() + Send + Sy
     }
     if method == "POST" && route == "/answer" {
         // The token in a header, compared in constant time.
-        let ok = req
-            .header("x-desk-token")
-            .is_some_and(|t| ct_eq(t.as_bytes(), shared.token.as_bytes()));
-        if !ok {
+        let Some(who) = req.header("x-desk-token").and_then(|t| shared.who(&t)) else {
             let _ = write_response(&mut stream, 401, JSON, "{\"error\":\"the token does not match\"}");
             return;
-        }
+        };
+        let head = [
+            ("content-type", "application/json; charset=utf-8"),
+            ("cache-control", "no-store"),
+            ("x-content-type-options", "nosniff"),
+        ];
         match answer_post(&req.body) {
-            Ok((id, kind, text)) => {
+            Ok(Posted {
+                item: id,
+                kind,
+                text,
+                option,
+                why,
+            }) => {
                 let mut book = shared.book();
+                // The grants (decision 0010): a person answers only the items
+                // of the neurons they were granted, and only when the ask's
+                // `answerable_by` names a role of theirs. A refusal is logged
+                // on stderr, as the desk's other records are.
+                if let (Who::Person(k), Some(item)) = (who, book.items.iter().find(|i| i.id == id)) {
+                    let person = &shared.people[k];
+                    if !person.may_answer(&item.neuron, &item.payload) {
+                        let note = json::Obj::new()
+                            .str("item", &id)
+                            .str("neuron", &item.neuron)
+                            .str("by", &person.id)
+                            .str("why", "not granted")
+                            .build();
+                        eprintln!("desk refused: {}", json::write(&note));
+                        drop(book);
+                        let body = format!(
+                            "{{\"error\":\"{} may not answer this item (it is not granted to them)\"}}",
+                            escape_json(&person.name)
+                        );
+                        let _ = write_csp_response(&mut stream, 403, &head, "", &body);
+                        return;
+                    }
+                }
                 match book.items.iter().find(|i| i.id == id).map(|i| i.status) {
                     Some(Status::Waiting) => {
+                        let (neuron, chosen) = {
+                            let item = book.items.iter().find(|i| i.id == id).expect("the waiting item");
+                            let chosen = option.as_deref().map(|o| option_text(&item.payload, o));
+                            (item.neuron.clone(), chosen)
+                        };
+                        if let Some(None) = chosen {
+                            drop(book);
+                            let body = format!(
+                                "{{\"error\":\"the item has no option '{}'\"}}",
+                                escape_json(option.as_deref().unwrap_or(""))
+                            );
+                            let _ = write_csp_response(&mut stream, 400, &head, "", &body);
+                            return;
+                        }
+                        let text = match chosen {
+                            Some(Some(t)) => t,
+                            _ => text,
+                        };
                         // What the run will carry (an approve sends the
                         // proposal, else the input; an edit the person's
                         // text; a no empty), and the host's own channel for
@@ -393,16 +730,31 @@ fn serve(mut stream: TcpStream, shared: Arc<Shared>, wake: impl Fn() + Send + Sy
                             let item = book.items.iter().find(|i| i.id == id).expect("the waiting item");
                             match kind {
                                 Kind::Approve => approve_text_of(&item.payload),
-                                Kind::Edit => text.clone(),
+                                Kind::Edit | Kind::Choose => text.clone(),
                                 Kind::No => String::new(),
                             }
                         };
+                        let by = shared.by(who);
                         let note = json::Obj::new()
                             .str("item", &id)
                             .str("kind", kind.name())
-                            .str("text", accepted)
+                            .str("text", accepted.clone())
+                            .set_if("by", by.clone().map(Value::Str))
+                            .set_if("option", option.clone().map(Value::Str))
+                            .set_if("why", why.clone().map(Value::Str))
                             .build();
                         eprintln!("desk answer: {}", json::write(&note));
+                        let ms = shared.opened.elapsed().as_millis() as u64;
+                        book.record.push(Record {
+                            item: id.clone(),
+                            neuron,
+                            kind,
+                            text: accepted,
+                            by,
+                            option,
+                            why,
+                            ms,
+                        });
                         book.replies.push(Reply {
                             item: id.clone(),
                             kind,
@@ -470,12 +822,23 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-/// The POST body: `{item, kind: approve|edit|no, text?}` (the wording is the
-/// engine's own; 0008 fixes the three answers). An edit answers with the
-/// person's text, never empty: an empty one is an error reply, and the item
-/// keeps waiting (Appendix D). A `no` answers empty (quiet); its text, when
-/// present, is ignored. Approve's text is computed on the engine's side.
-fn answer_post(body: &[u8]) -> Result<(String, Kind, String), String> {
+/// A POST's answer, parsed.
+struct Posted {
+    item: String,
+    kind: Kind,
+    text: String,
+    option: Option<String>,
+    why: Option<String>,
+}
+
+/// The POST body: `{item, kind: approve|edit|no|choose, text?, option?, why?}`
+/// (the wording is the engine's own; 0008 fixes the three answers, 0010 adds
+/// `choose`). An edit answers with the person's text, never empty: an empty
+/// one is an error reply, and the item keeps waiting (Appendix D). A `no`
+/// answers empty (quiet); its text, when present, is ignored. Approve's text
+/// is computed on the engine's side, and a choice's from the item's option.
+/// `why`, on any kind, is one line for the record, never sent to the network.
+fn answer_post(body: &[u8]) -> Result<Posted, String> {
     if body.len() > ANSWER_BODY_CAP {
         return Err(format!("the body is over {} bytes", ANSWER_BODY_CAP));
     }
@@ -490,7 +853,8 @@ fn answer_post(body: &[u8]) -> Result<(String, Kind, String), String> {
             "approve" => Kind::Approve,
             "edit" => Kind::Edit,
             "no" => Kind::No,
-            _ => return Err(format!("the kind '{}' is not approve, edit or no", k)),
+            "choose" => Kind::Choose,
+            _ => return Err(format!("the kind '{}' is not approve, edit, no or choose", k)),
         },
         _ => return Err("the body has no kind".into()),
     };
@@ -502,7 +866,30 @@ fn answer_post(body: &[u8]) -> Result<(String, Kind, String), String> {
     if kind == Kind::Edit && text.trim().is_empty() {
         return Err("an edit answers with the person's text, and a blank edit is not an answer".into());
     }
-    Ok((item, kind, text))
+    let option = match (kind, v.get("option")) {
+        (Kind::Choose, Some(Value::Str(o))) => Some(o.clone()),
+        (Kind::Choose, _) => return Err("a choice names one of the item's options".into()),
+        (_, None) => None,
+        (_, Some(_)) => return Err("only a choice names an option".into()),
+    };
+    let why = match v.get("why") {
+        None => None,
+        Some(Value::Str(w)) => {
+            let w = w.trim();
+            if w.contains('\n') || w.chars().count() > WHY_CAP {
+                return Err(format!("a why is one line of at most {WHY_CAP} characters"));
+            }
+            (!w.is_empty()).then(|| w.to_string())
+        }
+        Some(_) => return Err("the why is not a string".into()),
+    };
+    Ok(Posted {
+        item,
+        kind,
+        text,
+        option,
+        why,
+    })
 }
 
 fn escape_json(s: &str) -> String {
@@ -749,12 +1136,30 @@ const PAGE: &str = r#"<!doctype html>
   .state { color: #9ca3af; font-size: 12px; margin-left: 10px; }
   .waiting .state { color: #39ff00; }
   .err { color: #f5a0a0; font-size: 13px; margin-top: 6px; min-height: 18px; }
+  #table { color: #9ca3af; font-size: 13px; margin: 0 0 16px; max-width: 720px; }
+  #table .p { display: inline-block; margin-right: 14px; }
+  #table .p.me { color: #e5e7eb; }
+  #table .p.busy b { color: #39ff00; font-weight: normal; }
+  .card.theirs { opacity: .62; }
+  .card.theirs h2, .card.answered h2, .card.withdrawn h2, .card.timed-out h2 { color: #9ca3af; }
+  .waits { color: #9ca3af; font-size: 13px; margin-top: 8px; }
+  .options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .whyline { background: #060606; border: 1px solid #1f2937; color: #e5e7eb; font: inherit;
+             margin-top: 8px; padding: 4px 8px; width: calc(100% - 18px); }
+  .done { color: #06b6d4; font-size: 13px; margin-top: 8px; }
+  h2.rec { color: #9ca3af; font-size: 14px; margin: 26px 0 8px; }
+  #record { border: 1px solid #1f2937; color: #9ca3af; font-size: 13px; margin: 0;
+            max-width: 720px; padding: 10px 10px 10px 30px; }
+  #record .by { color: #e5e7eb; }
 </style>
 </head>
 <body>
-<h1>agent-neuron <span>desk</span></h1>
+<h1>agent-neuron <span id="who">desk</span></h1>
+<div id="table"></div>
 <div id="over">The run is over.</div>
 <div id="items"></div>
+<h2 class="rec">Record</h2>
+<ol id="record"></ol>
 <script nonce="@NONCE@">
 "use strict";
 const TOKEN = new URLSearchParams(window.location.search).get("token") || "";
@@ -852,8 +1257,24 @@ function showPair(card, item) {
   card.appendChild(pair);
 }
 
-async function answer(item, kind, text) {
-  const body = JSON.stringify({ item: item.id, kind: kind, text: text === undefined ? "" : text });
+let PEOPLE = {};
+let ITEMS = {};
+function optionLabel(r) {
+  const it = ITEMS[r.item];
+  const opts = it && it.payload && Array.isArray(it.payload.options) ? it.payload.options : [];
+  const o = opts.find((x) => String(x.id) === r.option);
+  return o && o.label ? String(o.label) : (r.option || "");
+}
+function nameOf(id) { return (PEOPLE[id] && PEOPLE[id].name) || id; }
+
+async function answer(item, kind, text, option) {
+  const card = document.querySelector('[data-item="' + item.id + '"]');
+  const whyEl = card ? card.querySelector(".whyline") : null;
+  const why = whyEl ? whyEl.value.trim() : "";
+  const msg = { item: item.id, kind: kind, text: text === undefined ? "" : text };
+  if (option !== undefined) { msg.option = option; }
+  if (why) { msg.why = why; }
+  const body = JSON.stringify(msg);
   try {
     const r = await fetch("/answer", { method: "POST", headers: HEADERS, body: body });
     if (!r.ok) {
@@ -868,6 +1289,32 @@ async function answer(item, kind, text) {
     if (card) { card.querySelector(".err").textContent = "the desk is not answering"; }
   }
   poll();
+}
+
+function whyFor(card, ok) {
+  const why = el("input", "whyline");
+  why.placeholder = "optional: one line on why, for the record (never sent on)";
+  why.maxLength = 500;
+  why.disabled = !ok;
+  card.appendChild(why);
+}
+
+function optionsFor(card, item, options) {
+  const ok = item.status === "waiting";
+  const row = el("div", "options");
+  for (const o of options) {
+    const b = el("button", null, String(o.label || o.id));
+    b.disabled = !ok;
+    b.addEventListener("click", () => answer(item, "choose", "", String(o.id)));
+    row.appendChild(b);
+  }
+  const nah = el("button", "nah", "No");
+  nah.disabled = !ok;
+  nah.addEventListener("click", () => answer(item, "no"));
+  row.appendChild(nah);
+  card.appendChild(row);
+  whyFor(card, ok);
+  card.appendChild(el("div", "err"));
 }
 
 function buttonsFor(card, item) {
@@ -894,12 +1341,58 @@ function buttonsFor(card, item) {
   row.appendChild(ta);
   row.appendChild(send);
   card.appendChild(row);
+  whyFor(card, ok);
   card.appendChild(err);
 }
 
+function recordLine(r) {
+  const li = el("li");
+  if (r.by) { li.appendChild(el("span", "by", nameOf(r.by))); li.appendChild(document.createTextNode(" ")); }
+  let what = r.kind + " on " + r.neuron + " (" + r.item + ")";
+  if (r.kind === "choose") { what = "chose " + optionLabel(r) + " on " + r.neuron + " (" + r.item + ")"; }
+  if (r.text && r.kind !== "no" && r.kind !== "choose") { what += ": " + r.text; }
+  if (r.why) { what += " - why: " + r.why; }
+  li.appendChild(document.createTextNode(what));
+  return li;
+}
+
+function renderTable(state) {
+  const table = document.getElementById("table");
+  table.textContent = "";
+  PEOPLE = {};
+  const me = state.me;
+  const people = state.people || [];
+  for (const p of people) { PEOPLE[p.id] = p; }
+  const mine = state.items.filter((i) => i.status === "waiting" && i.yours).length;
+  const who = me ? (me.name + (me.roles && me.roles.length ? " (" + me.roles.join(", ") + ")" : "")) : "desk";
+  document.getElementById("who").textContent = who;
+  document.title = (mine ? "(" + mine + ") " : "") + "desk" + (me ? " - " + me.name : "");
+  if (!people.length) { return; }
+  table.appendChild(document.createTextNode("At this table: "));
+  for (const p of people) {
+    const span = el("span", "p" + (me && me.id === p.id ? " me" : "") + (p.waiting ? " busy" : ""));
+    span.appendChild(document.createTextNode(p.name + " "));
+    span.appendChild(el("b", null, p.waiting ? p.waiting + " waiting" : "nothing waiting"));
+    table.appendChild(span);
+  }
+}
+
 function render(state) {
+  renderTable(state);
   const over = document.getElementById("over");
   over.style.display = state.over ? "block" : "none";
+  ITEMS = {};
+  for (const it of state.items) { ITEMS[it.id] = it; }
+  const recEl = document.getElementById("record");
+  recEl.textContent = "";
+  const record = state.record || [];
+  for (const r of record) { recEl.appendChild(recordLine(r)); }
+  if (!record.length) { recEl.appendChild(el("li", null, "Nothing decided yet.")); }
+  const typing = document.activeElement && document.activeElement.closest ? document.activeElement.closest(".card") : null;
+  if (typing && typing.dataset && state.items.some((i) => i.id === typing.dataset.item && i.status === "waiting")) {
+    // A person mid-sentence keeps their card: the rest refreshes on the next poll.
+    return;
+  }
   const root = document.getElementById("items");
   root.textContent = "";
   if (state.items.length === 0) {
@@ -907,7 +1400,7 @@ function render(state) {
     return;
   }
   for (const item of state.items) {
-    const card = el("div", "card " + item.status);
+    const card = el("div", "card " + item.status + (item.yours === false ? " theirs" : ""));
     card.dataset.item = item.id;
     card.appendChild(el("div", "neuron", item.neuron));
     card.appendChild(el("h2", null, item.title || item.neuron));
@@ -916,12 +1409,26 @@ function render(state) {
       for (const note of item.notes) { notes.appendChild(el("li", null, note)); }
       card.appendChild(notes);
     }
+    const hasOptions = item.payload && Array.isArray(item.payload.options) && item.payload.options.length > 0;
     if (item.draft !== undefined && item.proposal !== undefined) {
       showPair(card, item);
-    } else if (item.text !== undefined) {
+    } else if (item.text !== undefined && !hasOptions) {
       card.appendChild(el("div", "single", item.text));
     }
-    buttonsFor(card, item);
+    const options = item.payload && Array.isArray(item.payload.options) ? item.payload.options : null;
+    const done = record.find((r) => r.item === item.id);
+    if (done) {
+      card.appendChild(el("div", "done", "decided: " + recordLine(done).textContent));
+    } else if (item.yours === false) {
+      const ids = item.answerable_by || [];
+      card.appendChild(el("div", "waits", item.status === "waiting"
+        ? "waiting on " + (ids.length ? ids.map(nameOf).join(" or ") : "nobody at this table")
+        : item.status));
+    } else if (options && options.length) {
+      optionsFor(card, item, options);
+    } else {
+      buttonsFor(card, item);
+    }
     card.appendChild(el("span", "state", item.status));
     root.appendChild(card);
   }

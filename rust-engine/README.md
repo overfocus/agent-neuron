@@ -100,7 +100,7 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 80: mcp 17, real 27, check 11, desk 12, http 11, unit 2
+cargo test                                          # 85: mcp 18, real 27, check 11, desk 16, http 11, unit 2
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 201, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
@@ -195,6 +195,29 @@ end-to-end one.
   surface's ask (the state's `payload` and `t`) and answer (the stderr's
   `desk answer:` line).
 
+### The desk at a table: grants, choices and the record (decision 0010)
+
+- `run … --grants <grants.json>`: `{"version": 0, "people": [{id, name?,
+  roles?, answers}]}`, closed; every `answers` entry must be a human neuron
+  of the network, or the run is refused before the desk opens. Each person
+  gets a token of their own, printed as `desk person: {id, name, roles,
+  url}` after the `desk:` line; the run's token stays the owner's.
+- The POST checks the grants: the item's neuron must be granted and the
+  ask's `answerable_by` (a role or a list), when present, must name a role
+  of the person's; otherwise 403 and a `desk refused: {item, neuron, by,
+  why}` line. `desk answer:` carries `by` when the run has grants, and
+  `option` and `why` when given.
+- `kind: "choose"` answers an ask with `options: [{id, label?, text?}]`: the
+  reply is the option's `text`, else its `id`. `why` (one line, at most 500)
+  rides on any answer, on the record only — never into the network.
+- `/state` adds `record` (every accepted answer: item, neuron, kind, text,
+  by?, option?, why?, ms), each item's `yours` and, with grants,
+  `answerable_by` (the people who may answer it), plus `me` and `people`
+  with each one's waiting count. The page shows the table, the option
+  buttons, a why line, other people's items read-only ("waiting on …"), the
+  record, and the viewer's waiting count in its title.
+- Covered by `tests/desk.rs` (4 more, 16 in all).
+
 ### Gates measured when M2 closed
 
 - `conform spec/fixtures` 201/0/0 and `conform py/probes` 10/0/0 — unchanged.
@@ -247,8 +270,10 @@ surface.
   where `network` is `{file, name, description, entry?, exit?, budget?,
   neurons, links}` — `file` the name as the caller or the declaring file
   wrote it (never a resolved path), every neuron in the v1 trace's own shape
-  (TRACE.md "neurons", built by the one function the trace writer uses) and
-  every link. A composed neuron carries its inner file the same way under
+  (TRACE.md "neurons", built by the one function the trace writer uses),
+  plus `effect: true` on a neuron the file declares `effect` (SPEC 11: the
+  trace's neuron shape does not carry it, and a drawing needs to mark the
+  calls that are never cut), and every link. A composed neuron carries its inner file the same way under
   `network`, resolved against its declaring file's directory as the runner
   resolves it; a file already open further up the tree is marked
   `{file, cycle: true}` instead of described again (`check` passes a

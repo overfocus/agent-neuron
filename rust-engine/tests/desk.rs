@@ -719,3 +719,241 @@ fn desk_item_of_a_human_inside_a_composed_instance() {
     // Approve text is the input as JSON text.
     assert_eq!(run.out().trim(), "{\"seen\":\"say\"}");
 }
+
+// -- Grants (decision 0010) ---------------------------------------------------
+
+/// Two people's reviews and a lead's gate: `r1` and `r2` are reviewers, `gate`
+/// is the lead's; each is a human neuron fed by the source.
+fn table_network() -> String {
+    "{
+  \"version\": 0,
+  \"name\": \"table\",
+  \"description\": \"desk grants test\",
+  \"neurons\": [
+    {\"id\": \"src\", \"description\": \"in\", \"source\": true},
+    {\"id\": \"r1\", \"description\": \"first review\", \"human\": true},
+    {\"id\": \"gate\", \"description\": \"the gate\", \"human\": true}
+  ],
+  \"links\": [
+    {\"from\": \"src\", \"to\": \"r1\"},
+    {\"from\": \"src\", \"to\": \"gate\"}
+  ]
+}
+"
+    .to_string()
+}
+
+const TABLE_GRANTS: &str = r#"{
+  "version": 0,
+  "people": [
+    { "id": "kit", "name": "Kit", "roles": ["reviewer"], "answers": ["r1"] },
+    { "id": "rue", "name": "Rue", "roles": ["lead"], "answers": ["gate", "r1"] }
+  ]
+}"#;
+
+impl Run {
+    /// Each person's token, from the `desk person:` lines.
+    fn people(&mut self) -> Vec<(String, String)> {
+        for _ in 0..500 {
+            let found: Vec<(String, String)> = self
+                .err()
+                .lines()
+                .filter_map(|l| l.strip_prefix("desk person: "))
+                .map(|j| {
+                    let id = j
+                        .split("\"id\":\"")
+                        .nth(1)
+                        .and_then(|r| r.split('"').next())
+                        .unwrap_or("")
+                        .to_string();
+                    let token = j
+                        .split("?token=")
+                        .nth(1)
+                        .and_then(|r| r.split('"').next())
+                        .unwrap_or("")
+                        .to_string();
+                    (id, token)
+                })
+                .collect();
+            if !found.is_empty() {
+                return found;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("no desk person lines: {}", self.err());
+    }
+}
+
+fn token_of(people: &[(String, String)], id: &str) -> String {
+    people
+        .iter()
+        .find(|(p, _)| p == id)
+        .map(|(_, t)| t.clone())
+        .expect("the person's token")
+}
+
+#[test]
+fn desk_grants_give_each_person_a_token_and_refuse_what_is_not_theirs() {
+    let temp = Temp::new("grants");
+    let net = temp.write("network.json", &table_network());
+    let grants = temp.write("grants.json", TABLE_GRANTS);
+    let inputs = inputs_file(
+        &temp,
+        &[("0", "src", "{\"title\":\"which way\",\"answerable_by\":[\"reviewer\",\"lead\"]}")],
+    );
+    let mut run = Run::start(&temp, &net, &inputs, &["--grants", grants.to_str().unwrap()]);
+    let (port, owner) = run.desk();
+    let people = run.people();
+    assert_eq!(people.len(), 2, "{}", run.err());
+    let kit = token_of(&people, "kit");
+    let rue = token_of(&people, "rue");
+    assert_ne!(kit, owner);
+    // Kit's view: who Kit is, the table, and which items are Kit's.
+    let state = wait_items(&mut run, port, &kit, 2);
+    assert!(
+        state.contains("\"me\":{\"id\":\"kit\",\"name\":\"Kit\",\"roles\":[\"reviewer\"]}"),
+        "{}",
+        state
+    );
+    assert!(state.contains("\"people\":["), "{}", state);
+    let r1 = extract_id(&state, 0).expect("r1's item");
+    let gate = extract_id(&state, 1).expect("gate's item");
+    // The gate is not Kit's: refused with 403, logged, and still waiting.
+    let r = post(port, &kit, &format!("{{\"item\":\"{gate}\",\"kind\":\"approve\"}}"));
+    assert_eq!(r.code, 403, "{}", r.body);
+    assert!(
+        run.err().contains(&format!(
+            "desk refused: {{\"item\":\"{gate}\",\"neuron\":\"gate\",\"by\":\"kit\",\"why\":\"not granted\"}}"
+        )),
+        "{}",
+        run.err()
+    );
+    // Kit answers r1 with a why; Rue gates.
+    let r = post(
+        port,
+        &kit,
+        &format!("{{\"item\":\"{r1}\",\"kind\":\"edit\",\"text\":\"left\",\"why\":\"shorter\"}}"),
+    );
+    assert_eq!(r.code, 200, "{}", r.body);
+    let r = post(port, &rue, &format!("{{\"item\":\"{gate}\",\"kind\":\"edit\",\"text\":\"go\"}}"));
+    assert_eq!(r.code, 200, "{}", r.body);
+    assert!(run.wait().success(), "{}", run.err());
+    let err = run.err();
+    assert!(
+        err.contains(&format!(
+            "desk answer: {{\"item\":\"{r1}\",\"kind\":\"edit\",\"text\":\"left\",\"by\":\"kit\",\"why\":\"shorter\"}}"
+        )),
+        "{}",
+        err
+    );
+    assert!(
+        err.contains(&format!(
+            "desk answer: {{\"item\":\"{gate}\",\"kind\":\"edit\",\"text\":\"go\",\"by\":\"rue\"}}"
+        )),
+        "{}",
+        err
+    );
+    // The network got the people's text only: the why and the names stay on the desk.
+    let out = run.out();
+    assert!(
+        out.contains("left") && out.contains("go") && !out.contains("shorter") && !out.contains("kit"),
+        "{}",
+        out
+    );
+}
+
+#[test]
+fn desk_answerable_by_must_name_a_role_of_the_person() {
+    let temp = Temp::new("roles");
+    let net = temp.write("network.json", &table_network());
+    let grants = temp.write("grants.json", TABLE_GRANTS);
+    // r1 is granted to Kit, but this ask is for a lead only.
+    let inputs = inputs_file(&temp, &[("0", "src", "{\"title\":\"leads only\",\"answerable_by\":\"lead\"}")]);
+    let mut run = Run::start(&temp, &net, &inputs, &["--grants", grants.to_str().unwrap()]);
+    let (port, owner) = run.desk();
+    let people = run.people();
+    let kit = token_of(&people, "kit");
+    let state = wait_items(&mut run, port, &kit, 2);
+    // Kit sees r1's item as not Kit's; only Rue may answer it.
+    assert!(state.contains("\"yours\":false,\"answerable_by\":[\"rue\"]"), "{}", state);
+    let r1 = extract_id(&state, 0).expect("r1's item");
+    let r = post(port, &kit, &format!("{{\"item\":\"{r1}\",\"kind\":\"no\"}}"));
+    assert_eq!(r.code, 403, "{}", r.body);
+    // The owner's token answers anything, recorded as the owner.
+    let gate = extract_id(&state, 1).expect("gate's item");
+    for item in [&r1, &gate] {
+        let r = post(port, &owner, &format!("{{\"item\":\"{item}\",\"kind\":\"no\"}}"));
+        assert_eq!(r.code, 200, "{}", r.body);
+    }
+    assert!(run.wait().success(), "{}", run.err());
+    assert!(
+        run.err().contains(&format!(
+            "desk answer: {{\"item\":\"{r1}\",\"kind\":\"no\",\"text\":\"\",\"by\":\"owner\"}}"
+        )),
+        "{}",
+        run.err()
+    );
+}
+
+#[test]
+fn desk_choose_sends_the_options_text_and_records_the_choice() {
+    let temp = Temp::new("choose");
+    let net = temp.write("network.json", &human_network("", false));
+    let ask = "{\"title\":\"pick one\",\"options\":[{\"id\":\"a\",\"label\":\"Plan A\",\"text\":\"plan-a\"},{\"id\":\"b\",\"label\":\"Plan B\"}]}";
+    let inputs = inputs_file(&temp, &[("0", "src", ask)]);
+    let mut run = Run::start(&temp, &net, &inputs, &[]);
+    let (port, token) = run.desk();
+    let state = wait_items(&mut run, port, &token, 1);
+    let item = extract_id(&state, 0).expect("the item");
+    // An option the item does not have is refused; the item keeps waiting.
+    let r = post(
+        port,
+        &token,
+        &format!("{{\"item\":\"{item}\",\"kind\":\"choose\",\"option\":\"z\"}}"),
+    );
+    assert_eq!(r.code, 400, "{}", r.body);
+    let r = post(port, &token, &format!("{{\"item\":\"{item}\",\"kind\":\"choose\"}}"));
+    assert_eq!(r.code, 400, "{}", r.body);
+    let r = post(
+        port,
+        &token,
+        &format!("{{\"item\":\"{item}\",\"kind\":\"choose\",\"option\":\"a\",\"why\":\"cheaper\"}}"),
+    );
+    assert_eq!(r.code, 200, "{}", r.body);
+    assert!(run.wait().success(), "{}", run.err());
+    assert_eq!(run.out().trim(), "plan-a");
+    // Without grants there is no `by`; the option and the why are on the line.
+    assert!(
+        run.err().contains(&format!(
+            "desk answer: {{\"item\":\"{item}\",\"kind\":\"choose\",\"text\":\"plan-a\",\"option\":\"a\",\"why\":\"cheaper\"}}"
+        )),
+        "{}",
+        run.err()
+    );
+}
+
+#[test]
+fn desk_grants_that_name_no_human_neuron_refuse_the_run() {
+    let temp = Temp::new("badgrants");
+    let net = temp.write("network.json", &table_network());
+    let inputs = inputs_file(&temp, &[("0", "src", "\"x\"")]);
+    for (grants, says) in [
+        (r#"{"version":0,"people":[{"id":"kit","answers":["src"]}]}"#, "not a human neuron"),
+        (
+            r#"{"version":0,"people":[{"id":"kit","answers":["r1"],"email":"x"}]}"#,
+            "do not know",
+        ),
+        (r#"{"version":0,"people":[{"id":"owner","answers":["r1"]}]}"#, "'owner'"),
+        (
+            r#"{"version":0,"people":[{"id":"kit","answers":["r1"]},{"id":"kit","answers":["gate"]}]}"#,
+            "twice",
+        ),
+    ] {
+        let g = temp.write("grants.json", grants);
+        let mut run = Run::start(&temp, &net, &inputs, &["--grants", g.to_str().unwrap()]);
+        let status = run.wait();
+        assert!(!status.success());
+        assert!(run.err().contains(says), "{} -> {}", grants, run.err());
+        assert!(!run.err().contains("desk: "), "{}", run.err());
+    }
+}
