@@ -2,7 +2,7 @@
 
 Any program (a shell script, a Python file, a model call) goes inside the same wrapper, a JSON stdin/stdout contract, so they can be wired together in any shape. Instead of a central controller deciding what runs, each wrapper carries its own rules: how many inputs must agree before it acts, when work has gone stale and gets cut, how much it may spend.
 
-This is an experiment at concept stage: a specification (version 0.1, draft), a reference engine and a set of demos. Nothing is on npm yet.
+This is an experiment at concept stage: a specification (version 0.1, draft), three engines — the TypeScript reference, a protocol test in Python and a complete second engine in Rust — and a set of demos. Nothing is on npm yet.
 
 The idea as a protocol, for agent and framework developers: [docs/WHITEPAPER.md](docs/WHITEPAPER.md) (a draft).
 
@@ -13,14 +13,15 @@ The idea as a protocol, for agent and framework developers: [docs/WHITEPAPER.md]
 | Wrapper for scripts, executables, HTTP APIs and a human on stdin (`src/adapters/`); `human` neurons in network files, answered on a local page (`npm run demo:human`) | Connections that strengthen and weaken, and a network that rewires itself |
 | Many-to-many links, broadcast or targeted signals, each signal tracing its chain | Ignore conditions, passive and active channels |
 | Per-neuron `threshold` (N distinct senders must agree), `within`, `replaces` (a newer input cuts stale work) and `maxHops` (loops stop) | Limits other than `maxHops` |
-| Network files: a JSON format, a closed schema, a validator and a reference engine that runs them (`npm run engine`) | Running `http` neurons from a network file; a `human` wait that survives a restart |
+| Network files: a JSON format, a closed schema, a validator and a reference engine that runs them (`npm run engine`) | A `human` wait that survives a restart |
 | Per-trace budgets, effects that are never cut, a live event stream | A neuron reporting its own spend |
+| A second complete engine in Rust (`rust-engine/`): real processes, `http` neurons (from a network file), `human` neurons on the desk, the MCP server `neuron-engine mcp` | `https` (needs a dependency policy) and packaging of the engine binary for npm |
 | Composed neurons: a whole network behind one wrapper, sealed from outside | Anything that learns: today each call is its own process and nothing is kept |
 | 201 conformance fixtures any other engine must pass; recorded traces; a local page that draws a run | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
 
 ## Try it
 
-You need Node 22 or later. You do not need Rust for this one (the two Rust demos and the Rust tests do), and it makes no network requests. Run it on macOS or Linux.
+You need Node 22 or later. You do not need Rust for this one (the Rust engine's tests, the two Rust demos and `npm run check` do), and it makes no network requests. Run it on macOS or Linux.
 
 ```sh
 git clone https://github.com/overfocus/agent-neuron && cd agent-neuron
@@ -77,7 +78,7 @@ The whole storm is this file, `spec/examples/alerts.network.json`. The programs 
 ## How it compares
 
 - **Unix pipes.** A level-0 neuron is a filter: a program that reads JSON on stdin and writes JSON on stdout. The difference is that neurons form a graph (many in, many out, loops allowed and bounded), not a line.
-- **Node-RED and similar flow files.** The shape is similar: a JSON file lists nodes and links. The difference I am trying for is that each node carries its own firing rules (threshold, staleness, budget, effect), and that those rules have a written specification and conformance fixtures, so a second engine can be checked against the first.
+- **Node-RED and similar flow files.** The shape is similar: a JSON file lists nodes and links. The difference I am trying for is that each node carries its own firing rules (threshold, staleness, budget, effect), and that those rules have a written specification and conformance fixtures, so another engine can be checked against the first. That has now happened three times: the TypeScript reference, a Python protocol test, and a complete Rust engine — all three pass the same 201 fixtures.
 - **Agent frameworks.** They usually put a controller or planner in the middle. Here nothing in the middle decides; and no model is required, since a neuron can be any program.
 
 I have not benchmarked any of these against it, and this one is far smaller and younger than all of them.
@@ -292,7 +293,10 @@ npm run demo:human    # a person approves, edits or refuses each proposed rewrit
 ### Conformance fixtures
 
 Any further engine must give the same events as this one on
-the same inputs (a Rust one was tried and stopped: [decision 0005](docs/decisions/0005-rust-engine-experiment.md)). The shared test is [`spec/fixtures/`](spec/fixtures/): 201
+the same inputs (the first Rust attempt was tried and stopped:
+[decision 0005](docs/decisions/0005-rust-engine-experiment.md); the engine now on
+`main` restarted from the text under the same terms —
+[decision 0009](docs/decisions/0009-rust-engine.md), covered below). The shared test is [`spec/fixtures/`](spec/fixtures/): 201
 small fixtures, each a network file, scripted inputs, scripted neuron replies with
 latencies on a virtual clock, and the exact events expected, ids normalised. No
 process starts and no clock is read, so a run is exactly repeatable.
@@ -319,6 +323,19 @@ PYTHONPATH=py python3 -m agent_neuron conform py/probes       # extra fixtures, 
 ```
 
 What it passed, what the specification left open and where the two engines differ: [docs/conformance-python.md](docs/conformance-python.md).
+
+#### The second complete engine, in Rust
+
+[`rust-engine/`](rust-engine/) is the engine the fixtures were asking for: written from [SPEC](docs/SPEC.md), [CONFORMANCE](docs/CONFORMANCE.md), the network schema and the fixtures alone (the TypeScript engine was used as a black box), in Rust with the standard library only (a one-package `Cargo.lock`, nothing fetched). It is the only engine so far that runs a real network end to end: the process layer (level 0 `run`, level 1 `serve`, pings, restart backoff, SIGTERM then SIGKILL after the kill grace with the 6.3 notes), real `http` neurons (`https` is refused honestly — no TLS in a std-only crate), `human` neurons answered on the desk of Appendix D ([decision 0008](docs/decisions/0008-human-neurons-on-a-page.md)), budgets, effects and the live stream. It carries the family's MCP surface: `neuron-engine mcp` speaks JSON-RPC 2.0 over stdio with `check_network`, `run_network`, `start_run`/`poll_run` (a run as a job, with live `run://{id}` resources and notifications) and `read_trace`, and serves SPEC, CONFORMANCE, TRACE and the schema as embedded `spec://` resources. `conform`, the fixtures and human networks are deliberately unexposed there: the desk is the person's surface, not an MCP surface. Every trace it writes declares its ids scheme in the header (`{"signal":"run-numbered","trace":"run-numbered"}` — ids are opaque strings, compared, never parsed, per [TRACE.md](docs/TRACE.md)).
+
+```sh
+cargo test --manifest-path rust-engine/Cargo.toml                            # 78 tests, 0 failed
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures    # 201 passed, 0 failed, 0 pending
+cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes        # 10 passed, 0 failed, 0 pending
+cargo run --manifest-path rust-engine/Cargo.toml -- mcp                      # the MCP server on stdio
+```
+
+Gates, standing rules (black-box engines, rustfmt at 140, clippy `-D warnings`) and the size tables: [rust-engine/README.md](rust-engine/README.md). The direction record — why a second engine, what complete means against the first attempt's no-go, and the gates rerun on merged `main` — is [decision 0009](docs/decisions/0009-rust-engine.md). The voice-rewrite tool timbre runs this engine as one built binary: the dependency is a binary, not a package.
 
 ## The first example
 
@@ -501,7 +518,7 @@ work was dropped; the numbers are the same on an idle machine.
 
 ## Development
 
-Node 22 or later. A Rust toolchain (`cargo` on your PATH) is needed only for the two Rust demos (`demo:rust`, `demo:composed`) and the tests that run them. The engine is POSIX only (macOS or Linux); Python 3 is optional, for the Python variants of the alert storm.
+Node 22 or later. A Rust toolchain (`cargo` on your PATH) is needed for the Rust engine (its tests and build run inside `npm run check`), the two Rust demos (`demo:rust`, `demo:composed`) and the conformance gates. The TypeScript engine is POSIX only (macOS or Linux); Python 3 is optional, for the Python variants of the alert storm. The Rust engine is POSIX too, and refuses `https` (no TLS in a std-only crate).
 
 ```sh
 npm install
