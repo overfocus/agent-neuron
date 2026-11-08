@@ -49,6 +49,9 @@ pub struct Opts {
 pub struct Node {
     pub id: String,
     pub desc: String,
+    /// Where a drawing puts the neuron (SPEC 2.2, decision 0011): a
+    /// descriptive field, like `desc`. Nothing the engine does reads it.
+    pub at: Option<[f64; 3]>,
     pub kind: Kind,
     pub opts: Opts,
 }
@@ -684,6 +687,38 @@ fn neuron(nv: &Value, i: usize, scan: &Scan, span: Span, out: &mut Vec<Diag>) ->
             String::new()
         }
     };
+    // `at` (decision 0011): three finite numbers, for a drawing. Kept on the
+    // node and read by nothing that routes.
+    let at = match nv.get("at") {
+        None => None,
+        Some(Value::Arr(xs)) if xs.len() == 3 => {
+            let nums: Vec<f64> = xs
+                .iter()
+                .filter_map(|x| match x {
+                    Value::Int(n) => Some(*n as f64),
+                    Value::Float(f) => Some(*f),
+                    _ => None,
+                })
+                .filter(|f| f.is_finite() && f.abs() <= 1_000_000.0)
+                .collect();
+            if nums.len() == 3 {
+                Some([nums[0], nums[1], nums[2]])
+            } else {
+                push(
+                    span,
+                    scan,
+                    "at",
+                    &format!("{}: at is three numbers from -1000000 to 1000000", what),
+                    out,
+                );
+                None
+            }
+        }
+        Some(_) => {
+            push(span, scan, "at", &format!("{}: at is three numbers [x, y, z]", what), out);
+            None
+        }
+    };
     let kind_key = ["source", "run", "serve", "http", "human", "network"]
         .iter()
         .find(|k| nv.has(k))
@@ -697,13 +732,14 @@ fn neuron(nv: &Value, i: usize, scan: &Scan, span: Span, out: &mut Vec<Diag>) ->
     if is_source {
         // Only a source: no options at all beyond id and description.
         for k in nv.keys() {
-            if !matches!(k, "id" | "description" | "source") {
+            if !matches!(k, "id" | "description" | "at" | "source") {
                 push(span, scan, k, &format!("{}: option '{}' is not allowed on a source", what, k), out);
             }
         }
         return Node {
             id,
             desc,
+            at,
             kind,
             opts: Opts::default(),
         };
@@ -711,7 +747,10 @@ fn neuron(nv: &Value, i: usize, scan: &Scan, span: Span, out: &mut Vec<Diag>) ->
     let is_network = matches!(kind, Kind::Network(_));
     let is_command = matches!(kind, Kind::Run(_) | Kind::Serve(_));
     for k in nv.keys() {
-        if matches!(k, "id" | "description" | "source" | "run" | "serve" | "http" | "human" | "network") {
+        if matches!(
+            k,
+            "id" | "description" | "at" | "source" | "run" | "serve" | "http" | "human" | "network"
+        ) {
             continue;
         }
         let allowed = match k {
@@ -820,7 +859,7 @@ fn neuron(nv: &Value, i: usize, scan: &Scan, span: Span, out: &mut Vec<Diag>) ->
         let (cost_anchor, cost_probe) = crate::net::anchor_point(scan, (span.0, span.1.min(scan.len())), "cost");
         opts.cost = units(x, &format!("{}: cost", what), scan, cost_anchor, cost_probe, "cost", out);
     }
-    Node { id, desc, kind, opts }
+    Node { id, desc, at, kind, opts }
 }
 
 /// How many kind fields the neuron carries.
@@ -835,6 +874,7 @@ fn empty_node(kind: Kind) -> Node {
     Node {
         id: String::new(),
         desc: String::new(),
+        at: None,
         kind,
         opts: Opts::default(),
     }

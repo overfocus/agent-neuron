@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "`at` is three numbers [x, y, z] (2.2, decision 0011): two numbers is refused by check, so the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

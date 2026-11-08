@@ -491,3 +491,19 @@ impl Drop for Temp {
 }
 
 static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[test]
+fn check_refusal_an_at_that_is_not_three_numbers() {
+    let path = fixture_network("descriptive/refuses-an-at-that-is-not-three-numbers");
+    let diags = check::tree(path.to_string_lossy().as_ref());
+    let errs = err_lines(&diags);
+    assert_eq!(errs.len(), 1, "{}", errs.join("\n"));
+    assert!(errs[0].contains("at is three numbers"), "{}", errs[0]);
+}
+
+#[test]
+fn check_takes_at_on_every_neuron() {
+    let path = fixture_network("descriptive/at-changes-nothing");
+    let diags = check::tree(path.to_string_lossy().as_ref());
+    assert!(err_lines(&diags).is_empty(), "{}", err_lines(&diags).join("\n"));
+}

@@ -10,7 +10,7 @@ import re
 ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 ENV_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 KINDS = ("source", "run", "serve", "http", "human", "network")
-COMMON = {"id", "description"}
+COMMON = {"id", "description", "at"}  # `at`: descriptive, for a drawing (decision 0011)
 OPTS = {
     "source": set(),
     "run": {"threshold", "within", "maxHops", "timeout", "env", "cwd", "cost", "effect"},
@@ -60,6 +60,13 @@ def _neuron(n, i):
         raise CheckError(f"neurons[{i}]: bad id")
     if "description" in n and not isinstance(n["description"], str):
         raise CheckError(f"neurons[{i}]: description must be a string")
+    if "at" in n:
+        at = n["at"]
+        ok = isinstance(at, list) and len(at) == 3 and all(
+            isinstance(x, (int, float)) and not isinstance(x, bool) and abs(x) <= 1_000_000 and x == x for x in at
+        )
+        if not ok:
+            raise CheckError(f"neurons[{i}]: at is three numbers from -1000000 to 1000000")
     v = n[kind]
     if kind in ("source", "human"):
         if v is not True:

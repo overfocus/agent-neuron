@@ -78,6 +78,14 @@ describe('network schema v0', () => {
     expect(check(file)).toEqual([expect.objectContaining({ severity: 'warning', message: 'executable "no-such-program-here" not found' })]);
   });
 
+  it('takes `at` on any kind of neuron, and refuses one that is not three numbers (decision 0011)', () => {
+    expect(broken((n) => n.neurons.forEach((x: { at?: number[] }, i: number) => (x.at = [i, -i, 0.5])))).toEqual([]);
+    expect(broken((n) => (n.neurons[1].at = [1, 2])).join()).toContain('needs at least 3 items');
+    expect(broken((n) => (n.neurons[1].at = [1, 2, 3, 4])).join()).toContain('has more than 3 items');
+    expect(broken((n) => (n.neurons[1].at = [1, 'two', 3])).join()).toContain('expected a number');
+    expect(broken((n) => (n.neurons[1].at = [1, 2, 2e6])).join()).toContain('above 1000000');
+  });
+
   it('refuses an unknown field, at the top and on a neuron', () => {
     expect(broken((n) => (n.when = 'severity == crit'))).toEqual([expect.stringContaining('unknown field "when"')]);
     expect(broken((n) => (n.neurons[1].filter = 'crit'))).toEqual([expect.stringContaining('unknown field "filter"')]);

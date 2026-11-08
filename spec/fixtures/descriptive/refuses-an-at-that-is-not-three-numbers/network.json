@@ -1,0 +1,27 @@
+{
+  "version": 0,
+  "name": "refuses-an-at-that-is-not-three-numbers",
+  "description": "`at` is three numbers [x, y, z] (2.2, decision 0011): two numbers is refused by check, so the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "at": [
+        1,
+        2
+      ],
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

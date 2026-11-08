@@ -370,7 +370,7 @@ impl Server {
                 "describe_network",
                 "The shape of a network file tree, for drawing it before any traffic: its name, \
                  description, entry, exit and budget, every neuron as a v1 trace declares it \
-                 (TRACE.md) with effect: true where the file declares it, and every link; a composed neuron carries its inner network the same \
+                 (TRACE.md) with effect: true and at: [x, y, z] where the file declares them, and every link; a composed neuron carries its inner network the same \
                  way under 'network'. The file is checked first, and a check with errors is this \
                  tool's error, with the diagnostics. Nothing runs; events never name inner neurons.",
                 file_schema(),
@@ -816,6 +816,11 @@ fn describe(path: &Path, file: &str, composed: bool, open: &mut Vec<PathBuf>) ->
                 entries.push(("effect".to_string(), Value::Bool(true)));
             }
         }
+        // `at` (decision 0011), likewise outside the trace's shape: where the
+        // file says a drawing puts the neuron.
+        if let (Some(at), Value::Obj(ref mut entries)) = (n.at, &mut o) {
+            entries.push(("at".to_string(), Value::Arr(at.iter().map(|v| json_number(*v)).collect())));
+        }
         if let crate::net::Kind::Network(rel) = &n.kind {
             let inner_path = dir.join(rel);
             let inner_real = std::fs::canonicalize(&inner_path).unwrap_or_else(|_| inner_path.clone());
@@ -842,6 +847,15 @@ fn describe(path: &Path, file: &str, composed: bool, open: &mut Vec<PathBuf>) ->
         .set("neurons", Value::Arr(neurons))
         .set("links", Value::Arr(net.links.iter().map(trace::link_value).collect()))
         .build())
+}
+
+/// A coordinate as JSON: a whole number as an integer, else a float.
+fn json_number(v: f64) -> Value {
+    if v.fract() == 0.0 && v.abs() < 9.0e15 {
+        Value::Int(v as i64)
+    } else {
+        Value::Float(v)
+    }
 }
 
 fn tool(name: &str, description: &str, schema: Value) -> Value {

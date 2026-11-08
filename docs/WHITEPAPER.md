@@ -14,10 +14,10 @@ its work is stale, how much it may spend, and what to record when an effect's ou
 code, where it is tied to that code's language and can only be tested through it. agent-neuron moves it onto each
 component's wrapper: a network file declares per neuron how many distinct senders must agree, how long an
 input may wait, what makes work stale, what a call may cost and whether it has an effect, and an engine
-enforces that around any program that reads and writes JSON on stdin and stdout. The specification is a draft at version 0.1, with 201 conformance fixtures that
+enforces that around any program that reads and writes JSON on stdin and stdout. The specification is a draft at version 0.1, with 203 conformance fixtures that
 compare exact event lists on a virtual clock, and three engines written from that text — the TypeScript
 reference, a Python protocol test that passed the fixtures and found where the text says less than they
-do, and a second complete engine in Rust (`rust-engine/`) that passes the same 201 fixtures and the ten
+do, and a second complete engine in Rust (`rust-engine/`) that passes the same 203 fixtures and the ten
 Python probes. I present it as
 a small, checkable protocol for the agent and developer community to test, break and implement again.
 

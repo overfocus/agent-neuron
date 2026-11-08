@@ -9,6 +9,10 @@ A second engine, [`py/agent_neuron/`](../py/agent_neuron/), written from [SPEC.m
 
 **193 passed, 0 failed, 0 pending** on `spec/fixtures`, identical on repeated runs.
 
+**Update, 2026-11-08: 203 of 203.** Decision 0011 added `at`, a descriptive field, and two fixtures
+(`spec/fixtures/descriptive/`); `check.py` learned its shape (about 8 lines). The refusal passed at once; the
+"changes nothing" fixture failed until `at` was accepted, which is what it is for.
+
 **Update, 2026-11-05: 201 of 201.** Decision 0008 added `human` neurons and 8 fixtures (`spec/fixtures/human/`) with a
 scripted person (CONFORMANCE 5.5). This engine gained the person (`start_human` in `engine.py`, about 20 lines) and the
 day-long `timeout` ceiling in `check.py`, written from CONFORMANCE 5.5 and SPEC 2.4 in the same session that built the

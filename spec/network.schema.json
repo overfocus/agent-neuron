@@ -118,6 +118,9 @@
             "description": {
               "type": "string"
             },
+            "at": {
+              "$ref": "#/$defs/position"
+            },
             "source": {
               "const": true
             }
@@ -141,6 +144,9 @@
             },
             "description": {
               "type": "string"
+            },
+            "at": {
+              "$ref": "#/$defs/position"
             },
             "run": {
               "$ref": "#/$defs/command"
@@ -197,6 +203,9 @@
             "description": {
               "type": "string"
             },
+            "at": {
+              "$ref": "#/$defs/position"
+            },
             "serve": {
               "$ref": "#/$defs/command"
             },
@@ -252,6 +261,9 @@
             "description": {
               "type": "string"
             },
+            "at": {
+              "$ref": "#/$defs/position"
+            },
             "http": {
               "allOf": [
                 {
@@ -303,6 +315,9 @@
             "description": {
               "type": "string"
             },
+            "at": {
+              "$ref": "#/$defs/position"
+            },
             "human": {
               "const": true
             },
@@ -342,6 +357,9 @@
             "description": {
               "type": "string"
             },
+            "at": {
+              "$ref": "#/$defs/position"
+            },
             "network": {
               "$ref": "#/$defs/literal"
             },
@@ -371,6 +389,17 @@
         "minimum": 0,
         "maximum": 9007199254740991
       }
+    },
+    "position": {
+      "type": "array",
+      "description": "Where a drawing puts the neuron: x, y, z, in any unit the file's author chooses. A descriptive field (SPEC 2.2, decision 0011): no engine acts on it.",
+      "items": {
+        "type": "number",
+        "minimum": -1000000,
+        "maximum": 1000000
+      },
+      "minItems": 3,
+      "maxItems": 3
     }
   }
 }

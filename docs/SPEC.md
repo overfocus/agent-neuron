@@ -179,8 +179,16 @@ it was written; it may become a URL later.
 ### 2.2 A neuron
 
 `id` (required, `^[A-Za-z][A-Za-z0-9_-]{0,63}$`, unique in the file),
-`description` (string; SHOULD be set, it reaches the trace), exactly one kind
+`description` (string; SHOULD be set, it reaches the trace), `at` (optional), exactly one kind
 field (2.3), and the options its kind allows (2.4).
+
+`at` is `[x, y, z]`, three numbers from -1000000 to 1000000 in any unit the author
+picks: where a drawing of the network puts the neuron. It is a **descriptive
+field**, like `description`: for people and tools, never for an engine. An engine
+MUST accept it on every kind of neuron, MUST check its shape, and MUST NOT let it
+change anything it does: routing, timing, events, the trace or what a program
+receives ([decision 0011](decisions/0011-descriptive-fields-and-at.md)). It is not
+an option and does not count against 2.8's budget of options.
 
 ### 2.3 Kinds
 
@@ -283,9 +291,12 @@ refused, 10.5) (warnings); an executable that cannot be found (warning).
 
 ### 2.8 Field budget (informative)
 
-9 top-level fields; per neuron `id`, `description`, one kind field, at most 8
+9 top-level fields; per neuron `id`, `description`, `at`, one kind field, at most 8
 options; 2 per link. A new field must answer one question: does it say how
-neurons connect, or how one decides? Deciders are programs. `CONTRIBUTING.md` holds
+neurons connect, or how one decides? Deciders are programs. A second, closed
+class of field is descriptive (for people and tools, acted on by no engine):
+`description` and `at` are the only two, and another needs its own decision record
+([decision 0011](decisions/0011-descriptive-fields-and-at.md)). `CONTRIBUTING.md` holds
 the rule. Version 0.1 added `budget` (the ninth top-level field), `cost` (the seventh option) and `effect` (the
 eighth): a limit on spend is the engine's to enforce, not a program's to declare for itself, the same class
 as `timeout` and `maxHops` ([decision 0006](decisions/0006-budgets.md)); whether staleness may cut a call,

@@ -100,8 +100,8 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 86: mcp 18, real 27, check 11, desk 17, http 11, unit 2
-cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 201, 0, 0
+cargo test                                          # 89: mcp 19, real 27, check 13, desk 17, http 11, unit 2
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 203, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
 target/debug/neuron-engine run spec/examples/alerts-python-serve.network.json --inputs spec/examples/alerts.inputs.jsonl
@@ -273,7 +273,8 @@ surface.
   (TRACE.md "neurons", built by the one function the trace writer uses),
   plus `effect: true` on a neuron the file declares `effect` (SPEC 11: the
   trace's neuron shape does not carry it, and a drawing needs to mark the
-  calls that are never cut), and every link. A composed neuron carries its inner file the same way under
+  calls that are never cut) and `at: [x, y, z]` where the file gives one
+  (SPEC 2.2, decision 0011), and every link. A composed neuron carries its inner file the same way under
   `network`, resolved against its declaring file's directory as the runner
   resolves it; a file already open further up the tree is marked
   `{file, cycle: true}` instead of described again (`check` passes a
