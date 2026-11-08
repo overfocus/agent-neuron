@@ -46,14 +46,14 @@ quiescence): [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
 | Built | Planned |
 |---|---|
 | A shared decision surface: desk items for several people, quorum by `threshold`, a lead's gate on an `effect`, the merge a real git commit (`npm run demo:team`) | Grants validated at the desk's POST, a `human` hold that survives a restart, presence, run quiescence ([issue #30](https://github.com/overfocus/agent-neuron/issues/30)) |
-| Wrapper for scripts, executables, HTTP APIs and a human on stdin (`src/adapters/`); `human` neurons in network files, answered on a local page (`npm run demo:human`) | Connections that strengthen and weaken, and a network that rewires itself |
-| Many-to-many links, broadcast or targeted signals, each signal tracing its chain | Ignore conditions, passive and active channels |
+| Wrapper for scripts, executables, HTTP APIs and a human on stdin (`src/adapters/`); `human` neurons in network files, answered on a local page (`npm run demo:human`) | A network that rewires itself; durable trails between runs ([issue #30](https://github.com/overfocus/agent-neuron/issues/30) item 1) |
+| Many-to-many links, broadcast or targeted signals, each signal tracing its chain; trail strength as engine state: `ground` — deposits kept per place, evaporation, a seeded one-link routing for replies that name no `to` ([decision 0012](docs/decisions/0012-the-ground.md)) | Ignore conditions, passive and active channels |
 | Per-neuron `threshold` (N distinct senders must agree), `within`, `replaces` (a newer input cuts stale work) and `maxHops` (loops stop) | Limits other than `maxHops` |
 | Network files: a JSON format, a closed schema, a validator and a reference engine that runs them (`npm run engine`) | A `human` wait that survives a restart |
 | Per-trace budgets, effects that are never cut, a live event stream | A neuron reporting its own spend |
 | A second complete engine in Rust (`rust-engine/`): real processes, `http` neurons (from a network file), `human` neurons on the desk, the MCP server `neuron-engine mcp` | `https` (needs a dependency policy) and packaging of the engine binary for npm |
 | Composed neurons: a whole network behind one wrapper, sealed from outside | Anything that learns: today each call is its own process and nothing is kept |
-| 203 conformance fixtures any other engine must pass; recorded traces; a local page that draws a run | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
+| 224 conformance fixtures any other engine must pass (decision 0012 included); recorded traces; a local page that draws a run | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
 
 ## Try it
 
@@ -114,7 +114,7 @@ The whole storm is this file, `spec/examples/alerts.network.json`. The programs 
 ## How it compares
 
 - **Unix pipes.** A level-0 neuron is a filter: a program that reads JSON on stdin and writes JSON on stdout. The difference is that neurons form a graph (many in, many out, loops allowed and bounded), not a line.
-- **Node-RED and similar flow files.** The shape is similar: a JSON file lists nodes and links. The difference I am trying for is that each node carries its own firing rules (threshold, staleness, budget, effect), and that those rules have a written specification and conformance fixtures, so another engine can be checked against the first. That has now happened three times: the TypeScript reference, a Python protocol test, and a complete Rust engine — all three pass the same 203 fixtures.
+- **Node-RED and similar flow files.** The shape is similar: a JSON file lists nodes and links. The difference I am trying for is that each node carries its own firing rules (threshold, staleness, budget, effect), and that those rules have a written specification and conformance fixtures, so another engine can be checked against the first. That has now happened three times: the TypeScript reference, a Python protocol test, and a complete Rust engine — all three pass all three pass the same 224 fixtures (the 21 of decision 0012 included).
 - **Agent frameworks.** They usually put a controller or planner in the middle. Here nothing in the middle decides; and no model is required, since a neuron can be any program. And the top-level deciding can belong to the team: quorum, gates and budgets are neuron fields, so three people agreeing on a merge is the same graph that triages forty alerts by itself (`npm run demo:team`).
 
 I have not benchmarked any of these against it, and this one is far smaller and younger than all of them.
@@ -332,7 +332,7 @@ Any further engine must give the same events as this one on
 the same inputs (the first Rust attempt was tried and stopped:
 [decision 0005](docs/decisions/0005-rust-engine-experiment.md); the engine now on
 `main` restarted from the text under the same terms —
-[decision 0009](docs/decisions/0009-rust-engine.md), covered below). The shared test is [`spec/fixtures/`](spec/fixtures/): 203
+[decision 0009](docs/decisions/0009-rust-engine.md), covered below). The shared test is [`spec/fixtures/`](spec/fixtures/): 224
 small fixtures, each a network file, scripted inputs, scripted neuron replies with
 latencies on a virtual clock, and the exact events expected, ids normalised. No
 process starts and no clock is read, so a run is exactly repeatable.
@@ -366,7 +366,7 @@ What it passed, what the specification left open and where the two engines diffe
 
 ```sh
 cargo test --manifest-path rust-engine/Cargo.toml                            # 80 tests, 0 failed
-cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures    # 203 passed, 0 failed, 0 pending
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures    # 224 passed, 0 failed, 0 pending
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes        # 10 passed, 0 failed, 0 pending
 cargo run --manifest-path rust-engine/Cargo.toml -- mcp                      # the MCP server on stdio
 ```
