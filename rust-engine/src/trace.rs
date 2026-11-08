@@ -9,6 +9,25 @@ pub const VERSION: i64 = 1;
 pub const LIBRARY: &str = "0.0.0";
 pub const ENGINE_NAME: &str = "agent-neuron-rust";
 
+/// The trace header's `ids` field: how the file's event ids were assigned,
+/// keyed "signal" and "trace" as the format names its two id kinds
+/// (docs/TRACE.md: "Ids (signal ids, trace ids) are opaque strings: compare
+/// them, never parse them"). This engine's scheme is `run-numbered`: the
+/// run's own sequential decimal numbers, 1, 2, 3, ... from the one counter
+/// the whole run draws on, in the order signals exist; a chain's `trace` id
+/// is its first signal's id, and ids never reach a program (SPEC 11.1). An
+/// inner signal takes a number of the same counter and is sealed (SPEC 2.6),
+/// so the outer file's ids name no inner id. A v1 reader ignores a field it
+/// does not know; a v1 writer may add one. Written on every trace the two
+/// trace routes write (`run --trace`, and the MCP surface's `keep_trace`),
+/// through the one header builder below.
+pub const IDS_SIGNAL: &str = "run-numbered";
+pub const IDS_TRACE: &str = "run-numbered";
+
+pub fn ids_value() -> Value {
+    Obj::new().str("signal", IDS_SIGNAL).str("trace", IDS_TRACE).build()
+}
+
 /// The trace header's kind of each network kind, as the format's `kind` lists
 /// it (TRACE.md: a `network` is written `composed`).
 fn kind_of(k: &Kind) -> &'static str {
@@ -45,6 +64,7 @@ pub fn build(net: &Network, demo_fallback: &str, events: &[Value]) -> String {
         kv("description", &Value::Str(net.description.clone())),
         kv("library", &Value::Str(LIBRARY.into())),
         kv("engine", &Value::Str(ENGINE_NAME.into())),
+        kv("ids", &ids_value()),
     ];
     if let Some(budget) = &net.budget {
         lines.push(kv("budget", &units_value(budget)));
@@ -118,6 +138,17 @@ pub fn read_events(path: &str) -> Result<Vec<Value>, String> {
     match v.get("events") {
         Some(Value::Arr(items)) => Ok(items.clone()),
         _ => Err(format!("{}: the trace has no events", path)),
+    }
+}
+
+/// The header's `ids` field of a trace file on disk, read back (only for the
+/// run's self-check, so the written header carries the field whole).
+pub fn read_ids(path: &str) -> Result<Value, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: cannot read ({})", path, e))?;
+    let v = crate::json::parse(&text).map_err(|e| format!("{}: not JSON ({})", path, e))?;
+    match v.get("ids") {
+        Some(ids) => Ok(ids.clone()),
+        _ => Err(format!("{}: the trace header has no ids", path)),
     }
 }
 

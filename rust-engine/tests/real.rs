@@ -753,6 +753,13 @@ fn trace_header_and_stream_lines() {
     assert!(has(&trace, "\"version\": 1"));
     assert!(has(&trace, "\"library\": \"0.0.0\""));
     assert!(has(&trace, "\"engine\": \"agent-neuron-rust\""));
+    // The header's `ids`: the two id kinds the format names, both numbered
+    // per run by this engine (written whenever the trace is written).
+    assert!(
+        has(&trace, "\"ids\": {\"signal\":\"run-numbered\",\"trace\":\"run-numbered\"}"),
+        "{}",
+        trace
+    );
     assert!(has(&trace, "\"demo\": \"test\""));
     assert!(has(&trace, "\"summary\": {}"));
     // Every signal's fields and the finished at the end; the events are one

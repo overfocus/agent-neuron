@@ -38,10 +38,33 @@ of my own, written into a scratch directory outside the repository.
   when the run had events to report.
 - The trace file (`--trace <out.json>`), format v1 per
   [TRACE.md](../docs/TRACE.md): the header (`format`, `version`, `library`,
-  `engine` = `agent-neuron-rust`, the `demo` name, `neurons`, `links`) and the
-  events, one value per line inside. The `run` self-checks after writing: the
-  events read back from the file are the run's, and (with a stream) the
-  stream's lines are the same events in the same order — P2's gate.
+  `engine` = `agent-neuron-rust`, the `demo` name, `ids`, `neurons`, `links`)
+  and the events, one value per line inside. The `run` self-checks after
+  writing: the header's `ids` and the events read back from the file are the
+  writer's own, and (with a stream) the stream's lines are the same events in
+  the same order — P2's gate.
+- The header's `ids` field, written on every trace this engine writes (the
+  MCP `keep_trace` route and `run` share the one trace builder): an object
+  `{ "signal": <scheme>, "trace": <scheme> }` after `engine`, the ids scheme
+  of the file's events under the format's two id kinds (`signal` ids,
+  `trace` ids), so the header declares the file's ids as it declares its
+  neurons and links up front, while TRACE.md's own rule stands: the ids
+  themselves are opaque strings, compared, never parsed. This engine writes
+  `"run-numbered"` for both kinds — its ids are the run's own sequential
+  decimal numbers, 1, 2, 3, ... from the one counter the whole run draws on,
+  in the order signals exist, a chain's `trace` id its first signal's id;
+  ids never reach a program (SPEC 11.1), and inner signals are sealed
+  (SPEC 2.6), so the file's ids name nothing inside. A v1 reader ignores the
+  field, so it stays optional for them (`read_trace` reads a trace without
+  one); the engine's two trace routes cannot write a trace without it, and
+  both self-checks say so. Interpretation, recorded while the item was open:
+  docs/TRACE.md names ids only in its compatibility rules, not as a header
+  field, and SPEC 7.1 lists the v1 header without one — the shape above is
+  this engine's minimal reading of an optional v1 field, added (not renamed),
+  set down here because the trace format's doc lives outside this crate's
+  tree; the values name the family's schemes (the TypeScript recorder's ids
+  are random UUIDs, the reference engine's are numbered per scope: decision
+  0001).
 - The live stream (`--stream <path>`): a file or a pipe fed one event per line
   as they happen, never holding the run up. A pipe with no reader is off,
   with one message on stderr (9.1), and the run is untouched by it.
@@ -77,7 +100,7 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 76: mcp 14, real 27, check 11, desk 11, http 11, unit 2
+cargo test                                          # 78: mcp 15, real 28, check 11, desk 12, http 11, unit 2
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 201, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
@@ -106,8 +129,6 @@ end-to-end one.
 - The `http://` and human *page* surfaces: these are M2 (the next section);
   at M1 an `http` neuron refused to run and `run` refused a file with a
   `human` neuron in it ("no desk for a person").
-- The ids-in-trace header of the trace file format, and any trace the `conform`
-  command writes (the trace is the `run` command's surface).
 - Windows: the process layer is POSIX. The engine's platform list in
   `signal_name` covers darwin and linux.
 
