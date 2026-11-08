@@ -957,3 +957,29 @@ fn desk_grants_that_name_no_human_neuron_refuse_the_run() {
         assert!(!run.err().contains("desk: "), "{}", run.err());
     }
 }
+
+#[test]
+fn desk_answers_a_client_that_connects_before_it_writes() {
+    // A connection accepted before its request has arrived must still be
+    // read: on a platform where an accepted socket inherits the listener's
+    // non-blocking mode (macOS), a read at accept time would fail at once and
+    // the desk would drop the connection unanswered.
+    let temp = Temp::new("slowclient");
+    let net = temp.write("network.json", &human_network("", false));
+    let inputs = inputs_file(&temp, &[("0", "src", "\"hello\"")]);
+    let mut run = Run::start(&temp, &net, &inputs, &[]);
+    let (port, token) = run.desk();
+    wait_items(&mut run, port, &token, 1);
+    for _ in 0..3 {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("the desk's port");
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+        // Let the desk accept the connection before a byte of it arrives.
+        std::thread::sleep(Duration::from_millis(300));
+        let head = format!("GET /state HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-Desk-Token: {token}\r\nConnection: close\r\n\r\n");
+        stream.write_all(head.as_bytes()).expect("the request's write");
+        let mut raw = Vec::new();
+        let _ = stream.read_to_end(&mut raw);
+        let r = parse_response(&raw);
+        assert_eq!(r.code, 200, "a slow client got {:?}", String::from_utf8_lossy(&raw));
+    }
+}
