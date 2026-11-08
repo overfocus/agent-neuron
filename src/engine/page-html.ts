@@ -1,9 +1,10 @@
 // The people page's HTML (decision 0008): kevinferron.com's look, one inline style and one inline script under the page's nonce. Every
 // value from a payload is set with textContent: a payload comes from a program and may contain anything. __NONCE__, __TOKEN__ and
-// __TITLE__ (a JSON string) are filled in by page.ts.
+// __TITLE__ (a JSON string) are filled in by page.ts. The favicon is the family mark (assets/brand/icon.svg in this repo), inlined
+// so the page fetches nothing.
 export const PAGE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="referrer" content="no-referrer"><title>agent-neuron: people</title>
+<meta name="referrer" content="no-referrer"><title>agent-neuron: people</title><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' width='256' height='256'%3E%3Cdefs%3E%3Cfilter id='glow' x='-40%25' y='-40%25' width='180%25' height='180%25'%3E%3CfeDropShadow dx='0' dy='0' stdDeviation='6' flood-color='%2339ff00' flood-opacity='0.55'/%3E%3C/filter%3E%3C/defs%3E%3Crect x='4' y='4' width='248' height='248' rx='58' fill='%230a0a0a'/%3E%3Cg filter='url(%23glow)' stroke='%2339ff00' stroke-width='13' fill='none' stroke-linecap='round' stroke-linejoin='round' %3E%3Cpath d='M60.3 121.5 L26.6 116.8'/%3E%3Cpath d='M68.2 104.6 L34.0 73.8'/%3E%3Cpath d='M87.0 94.4 L80.1 50.9'/%3E%3Cpath d='M80.1 50.9 L83.5 36.3'/%3E%3Cpath d='M80.1 50.9 L72.4 38.1'/%3E%3Ccircle cx='92' cy='126' r='31'/%3E%3Cpath d='M122.1 115.1 C 152 138 178 144 190.0 158.0'/%3E%3C/g%3E%3Ccircle cx='200' cy='168' r='12.5' fill='%2339ff00' filter='url(%23glow)'/%3E%3Cg filter='url(%23glow)' stroke='%2322d3ee' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M153.9 135.2 L168.2 142.7' stroke-width='9'/%3E%3C/g%3E%3C/svg%3E">
 <style nonce="__NONCE__">
 @font-face{font-family:"Josefin Sans";src:url(/fonts/josefin.ttf?t=__TOKEN__) format("truetype");font-weight:100 700;font-display:swap}
 @font-face{font-family:"Pixelify Sans";src:url(/fonts/pixelify.ttf?t=__TOKEN__) format("truetype");font-weight:400 700;font-display:swap}

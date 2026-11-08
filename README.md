@@ -1,5 +1,7 @@
 # agent-neuron
 
+<img src="assets/brand/icon-256.png" width="92" align="right" alt="agent-neuron's mark: a neon-green neuron, a signal riding its axon toward the terminal bouton, on a black rounded square">
+
 Any program (a shell script, a Python file, a model call) goes inside the same wrapper, a JSON stdin/stdout contract, so they can be wired together in any shape. Instead of a central controller deciding what runs, each wrapper carries its own rules: how many inputs must agree before it acts, when work has gone stale and gets cut, how much it may spend.
 
 This is an experiment at concept stage: a specification (version 0.1, draft), three engines — the TypeScript reference, a protocol test in Python and a complete second engine in Rust — and a set of demos. Nothing is on npm yet.
