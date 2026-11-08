@@ -6,10 +6,44 @@ This is an experiment at concept stage: a specification (version 0.1, draft), th
 
 The idea as a protocol, for agent and framework developers: [docs/WHITEPAPER.md](docs/WHITEPAPER.md) (a draft).
 
+## A team decides how its agents run
+
+The strongest pattern in coding agents right now is one developer with a harness. The failure mode when a
+team shares that harness is well known: plausible agent contributions that no rule was in a position to
+stop (slop grenades), and architectural choices made silently inside a diff (invisible lock-ins). Both
+come from the rules travelling as private prompt context. agent-neuron makes the coordination layer a
+network whose rules are data the whole team can see, argue with and version in git:
+
+- the work lands as **desk items** — every ask rides whole, on a page several people share, each person's
+  items filtered to their role;
+- **`threshold` decides quorum** (two reviewers agree on the direction), **a human gate decides the
+  irreversible step** (a merge as an `effect`: never cut, `unknown` on crash), and **budgets bound what
+  any agent may spend**;
+- every vote, accept and refusal lands as one auditable line, with the trace beside it showing which rule
+  fired — the decision record no harness keeps;
+- **agents join through MCP** (`neuron-engine mcp`: `check_network`, `run_network`, runs as jobs,
+  live resources), **people answer on the page**. Specs and guidelines ride as data the network names,
+  so the team's policy is a diffable file in git — and a spec change is itself a decided contribution
+  on the same surface.
+
+It runs today as a demo, with no model anywhere:
+
+```sh
+npm run demo:team
+```
+
+Two agent contributions sit on real branches of a scratch git repo. Two reviewers vote in their browser
+windows; the quorum settles the direction; a lead gates the merge; the merge is a real git commit with a
+tag, and the ledger of who decided what is on every page. Two scripted paths (`--headless`,
+`--headless --tie`) show the whole flow — quorum and tiebreak — without browsers. The full positioning,
+and the four protocol gaps this surface is driving (grants at the desk, durable holds, presence,
+quiescence): [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
+
 ## What's built, what's planned
 
 | Built | Planned |
 |---|---|
+| A shared decision surface: desk items for several people, quorum by `threshold`, a lead's gate on an `effect`, the merge a real git commit (`npm run demo:team`) | Grants validated at the desk's POST, a `human` hold that survives a restart, presence, run quiescence ([issue #30](https://github.com/overfocus/agent-neuron/issues/30)) |
 | Wrapper for scripts, executables, HTTP APIs and a human on stdin (`src/adapters/`); `human` neurons in network files, answered on a local page (`npm run demo:human`) | Connections that strengthen and weaken, and a network that rewires itself |
 | Many-to-many links, broadcast or targeted signals, each signal tracing its chain | Ignore conditions, passive and active channels |
 | Per-neuron `threshold` (N distinct senders must agree), `within`, `replaces` (a newer input cuts stale work) and `maxHops` (loops stop) | Limits other than `maxHops` |
@@ -79,7 +113,7 @@ The whole storm is this file, `spec/examples/alerts.network.json`. The programs 
 
 - **Unix pipes.** A level-0 neuron is a filter: a program that reads JSON on stdin and writes JSON on stdout. The difference is that neurons form a graph (many in, many out, loops allowed and bounded), not a line.
 - **Node-RED and similar flow files.** The shape is similar: a JSON file lists nodes and links. The difference I am trying for is that each node carries its own firing rules (threshold, staleness, budget, effect), and that those rules have a written specification and conformance fixtures, so another engine can be checked against the first. That has now happened three times: the TypeScript reference, a Python protocol test, and a complete Rust engine — all three pass the same 201 fixtures.
-- **Agent frameworks.** They usually put a controller or planner in the middle. Here nothing in the middle decides; and no model is required, since a neuron can be any program.
+- **Agent frameworks.** They usually put a controller or planner in the middle. Here nothing in the middle decides; and no model is required, since a neuron can be any program. And the top-level deciding can belong to the team: quorum, gates and budgets are neuron fields, so three people agreeing on a merge is the same graph that triages forty alerts by itself (`npm run demo:team`).
 
 I have not benchmarked any of these against it, and this one is far smaller and younger than all of them.
 
@@ -434,7 +468,7 @@ built yet. Every signal carries a `trace` shared by everything it leads to;
 answers record the signal they answer (`replyTo`), and `send` and `emit` take
 an optional `cause` to continue a trace. Nothing passes answers on by itself,
 and the network keeps no store of past signals. Listeners for `emit` work (`onSignal`, `onError`, `onDrop`) are
-called safely: if one throws, the error is swallowed. A small Rust program also runs as a neuron through the shell adapter (`npm run demo:rust`), showing the wrapper is not tied to one language. A local page draws any of three demos live as they run (`npm run view`). Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md).
+called safely: if one throws, the error is swallowed. A small Rust program also runs as a neuron through the shell adapter (`npm run demo:rust`), showing the wrapper is not tied to one language. A local page draws any of three demos live as they run (`npm run view`). The team demo (`npm run demo:team`) runs the same engine's desk as a shared decision surface for three people over real git branches, the merge among them an effect — the multiplayer protocol pieces around it (grants at the desk's POST, durable holds, presence, quiescence) are [issue #30](https://github.com/overfocus/agent-neuron/issues/30)'s SPEC gaps, positioned in [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md). Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md).
 
 ## Run the first example
 
