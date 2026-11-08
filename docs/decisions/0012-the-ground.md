@@ -1,7 +1,14 @@
 # Decision record 0012: the ground (2026-11-08)
 
-**Status: decided by Kevin on 2026-11-08** — the colony plan, bands 1–3, first for a
-recording of `agent-neuron-demos`' colony — **and built.**
+**Status: decided (Kevin, 2026-11-08)** — the colony plan, bands 1–3, first for a
+recording of `agent-neuron-demos`' colony — **and built.** All three engines pass
+224 of 224 (`spec/fixtures`, the 21 of this record included) and 10 of 10
+(`py/probes`): the TypeScript reference (engine, fixtures and mutants:
+`cc91db9`, `a4dc4b9`, `1370ec8`), the Rust engine (`ae4fcf6`, `22e4cce`,
+`43138d8`) and the Python engine (`a83349e`, `e9d9725`, `15875a5`), five
+consecutive conform runs identical in each. The demos carry it: the colony's
+recruitment, dry patches and seeded drops on `feat/colony-comms` (`081ff13`…
+`48c58f9`).
 
 ## The problem
 
@@ -89,11 +96,16 @@ nothing to a payload that lacks them.
 
 ## How it is checked
 
-New fixtures under `spec/fixtures/ground/` pin a deposit and its event, ageing
-between deposits, a seeded draw (exact outcomes), a named `to` consuming no word,
-a dead trail forwarding nothing, a refusal per `check` above, and a
-no-`ground` network forwarding on the v0.1 rule. All three engines conform
-(TypeScript reference, Rust, Python; `conform spec/fixtures`, `py/probes`
-unchanged at 10 of 10), `npm run check` and each engine's own gate pass, the
-Rust and TS runs are identical over five consecutive runs, and
-`agent-neuron-demos`' `npm test` passes with its colony consuming the layer.
+New fixtures under `spec/fixtures/ground/` (21) pin a deposit and its event,
+ageing between deposits, a seeded draw (exact outcomes), a named `to` consuming
+no word, a dead trail forwarding nothing, one word per omitted-`to` reply, a
+refusal per `check` above, and a no-`ground` network forwarding on the v0.1
+rule — plus six mutants the ground fixtures must catch (`1370ec8`), the check
+refusals unit-tested in all three engines, and a 31-test Python unit suite
+beside `py/`. Gates on the branch: `npm run typecheck` and vitest 264/264;
+`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`
+green, five consecutive identical conform runs in Rust and Python;
+`conform py/probes` 10 of 10 unchanged. `agent-neuron-demos`' `npm test` (all
+demos headless against the real engine) passes with the colony recruiting on
+`feat/colony-comms`; its ground consumption is the colony work on this same
+plan.
