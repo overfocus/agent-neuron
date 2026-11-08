@@ -34,6 +34,61 @@ on one page, per run (0008's deliberate rule). Everyone else in the run is a
 worker. Timbre is thus the existence proof for multiplayer *among workers*;
 the missing multiplayer is the human side.
 
+## The team problem: slop grenades and invisible lock-ins
+
+A solo developer with a strong harness is extraordinarily productive. The same
+harness class aimed at a shared codebase by a team is not merely less
+productive — it fails in two specific ways, because the rules travel as one
+person's private context:
+
+- **Slop grenades.** Plausible, individually-passing contributions the
+  codebase's own norms were never in a position to stop. Each detonates
+  later, in maintenance: a duplicated abstraction, a second config system, a
+  rewritten helper under a new name. Review-by-review, taste is all the team
+  has, and there is no artifact a reviewer can point at.
+- **Invisible architectural lock-ins.** The contribution that silently picks
+  a library, a data shape, a coupling: the decision is made inside a diff,
+  and the team inherits it without ever having been asked. Lock-ins stay
+  invisible exactly until they are load-bearing.
+
+Both are failures of a missing surface, not of the agents. The rules existed;
+they lived in prompt context — private, per developer, unaudited,
+unversioned. The claim for teams is that the rules can travel as **data on
+the network instead**: diffs to review rather than context to trust.
+
+## The DNA of the neurons
+
+Every kind of rule the team wants to govern is already a field on, or a
+neighbour of, the network file:
+
+| Team rule | Where it rides | Today |
+|---|---|---|
+| What an agent may spend | the file's `budget` and each neuron's `cost`; a manager may lower a pool mid-run, never raise (decision 0006) | built |
+| What must never happen without a person | `effect: true` — never cut, `unknown` on crash, never retried (decision 0007) | built |
+| How many must agree | `threshold` N-of-M distinct senders on one trace (SPEC 5) | built |
+| What the neuron may read | the file's `env`: the engine passes through, by name, only what the file names (SPEC section 0) — a spec doc the network chose to hand it, not whatever the agent globs | built |
+| Who decides | `answerable_by` on the item payload; the grants-on-the-desk spike carries it into the desk's POST validation | payload shape: built; enforcement: next |
+| How the work is judged | the guide and rules as data — timbre's proven pattern: the guide is a draft to correct, learning folds the person's edits back, reviewers score each answer against the guide, and keep-token invariants fail a rewrite before anyone approves | built, on prose; generalises to code review against the spec |
+| What supersedes what | `replaces`, `maxHops`, staleness — the amended rule cuts the old rule's running work (SPEC 5.4, 7.2) | built |
+
+Two conclusions, stated plainly:
+
+- **Specs and guidelines travel as payloads and named files, not prompt
+  slop.** A team's spec is introduced the way timbre's guide is: a document
+  the run carries, named in `env`, scored against, held as keep-tokens where
+  it is load-bearing. When the spec itself changes, the change is a decided
+  contribution on the same surface — the policy repo is diffable, versioned
+  in git, and approved by the same people who approve the code.
+- **The decision record is the audit no harness keeps.** Every vote, accept
+  and refusal lands as one accepted line at its POST, beside the trace that
+  shows which rule fired. Months later the team can say who approved the
+  lock-in — because it was never invisible: it was an item someone approved,
+  by name, inside a budget and gates that live in git.
+
+The demo in this file's build order shows one slice — one quorum, one gate,
+one effect. The DNA layers stack on that same surface without new engines:
+each is a field in a file the team already reviews.
+
 ## The axes
 
 | Axis | Today | The org wants |
