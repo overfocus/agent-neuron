@@ -151,7 +151,7 @@ const mutations: { name: string; edits: [from: string, to: string, count?: numbe
   { name: 'a stale input cutting an effect call', edits: [["        if (w.node.spec.effect && !w.call.queued) { w.call.stale = true; continue; } // a started effect call is never cut (SPEC 11.2)\n", '']] },
   { name: 'a queued effect call kept when its input goes stale', edits: [['w.node.spec.effect && !w.call.queued', 'w.node.spec.effect']] },
   { name: 'only the crossing input making a threshold effect call stale', edits: [['{ w.call.stale = true; continue; }', '{ if (w === w.call.crossing) w.call.stale = true; continue; }']] },
-  { name: 'the answer of a stale effect call forwarded', edits: [["'answer' in o && !stale ? node.out", "'answer' in o ? node.out"]] },
+  { name: 'the answer of a stale effect call forwarded', edits: [[`const named = 'answer' in o && !stale;`, `const named = 'answer' in o;`]] },
   { name: 'the answer of a stale effect call not marked', edits: [['...(stale && { forwarded: false }), ', '']] },
   { name: 'the answer of a stale effect call discarded', edits: [['if (!call.cancelled) this.reply(call.crossing, o);', 'if (!call.cancelled && !call.stale) this.reply(call.crossing, o);']] },
   { name: 'a stale effect call not committing its cost', edits: [['if (!call.reserved) return;', 'if (!call.reserved || call.stale) return;']] },
@@ -169,6 +169,12 @@ const mutations: { name: string; edits: [from: string, to: string, count?: numbe
   { name: 'the trigger of an observer injection after finished', edits: [['trigger: e.id ?? e.trace }', 'trigger: e.id }']] },
   { name: 'a program that could not be started recorded as unknown', edits: [['o.started !== false && ', '']] },
   { name: 'an error code renamed', edits: [["code: 'neuron' }", "code: 'error' }"]] },
+  { name: 'a ground write that does not age the value (4.5)', edits: [['const v = (e ? e.v * Math.exp(-(this.ground!.evaporate ?? 0) * (t - e.at) / 1000) : 0) + amount;', 'const v = (e ? e.v : 0) + amount;']] },
+  { name: 'a ground read that does not age the value (4.5)', edits: [['    return e ? e.v * Math.exp(-(this.ground!.evaporate ?? 0) * (t - e.at) / 1000) : 0;', '    return e ? e.v : 0;']] },
+  { name: 'a ground generator that never advances (4.5)', edits: [['this.gen = (this.gen + 0x6D2B79F5) | 0; // 32-bit wrap add', 'this.gen = this.gen;']] },
+  { name: 'a ground draw over the links in reverse order (4.5)', edits: [['    for (let i = 0; i < node.out.length; i++) if ((acc += weights[i]!) > u * total) return [node.out[i]!];', '    for (let i = node.out.length - 1; i >= 0; i--) if ((acc += weights[i]!) > u * total) return [node.out[i]!];']] },
+  { name: 'a ground deposit.by that filters nobody (4.5)', edits: [['if (d.by !== undefined && d.by !== node.id) return;', 'if (false as boolean) return;']] },
+  { name: 'a ground event without its cause (4.5)', edits: [["{ type: 'ground', place, v, cause: replyId }", "{ type: 'ground', place, v }"]] },
 ];
 
 describe('mutation check: every broken engine fails at least one fixture', () => {
