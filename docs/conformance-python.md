@@ -9,6 +9,17 @@ A second engine, [`py/agent_neuron/`](../py/agent_neuron/), written from [SPEC.m
 
 **193 passed, 0 failed, 0 pending** on `spec/fixtures`, identical on repeated runs.
 
+**Update, 2026-11-08: 224 of 224.** Decision 0012 added `ground` (SPEC 4.5), the link layer: deposits kept per
+place with ageing at writes and never at reads, one-link routing for replies that name no `to`, and the pinned
+32-bit generator, with 21 fixtures under `spec/fixtures/ground/`. `engine.py` gained `draw_word`, `ground_draw`,
+`eff_value` and `deposit` (about 70 lines, every intermediate of the generator masked to 32 bits); `check.py`
+refuses the bad grounds of 0012 item 5, also inside a composed file. The ageing doubles and all four seeded
+draws matched the fixtures at the first full conform run; the whole `conform spec/fixtures` output hashes the
+same over five consecutive runs, and `py/probes` stays 10 of 10. A unit suite beside the engine now lives at
+`py/tests/test_ground.py` (unittest, standard library only, 31 tests): the refusals by message, the ground
+event's enumerated fields and its place right after its answer's event, the ageing arithmetic, and the words
+per seed — `PYTHONPATH=py python3 -m unittest discover -s py/tests -p "test_*.py"`.
+
 **Update, 2026-11-08: 203 of 203.** Decision 0011 added `at`, a descriptive field, and two fixtures
 (`spec/fixtures/descriptive/`); `check.py` learned its shape (about 8 lines). The refusal passed at once; the
 "changes nothing" fixture failed until `at` was accepted, which is what it is for.
