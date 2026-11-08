@@ -15,8 +15,10 @@ code, where it is tied to that code's language and can only be tested through it
 component's wrapper: a network file declares per neuron how many distinct senders must agree, how long an
 input may wait, what makes work stale, what a call may cost and whether it has an effect, and an engine
 enforces that around any program that reads and writes JSON on stdin and stdout. The specification is a draft at version 0.1, with 201 conformance fixtures that
-compare exact event lists on a virtual clock, a TypeScript reference engine, and a Python engine written
-from the text that passes the fixtures and found where the text says less than they do. I present it as
+compare exact event lists on a virtual clock, and three engines written from that text — the TypeScript
+reference, a Python protocol test that passed the fixtures and found where the text says less than they
+do, and a second complete engine in Rust (`rust-engine/`) that passes the same 201 fixtures and the ten
+Python probes. I present it as
 a small, checkable protocol for the agent and developer community to test, break and implement again.
 
 ## 2. The problem
@@ -219,7 +221,8 @@ process behaviour is each engine's own tests' business (CONFORMANCE.md introduct
 
 The reference engine is TypeScript (`src/engine/`). An earlier Rust engine was stopped as a no-go against
 criteria agreed in advance, though its differential runs led to clearer text and new fixtures (decision
-0005).
+0005); a second Rust engine restarted from the text under the terms 0005 set and is on `main` (section
+5.5; decision 0009).
 
 ### 5.4 A second engine
 
@@ -250,6 +253,35 @@ not state. The three most important (conformance-python.md, "Ambiguities and gap
 Five smaller ones (the `budget` message format, the place of `finished`, the failed-start count, the hang
 timer of a cancelled slot, a trailing space after `signal S:`) are in conformance-python.md. None is fixed
 in the specification yet.
+
+### 5.5 The second complete engine, in Rust
+
+A third engine followed the Python one, in Rust and on `main` (`rust-engine/`; [decision
+0009](decisions/0009-rust-engine.md)): written from SPEC.md, CONFORMANCE.md, the network schema, the
+fixtures and TRACE.md alone — the TypeScript engine used as a black box, per the terms decision 0005 set
+down — with the standard library only (a one-package `Cargo.lock`, nothing fetched), rustfmt at width
+140 and `cargo clippy --all-targets -- -D warnings` clean.
+
+**Result:** every fixture passes, identically over five consecutive runs — 201 in `spec/fixtures/`
+(201 passed, 0 failed, 0 pending) and the ten probes in `py/probes/` (10 passed, 0 failed, 0 pending) —
+plus 78 Rust tests on its own gates and 256 vitest tests on the merged tree, rerun for the record on
+2026-11-07 (decision 0009 records each gate and who reran it).
+
+**Scope:** the whole of the specification, for the first time in one engine: the real process layer
+(level 0 `run`, level 1 `serve`, pings, restart backoff, SIGTERM then SIGKILL after the kill grace, with
+the 6.3 notes), real `http` neurons (`https` refused honestly: no TLS in a std-only crate), `human`
+neurons answered on the desk of Appendix D (decision 0008), budgets, effects, the live stream and
+traces. It is also the family's MCP surface: `neuron-engine mcp` speaks JSON-RPC 2.0 over stdio
+(`check_network`, `run_network`, `start_run`/`poll_run` as a job with live `run://{id}` resources and
+notifications, `read_trace`), serves SPEC, CONFORMANCE, TRACE and the schema as embedded `spec://`
+resources, and deliberately exposes neither the fixtures nor `human` networks — the desk is the person's
+surface, not an MCP surface. Every trace it writes declares its ids scheme in the header
+(`{"signal":"run-numbered","trace":"run-numbered"}`; ids stay opaque strings, compared, never parsed —
+TRACE.md). The voice-rewrite tool timbre runs this engine as one built binary.
+
+**What it found** is the point of the criterion list: the fixtures as the contract held. The engine met
+the six criteria the first attempt missed, from the text alone, which is the specification's own claim
+to being a protocol — now tested three times over.
 
 ## 6. Worked example: the alert storm
 
@@ -396,15 +428,16 @@ has no OpenTelemetry equivalent; I would export it as status Error plus an attri
 
 - **Link strength and learning** are planned, not specified: `weight()` always returns 1
   (`src/network.ts`), the file has no strength field (SPEC 2.5, Appendix B), nothing is kept between runs.
-- **`http` and `human` neurons** are specified (SPEC 3.3, 3.4) but not run: the reference engine's
-  `check` warns and `run` refuses (SPEC Appendix C). The `http` failure row has no fixture (decision 0004).
+- **`http` and `human` neurons** run from a network file in the Rust engine (SPEC 3.3, 3.4; the desk is
+  decision 0008's, section 5.5); the reference engine still `check`-warns and `run`-refuses them (SPEC
+  Appendix C). The `http` failure row has no fixture (decision 0004).
 - **No model is called in any demo**; every "model" is a timed stand-in (README). A neuron can hold one,
   with its API key named in `env` (SPEC section 0): a design property, not a demo.
 - **POSIX only.** The engine runs on macOS and Linux (README "Development"; CONTRIBUTING.md). Windows is
   out of version 0.1 (SPEC Appendix B).
-- **One engine on `main`**, in TypeScript. The Python engine (section 5.4) runs fixtures only and is not
-  merged; the Rust attempt was stopped (decision 0005). The npm package is private and unpublished
-  (`package.json`).
+- **Three engines, two on `main`.** The TypeScript reference and the Rust engine (section 5.5) are on
+  `main`; the Python engine (section 5.4) came over with its branch and runs fixtures only. The npm
+  package is private and unpublished (`package.json`).
 - **Not in version 0.1:** usage reported by a neuron, spend per source or time window, retries, an
   engine-held `unknown`, effects inside a composed file, passive and active channels, `http`
   authentication (SPEC 10.8, Appendix B).
@@ -422,7 +455,8 @@ builder's choice 5). The level 1 protocol's `v` is `1`, bumped only by a change 
 **How to take part.**
 
 - **Implement an engine** in any language against the fixtures; `<engine> conform <dir>` is the contract
-  (CONFORMANCE.md 8). Decision 0005 and conformance-python.md record what two attempts found.
+  (CONFORMANCE.md 8). Decisions 0005 and 0009 and conformance-python.md record what three attempts
+  found.
 - **Open an issue on any ambiguity in the specification**, at
   [github.com/overfocus/agent-neuron/issues](https://github.com/overfocus/agent-neuron/issues). Two earlier
   issues changed the spec: #16 (`phase` on drops) and #17 (any replaced input cuts a running threshold
@@ -486,9 +520,10 @@ in the positioning note this draft was built from. Quotations are under 15 words
 20. <a id="ref-20"></a>Model Context Protocol, Tasks (revision 2025-11-25, experimental there). Model Context Protocol project. Kind: spec. <https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks>. Read 2026-11-05.
 21. <a id="ref-21"></a>Alertmanager configuration. Prometheus (CNCF). Kind: docs. <https://prometheus.io/docs/alerting/latest/configuration/>. Read 2026-11-05.
 
-Files in this repository cited above (commit `4043967`): [SPEC.md](SPEC.md) (version 0.1),
+Files in this repository cited above (read 2026-11-07 on `main`): [SPEC.md](SPEC.md) (version 0.1),
 [CONFORMANCE.md](CONFORMANCE.md), [TRACE.md](TRACE.md), [DEMOS.md](DEMOS.md), [USE-CASES.md](USE-CASES.md),
-[decisions/](decisions/) 0001 to 0007, `spec/network.schema.json`, `spec/examples/`, `spec/fixtures/`,
+[decisions/](decisions/) 0001 to 0009, `spec/network.schema.json`, `spec/examples/`, `spec/fixtures/`,
 `test/conformance.test.ts`, `traces/alerts.json`, `traces/alerts-threshold-1.json`,
 `traces/alerts-threshold-3.json`, `examples/alerts-demo.mjs`, `examples/alerts/topology.json`,
-[README.md](../README.md), [CONTRIBUTING.md](../CONTRIBUTING.md).
+[rust-engine/README.md](../rust-engine/README.md), [README.md](../README.md),
+[CONTRIBUTING.md](../CONTRIBUTING.md).
