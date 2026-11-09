@@ -459,6 +459,29 @@ pub struct RunOutcome {
     pub timed_out: bool,
 }
 
+/// One call to a peer-hosted graph (finding 3, 0014), the shape the worker's
+/// connection reads as its `done` reply. The engine is planted once for the
+/// worker process and the call enters its own composed boundary, so the
+/// outcome is 2.6's per-call rules: the inside's `exit` replied, or the
+/// inside was quiet, or it failed.
+pub enum GraphOut {
+    /// The first reply of the file's `exit` (2.6 step 2): the boundary's
+    /// answer, the whole payload.
+    Answer(Value),
+    /// The inside settled with nothing running, queued or held for the call
+    /// and `exit` had not replied (2.6 step 3).
+    Quiet,
+    /// An inner failure (2.6 step 3): the wire says the boundary's fixed
+    /// `inner` message whatever `why` says — `why` is the cause for the
+    /// worker's stderr only (sealing keeps it out of anything reported).
+    Failed(Option<String>),
+    /// The call's timeout cut it (2.6 step 4): the caller reported the
+    /// timeout at the same instant; the reply only releases the connection.
+    TimedOut,
+    /// The wire's cancel cut the call (5.4's cut): the driver owns the end.
+    Cancelled,
+}
+
 impl RunOutcome {
     /// The answers as the run prints them (4.4): a text payload as its text,
     /// the rest as their JSON value.
@@ -553,6 +576,12 @@ pub struct Engine {
     /// The peers this run dispatches to (decision 0013), when `--peers` named
     /// any: the placement is read at the plant, the wire at each call.
     peers: Option<crate::peers::Peers>,
+    /// An inner failure's own wording, for a caller that runs ONE boundary
+    /// over many calls (the peer's graph worker, finding 3, 0014): the wire
+    /// says the boundary's fixed `inner` message; this is the cause for the
+    /// worker's stderr only, and a diagnostic — nothing of the run's records
+    /// reads it (sealing holds: inner events are never reported out).
+    inner_why: Option<String>,
 }
 
 impl Engine {
@@ -610,6 +639,7 @@ impl Engine {
             grants: None,
             ground: None,
             peers: None,
+            inner_why: None,
         }
     }
 
@@ -1699,6 +1729,12 @@ impl Engine {
         self.works[work].reported = true;
         if sigrec.inst != 0 {
             if let Some(cw) = sigrec.owner_call {
+                // The wording the peer's worker logs when this instance's
+                // call fails: the wire says the boundary's fixed `inner`,
+                // and sealing keeps this out of the run's records.
+                if self.inner_why.is_none() {
+                    self.inner_why = Some(msg.to_string());
+                }
                 self.works[cw].fail_inner = true;
             }
         }
@@ -4532,8 +4568,13 @@ impl Engine {
         match outcome {
             Outcome::Fail { code, msg } => {
                 // An inner failure: the composed call's error comes when the
-                // inside has nothing left for the call.
-                let _ = (code, msg);
+                // inside has nothing left for the call. The exit's own
+                // wording rides with the worker's diagnostic (the wire says
+                // the boundary's fixed `inner`; sealing holds).
+                let _ = code;
+                if self.inner_why.is_none() {
+                    self.inner_why = Some(msg.clone());
+                }
                 self.works[cw].fail_inner = true;
             }
             Outcome::Quiet => self.call_replied(cw, Outcome::Quiet),
@@ -4604,6 +4645,131 @@ impl Engine {
                 self.call_replied(cw, Outcome::Quiet);
             }
         }
+    }
+}
+// ---------------------------------------------------------------------------
+// One call to a hosted graph (finding 3, 0014)
+// ---------------------------------------------------------------------------
+
+impl Engine {
+    /// A plant-time refusal (a file this route cannot host), for a caller
+    /// that drives many calls against one engine: the refusal is about the
+    /// instance, so it repeats for every call.
+    pub(crate) fn refusal(&self) -> Option<&str> {
+        self.refused.as_deref()
+    }
+
+    /// One call to a peer-hosted graph (finding 3, 0014). The engine was
+    /// planted once for the worker process, the hosted file sitting behind
+    /// one composed boundary of instance 0 (`boundary`, the id peers.rs gave
+    /// it), so a call arrives the way a composed node's call arrives here: a
+    /// signal at the boundary starts the call, `start_composed` delivers the
+    /// payload at the file's `entry` as a new inner root (new trace, hops 0,
+    /// its own pool, 2.6 step 1), and the engine's own machinery finishes
+    /// the call — the first reply of the file's `exit` is the boundary's
+    /// reply and the remaining inner work is cancelled through the composed
+    /// cut (`composed_exit_replied`, `composed_cancel_inner`, 2.6 step 2),
+    /// an inside with nothing left is quiet, or `inner` after an inner
+    /// failure (step 3, via `wake_composed_calls` — the loop gives it the
+    /// same check after every wake-up the run's loop does), and a timeout of
+    /// the call cuts it like any call's timeout (step 4). The engine
+    /// persists: its serve programs and their state are shared by the
+    /// instance's calls, isolated per call by the fresh root (2.6 step 4).
+    ///
+    /// `cancelled` is the wire's word: the connection's reader holds what a
+    /// cancel saw, and this loop polls it one step at a time — the closure
+    /// decides by THIS call's id, so a cancel held for another call never
+    /// cuts this one. When it fires, the call is cut the way any staleness
+    /// cut is (`cut_work`, 5.4) and the caller answers what the wire needs.
+    pub fn hosted_call(&mut self, boundary: &str, payload: Value, timeout_ms: u64, cancelled: &dyn Fn() -> bool) -> GraphOut {
+        let Some(node) = self
+            .nodes
+            .iter()
+            .position(|n| n.inst == 0 && matches!(n.kind, Kind::Network(_)) && n.display == boundary)
+        else {
+            return GraphOut::Failed(Some(format!("no composed boundary '{boundary}' in the graph the worker hosts")));
+        };
+        if let Some(why) = self.refusal().map(|s| s.to_string()) {
+            return GraphOut::Failed(Some(why));
+        }
+        // The call is one root, and the events of the calls before it are
+        // their own: this call's harvest starts here (the caller's next
+        // answer must not see a predecessor's leftovers).
+        self.inner_why = None;
+        self.events.clear();
+        let sig = self.new_signal(node, vec![node], payload_of(payload), 0, None, None, None, None, 0, None);
+        let work = self.make_call(node, sig, WSt::Running);
+        // The call's timeout is the wire's: `start_composed` arms it with
+        // the boundary's timeout (6.2), so the cut cancels the inside at it.
+        self.nodes[node].timeout = timeout_ms;
+        self.start_new_call(work);
+        while !self.works[work].done {
+            if cancelled() {
+                // A cancel for this call is on the wire (the reader saw it
+                // and the id is this call's): the cut a staleness cut would
+                // give the call (5.4, 2.6 step 4). The reply is the caller's
+                // cut machinery's own; the wire carries a stopped call.
+                self.cut_work(work);
+                return GraphOut::Cancelled;
+            }
+            if self.deadline_due() {
+                // The worker's backstop (the caller's budget is the driver's
+                // timeout plus its own): cut the call as its timeout would
+                // (2.6 step 4) and say the run stopped here.
+                self.cut_work(work);
+                return GraphOut::TimedOut;
+            }
+            let next = self.next_wake();
+            let cap = match (next, self.deadline) {
+                (Some(t), Some(d)) => Some(t.min(d)),
+                (t, d) => t.or(d),
+            };
+            if self.host_step(cap) {
+                self.wake_composed_calls();
+                continue;
+            }
+            if self.deadline_due() {
+                self.cut_work(work);
+                return GraphOut::TimedOut;
+            }
+            self.now = next.unwrap_or_else(|| self.now + 65_536);
+            let Some(w) = self.pop() else {
+                // The heap is empty and nothing is due: only a process
+                // outcome can close the call. The pump waits to the deadline
+                // when one is set, and a step at a time when none is.
+                if self.host_step(self.deadline) {
+                    self.wake_composed_calls();
+                    continue;
+                }
+                if self.deadline_due() {
+                    self.cut_work(work);
+                    return GraphOut::TimedOut;
+                }
+                // The next event ends this instant; the loop's own checks
+                // are the deadlines that matter.
+                continue;
+            };
+            self.fire(w);
+            self.wake_composed_calls();
+        }
+        // The call is done of itself. The boundary's answer is the inside's
+        // first exit reply (2.6 step 2) — its own entry in `answers` (the
+        // boundary is a sink by construction: the wrapper plants no links).
+        // A quiet inside pushed nothing (step 3); an inner failure's fixed
+        // message is the wire's word and its cause stays on stderr (sealing).
+        let answers = std::mem::take(&mut self.answers);
+        if answers.last().map(|(who, _)| who.as_str()) == Some(boundary) {
+            return GraphOut::Answer(answers.last().expect("the boundary's answer").1.as_full());
+        }
+        if self.works[work].fail_inner {
+            return GraphOut::Failed(self.inner_why.take());
+        }
+        if self.works[work].reported {
+            // The call's own timeout (the machinery's cut): the caller
+            // reported the timeout at the same instant.
+            return GraphOut::TimedOut;
+        }
+        GraphOut::Quiet
     }
 }
 // ---------------------------------------------------------------------------

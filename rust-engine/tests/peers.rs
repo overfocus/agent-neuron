@@ -618,6 +618,181 @@ fn a_graph_node_needs_a_graph_peer() {
     assert!(trace.contains("\"code\":\"inner\""), "the trace reads: {trace}");
 }
 
+// -- The composed boundary of one hosted instance (finding 3, 0014) ----------
+
+/// A program of `tests/progs/`, as the suites use it (the peers tests need
+/// one again: 0014's finding 3 probes a stateful serve across calls).
+fn progs(name: &str) -> String {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/progs")
+        .join(name)
+        .to_string_lossy()
+        .to_string()
+}
+
+/// The graph the audit probed state with: a counter whose count is the serve
+/// process's own. One shared inner network per instance (2.6) means the count
+/// says what the instance kept: two calls see 1 then 2. An engine planted per
+/// call restarts the process and restates 1.
+const STATEFUL_OUTER: &str = r#"{
+  "version": 0,
+  "name": "stateful-outer",
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "graph", "description": "a stateful network", "network": "stateful-inner.network.json", "timeout": 20000}
+  ],
+  "links": [{"from": "src", "to": "graph"}]
+}
+"#;
+
+const STATEFUL_INPUTS: &str = "{\"at\": 0, \"source\": \"src\", \"payload\": {}}\n{\"at\": 500, \"source\": \"src\", \"payload\": {}}\n";
+
+#[test]
+fn a_hosted_graph_keeps_its_inner_serve_state_across_calls() {
+    let temp = Temp::new("graph-state");
+    let inner = temp.write(
+        "stateful-inner.network.json",
+        &format!(
+            r#"
+{{
+  "version": 0,
+  "name": "stateful-inner",
+  "entry": "entry",
+  "exit": "counter",
+  "neurons": [
+    {{"id": "entry", "description": "input", "run": ["/bin/cat"]}},
+    {{"id": "counter", "description": "remembers calls", "serve": ["python3", "{}"], "timeout": 20000}}
+  ],
+  "links": [{{"from": "entry", "to": "counter"}}]
+}}
+"#,
+            progs("counter_serve.py"),
+        ),
+    );
+    let outer = temp.write("outer.network.json", STATEFUL_OUTER);
+    let inputs = temp.write("inputs.jsonl", STATEFUL_INPUTS);
+
+    // The same two calls, one local run: the local composed boundary is the
+    // reference answer (the instance is one, so the count climbs).
+    let local = run(&temp, &outer, &inputs, &temp.path("local.json"), &[], &[]);
+    assert!(local.status.success(), "the local run failed: {}", stderr(&local));
+    assert!(stdout(&local).contains("\"count\":1"), "the first call: {}", stdout(&local));
+    assert!(
+        stdout(&local).contains("\"count\":2"),
+        "the same state seen twice: {}",
+        stdout(&local)
+    );
+
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--network", inner.to_str().expect("a path")]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"graph\": \"b\"}"));
+    let remote = run(
+        &temp,
+        &outer,
+        &inputs,
+        &temp.path("remote.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(remote.status.success(), "the peer run failed: {}", stderr(&remote));
+
+    // The hosted instance is one engine (2.6): the second call enters the
+    // serve process the first call started, so it reads 2 — a fresh engine
+    // per call restates 1.
+    assert_eq!(stdout(&local), stdout(&remote), "the answers differ");
+    assert!(stdout(&remote).contains("\"count\":1"), "the first call: {}", stdout(&remote));
+    assert!(
+        stdout(&remote).contains("\"count\":2"),
+        "the second call saw the first's state: {}",
+        stdout(&remote)
+    );
+    let a = events(&temp.path("local.json"));
+    let b = events(&temp.path("remote.json"));
+    assert_eq!(a.len(), b.len(), "the event counts differ: {:?} vs {:?}", a, b);
+    for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+        assert!(
+            x.deep_eq(y),
+            "event {} differs:\n  local: {}\n  peer:  {}",
+            i,
+            json::write(x),
+            json::write(y)
+        );
+    }
+}
+
+/// The graph whose `exit` answers while a sibling still runs: the first reply
+/// of `exit` is the call's answer and the remaining inner work is cancelled
+/// (2.6 step 2) — the sibling's program is stopped before it can write its
+/// late marker, the way a local composed cut stops it (the composed-cut test
+/// of the real suite, finding 2's style, watched from here through the wire).
+const CUT_OUTER: &str = r#"{
+  "version": 0,
+  "name": "cut-outer",
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "graph", "description": "a whole network", "network": "cut-inner.network.json", "timeout": 20000}
+  ],
+  "links": [{"from": "src", "to": "graph"}]
+}
+"#;
+
+#[test]
+fn a_hosted_graphs_first_exit_reply_cuts_the_work_running_inside() {
+    let temp = Temp::new("graph-cut");
+    let marker = "late-ran.txt";
+    let _ = std::fs::remove_file(temp.path(marker));
+    let inner = temp.write(
+        "cut-inner.network.json",
+        &format!(
+            r#"
+{{
+  "version": 0,
+  "name": "inner-cut",
+  "neurons": [
+    {{"id": "entry", "description": "in", "run": ["/bin/cat"]}},
+    {{"id": "slow", "description": "a slow sibling", "run": ["/bin/sh", "-c", "read line; sleep 1; printf ran > {marker}"]}},
+    {{"id": "exit", "description": "answers first", "run": ["/bin/sh", "-c", "read line; sleep 0.3; printf '{{\"fast\":1}}'"]}}
+  ],
+  "links": [{{"from": "entry", "to": "slow"}}, {{"from": "entry", "to": "exit"}}],
+  "entry": "entry",
+  "exit": "exit"
+}}
+"#,
+            marker = temp.path(marker).to_string_lossy(),
+        ),
+    );
+    let outer = temp.write("outer.network.json", CUT_OUTER);
+    let inputs = temp.write("inputs.jsonl", INPUTS);
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--network", inner.to_str().expect("a path")]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"graph\": \"b\"}"));
+    let out = run(
+        &temp,
+        &outer,
+        &inputs,
+        &temp.path("trace.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    // The first reply of `exit` is the whole answer of the call: nothing else
+    // of the inside crosses (2.6 step 2, sealing).
+    assert_eq!(stdout(&out).trim(), "{\"fast\":1}", "the composed answer: {}", stdout(&out));
+    // The sibling was cut with the call: it never reached its late marker.
+    // A worker that waits the whole inside out is the old engine-per-call
+    // shape the finding forbids.
+    for _ in 0..20 {
+        if temp.path(marker).exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert!(
+        !temp.path(marker).exists(),
+        "the sibling's program wrote its late marker: the exit's first reply did not cut the work running inside (2.6 step 2)"
+    );
+}
+
 // -- A cut reaches the peer (P1: the cancel message) ------------------------
 
 /// The network's `replaces` cuts a *running* call on the peer: the driver sends
