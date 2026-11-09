@@ -1,10 +1,18 @@
 // The peers (decision 0013, docs/P2P.md P0): a run's peers file names the
 // machines that execute some of its neurons, and this module carries one level
-// 0 call to one of them. P0 is the seam, not the protocol: the call is executed
+// P0 is the seam, not the protocol: the call is executed
 // on the peer by the same `host` code a local call uses, and its outcome comes
 // back as one `Ev::L0Done`, stamped by the engine when it reads the queue. The
 // engine's decisions, its clock, its trace and its budgets stay where they
 // were; only where a program runs moves.
+//
+// `peer --network <file>` is the other mode: the peer is *one neuron* whose
+// inside is a whole network file. A call's payload is injected at the file's
+// `entry` and the file's `exit` answers, so an outer network can place a
+// `network` neuron on a peer and compose with it exactly as with a composed
+// neuron run locally. The file is instance 0 of the per-call engine, so its own
+// `--peers` placement works with plain neuron ids: a graph hosted by a peer can
+// itself be spread over peers, and from outside it is still one neuron.
 //
 // The wire is newline-delimited JSON over TCP, `v` 1, one call at a time per
 // connection: a `hello` (the peer's name and the run's token), then `call` /
@@ -20,11 +28,14 @@
 // as the http client's is; a peer that stops answering fails its call at the
 // call's timeout, never retried. P0 carries `run` neurons only, and the worker
 // holds a call's connection until its own backstop: the `cancel` message is P1.
+use crate::engine::Engine;
 use crate::host::{self, L0Out};
 use crate::json::{self, Obj, Value};
+use crate::net::{Kind, Link, NetFile, Network, Node};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -82,6 +93,66 @@ pub struct CallReq {
     /// The one JSON value the engine writes to a program's stdin.
     pub input: String,
     pub timeout: u64,
+}
+
+/// A peer that is one neuron (decision 0013): a network file run per call,
+/// injected at its `entry` and answered by its `exit`. The file is instance 0 of
+/// the per-call engine, so its own `--peers` placement works with plain neuron
+/// ids — a graph hosted by a peer can itself be spread over peers, and from
+/// outside it is still one neuron.
+pub struct Graph {
+    net: Network,
+    files: HashMap<String, NetFile>,
+    base: PathBuf,
+    entry: String,
+    exit: Option<String>,
+    /// The synthetic source a call's payload is injected at (the file itself
+    /// has no source: 2.6).
+    source: String,
+    /// The graph's own peers file, when the worker was given one.
+    peers: Option<String>,
+}
+
+impl Graph {
+    /// Load the file a worker hosts. It must be composed-shaped: an `entry` to
+    /// inject at, no `source` (the input comes from the call), no `ground` (2.6).
+    pub fn open(file: &str, peers: Option<&str>) -> Result<Graph, String> {
+        let path = std::path::Path::new(file);
+        let abs = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map_err(|e| format!("{}: the working directory is unreadable ({})", file, e))?
+                .join(path)
+        };
+        let (net, files) = crate::runner::load_network_tree(&abs).map_err(|e| format!("{}: {}", file, e.join("; ")))?;
+        let Some(entry) = net.entry.clone() else {
+            return Err(format!("{}: has no `entry`, so a call has nowhere to enter", file));
+        };
+        if net.nodes.iter().any(|n| matches!(n.kind, Kind::Source)) {
+            return Err(format!(
+                "{}: has a `source`; a network hosted as one neuron takes its input from the call",
+                file
+            ));
+        }
+        if net.ground.is_some() {
+            return Err(format!("{}: declares a `ground`, which a composed file may not (2.6)", file));
+        }
+        let mut source = "__in".to_string();
+        while net.node(&source).is_some() {
+            source.push('_');
+        }
+        let base = abs.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+        Ok(Graph {
+            exit: net.exit.clone(),
+            net,
+            files,
+            base,
+            entry,
+            source,
+            peers: peers.map(|s| s.to_string()),
+        })
+    }
 }
 
 impl Peers {
@@ -346,6 +417,8 @@ pub fn main(args: &[String]) {
     let mut listen: Option<String> = None;
     let mut token: Option<String> = None;
     let mut name = "peer".to_string();
+    let mut network: Option<String> = None;
+    let mut peers: Option<String> = None;
     let mut i = 0;
     while i < args.len() {
         if i + 1 >= args.len() {
@@ -355,6 +428,8 @@ pub fn main(args: &[String]) {
             "--listen" => listen = Some(args[i + 1].clone()),
             "--token" => token = Some(args[i + 1].clone()),
             "--name" => name = args[i + 1].clone(),
+            "--network" => network = Some(args[i + 1].clone()),
+            "--peers" => peers = Some(args[i + 1].clone()),
             _ => usage(),
         }
         i += 2;
@@ -363,6 +438,18 @@ pub fn main(args: &[String]) {
     if !token_ok(&token) || !id_ok(&name) {
         usage();
     }
+    // A peer without `--network` runs programs; with it, the peer *is* one
+    // neuron whose inside is a graph.
+    let graph = match &network {
+        None => None,
+        Some(file) => match Graph::open(file, peers.as_deref()) {
+            Ok(g) => Some(Arc::new(g)),
+            Err(why) => {
+                eprintln!("peer {}: cannot host the network: {}", name, why);
+                std::process::exit(1);
+            }
+        },
+    };
     host::install_signal_teardown();
     let listener = match TcpListener::bind(&listen) {
         Ok(l) => l,
@@ -372,7 +459,8 @@ pub fn main(args: &[String]) {
         }
     };
     let bound = listener.local_addr().map(|a| a.to_string()).unwrap_or_else(|_| listen.clone());
-    eprintln!("peer {}: listening on {}", name, bound);
+    let mode = if graph.is_some() { "graph" } else { "program" };
+    eprintln!("peer {}: listening on {} ({})", name, bound, mode);
     for stream in listener.incoming() {
         match stream {
             // One thread per connection, as the desk's page has: a driver that
@@ -380,7 +468,8 @@ pub fn main(args: &[String]) {
             Ok(s) => {
                 let token = token.clone();
                 let name = name.clone();
-                host::spawn_thread("peer-conn", move || serve(s, &token, &name));
+                let graph = graph.clone();
+                host::spawn_thread("peer-conn", move || serve(s, &token, &name, graph));
             }
             // A probe that connected and left is not an error worth ending the
             // peer's service for (a test's readiness poll, a port scan).
@@ -391,11 +480,12 @@ pub fn main(args: &[String]) {
 
 fn usage() -> ! {
     eprintln!("usage: neuron-engine peer --listen <host:port> --token <hex> [--name <name>]");
+    eprintln!("       neuron-engine peer --listen <host:port> --token <hex> --network <file> [--peers <json>]");
     std::process::exit(2);
 }
 
 /// One connection: the handshake, then calls until the driver closes it.
-fn serve(stream: TcpStream, token: &str, name: &str) {
+fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Arc<Graph>>) {
     let _ = stream.set_read_timeout(Some(Duration::from_millis(CONNECT_MS)));
     let _ = stream.set_write_timeout(Some(Duration::from_millis(CONNECT_MS)));
     let mut reader = BufReader::new(match stream.try_clone() {
@@ -425,6 +515,7 @@ fn serve(stream: TcpStream, token: &str, name: &str) {
         .str("type", "hello")
         .int("v", 1)
         .str("peer", name.to_string())
+        .str("mode", if graph.is_some() { "graph" } else { "program" })
         .set("ok", Value::Bool(true))
         .build();
     if write_line(&mut writer, &ok).is_err() {
@@ -439,16 +530,19 @@ fn serve(stream: TcpStream, token: &str, name: &str) {
         if msg.get("type").and_then(Value::as_str) != Some("call") {
             return;
         }
-        let done = execute(&msg, name);
+        let done = match &graph {
+            Some(g) => execute_graph(g, &msg, name),
+            None => execute_program(&msg, name),
+        };
         if write_line(&mut writer, &done).is_err() {
             return;
         }
     }
 }
 
-/// Run one call here, in this host's code: the same spawn, the same 1 MiB cap,
-/// the same settle and the same classification a local call gets.
-fn execute(call: &Value, name: &str) -> Value {
+/// Run one program call here, in this host's code: the same spawn, the same
+/// 1 MiB cap, the same settle and the same classification a local call gets.
+fn execute_program(call: &Value, name: &str) -> Value {
     let id = call.get("id").and_then(Value::as_i64).unwrap_or(0);
     let reply = |out: Value| Obj::new().str("type", "done").int("id", id).set("out", out).build();
     let argv: Vec<String> = call
@@ -511,6 +605,99 @@ fn execute(call: &Value, name: &str) -> Value {
     reply(outcome_json(&out))
 }
 
+/// Run one call as a whole network: the payload enters the file's `entry`, the
+/// file's `exit` answers (or an inner failure is `inner`, or nothing is quiet —
+/// 2.6's rules, applied to a run of the file as instance 0).
+fn execute_graph(g: &Graph, call: &Value, name: &str) -> Value {
+    let id = call.get("id").and_then(Value::as_i64).unwrap_or(0);
+    let reply = |out: Value| Obj::new().str("type", "done").int("id", id).set("out", out).build();
+    let inner = |why: String| reply(Obj::new().str("kind", "inner").str("message", why).build());
+    let text = call.get("input").and_then(Value::as_str).unwrap_or("");
+    let payload = match json::parse(text) {
+        Ok(v) => v,
+        Err(e) => return inner(format!("the call's input is not JSON ({})", e)),
+    };
+    let timeout = call.get("timeout").and_then(Value::as_u64).unwrap_or(30_000).min(3_600_000);
+    // The file is instance 0 here, so its own placement (plain neuron ids) is
+    // the one the engine reads: a graph can be spread over peers itself.
+    let mut net = g.net.clone();
+    net.nodes.push(Node {
+        id: g.source.clone(),
+        desc: String::new(),
+        at: None,
+        kind: Kind::Source,
+        opts: Default::default(),
+    });
+    net.links.push(Link {
+        from: g.source.clone(),
+        to: g.entry.clone(),
+    });
+    let inputs = vec![crate::fixture::Input {
+        at: 0,
+        source: g.source.clone(),
+        payload,
+        replaces: None,
+        budget: None,
+    }];
+    let mut eng = Engine::new_real(inputs, 10_000);
+    // A person answers at a desk on their own machine; this surface has none
+    // (3.4), so a graph with a human neuron is refused at its plant.
+    eng.set_no_desk();
+    // The driver's timeout owns the call; this is the backstop past it.
+    eng.set_deadline_ms(timeout.saturating_add(BACKSTOP_MS));
+    let failed = |why: String| {
+        // Sealing (2.6): the inside's cause stays on the worker's stderr, and
+        // the boundary says only what a composed neuron says. A log line that
+        // cannot be written is dropped: a closed stderr pipe must not take the
+        // connection (and the call) down with it.
+        let _ = writeln!(std::io::stderr(), "peer {}: graph {:?} failed: {}", name, g.net.name, why);
+        inner("no answer: an inner neuron failed".to_string())
+    };
+    if let Some(p) = &g.peers {
+        match Peers::load(p) {
+            Ok(peers) => eng.set_peers(peers),
+            Err(e) => return failed(format!("the graph's peers: {}", e)),
+        }
+    }
+    if let Err(e) = eng.plant(&net, &g.files, Some(&g.base)) {
+        return failed(format!("cannot plant: {}", e));
+    }
+    if let Some(why) = eng.start_serves_err() {
+        eng.stop_after_refusal();
+        return failed(format!("the graph refused the run: {}", why));
+    }
+    let outcome = eng.run();
+    if let Some(why) = &outcome.refused {
+        return failed(why.clone());
+    }
+    if outcome.timed_out {
+        return failed(format!(
+            "the graph did not settle within {} ms",
+            timeout.saturating_add(BACKSTOP_MS)
+        ));
+    }
+    // The exit's answer is the neuron's answer; a file with no `exit` answers
+    // with its first sink, as a run prints them (4.4).
+    let pick = match &g.exit {
+        Some(x) => outcome.answers.iter().find(|(who, _)| who == x),
+        None => outcome.answers.first(),
+    };
+    if let Some((_, payload)) = pick {
+        return reply(Obj::new().str("kind", "answer").set("payload", payload.as_full()).build());
+    }
+    // No answer and something failed inside: 2.6's `inner` (the message keeps
+    // the inner cause, as a composed neuron's own error text does).
+    if let Some(ev) = outcome
+        .events
+        .iter()
+        .find(|e| e.get("type").and_then(Value::as_str) == Some("error"))
+    {
+        let msg = ev.get("message").and_then(Value::as_str).unwrap_or("an inner neuron failed");
+        return failed(format!("an error event: {}", msg));
+    }
+    reply(Obj::new().str("kind", "quiet").build())
+}
+
 /// A level 0 outcome as one wire object: the classification the engine applies,
 /// not the raw streams, so both sides of the wire agree on what happened.
 fn outcome_json(out: &L0Out) -> Value {
@@ -529,6 +716,7 @@ fn outcome_json(out: &L0Out) -> Value {
             .str("stderr", stderr.clone())
             .build(),
         L0Out::Overlong => Obj::new().str("kind", "overlong").build(),
+        L0Out::Inner(msg) => Obj::new().str("kind", "inner").str("message", msg.clone()).build(),
     }
 }
 
@@ -548,6 +736,12 @@ fn outcome_of_json(v: &Value) -> Result<L0Out, String> {
             stderr: stderr(),
         },
         "overlong" => L0Out::Overlong,
+        "inner" => L0Out::Inner(
+            v.get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("no answer: an inner neuron failed")
+                .to_string(),
+        ),
         other => return Err(format!("unknown kind '{}'", other)),
     })
 }

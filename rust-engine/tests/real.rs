@@ -795,6 +795,47 @@ fn stream_pipe_without_reader_is_off() {
     assert!(has(&stderr(&out), "no reader"), "{}", stderr(&out));
 }
 
+// -- A composed neuron whose inside fails (2.6 step 3) ----------------------
+
+/// A composed neuron's `exit` failing is the composed call's `inner` error at
+/// once. The inside's last work ends as a host event, and only the wake-ups
+/// used to check whether the inside was empty — so the real host hung to the
+/// composed call's timeout instead (found building the peer layer, 0013).
+#[test]
+fn a_composed_neuron_whose_exit_fails_is_an_inner_error() {
+    let temp = Temp::new("composed-inner");
+    temp.write(
+        "inner.network.json",
+        r#"{
+  "version": 0,
+  "name": "inner",
+  "neurons": [
+    {"id": "entry", "description": "in", "run": ["/bin/cat"]},
+    {"id": "exit", "description": "fails", "run": ["/bin/sh", "-c", "exit 3"]}
+  ],
+  "links": [{"from": "entry", "to": "exit"}],
+  "entry": "entry",
+  "exit": "exit"
+}
+"#,
+    );
+    let net = temp.write(
+        "network.json",
+        &network("", &[("graph", "\"network\"", "\"inner.network.json\"", ", \"timeout\": 3000")]),
+    );
+    let inputs = inputs_file(&temp, &[("0", "src", "{\"n\": 1}")]);
+    let trace_path = temp.path("trace.json");
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &trace_path.to_string_lossy()]);
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    assert_eq!(stdout(&out), "", "a failing composed neuron answers nothing");
+    let trace = std::fs::read_to_string(&trace_path).expect("the trace");
+    assert!(
+        has(&trace, "\"code\":\"inner\"") && has(&trace, "no answer: an inner neuron failed"),
+        "the trace reads: {trace}"
+    );
+    assert!(!has(&trace, "timed out"), "the composed call waited for its timeout: {trace}");
+}
+
 #[cfg(unix)]
 fn make_fifo(path: &Path) {
     use std::os::unix::ffi::OsStrExt;

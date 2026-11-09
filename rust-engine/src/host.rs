@@ -52,6 +52,10 @@ pub enum L0Out {
     Exit { code: i32, stderr: String },
     /// killed by a signal: its number and the head of stderr.
     Signal { num: i32, stderr: String },
+    /// A call carried by a peer whose graph failed as a whole: the composed
+    /// neuron's `inner` code (6.1), with the inner cause as its message. Only a
+    /// peer's outcome produces this; a local program never does.
+    Inner(String),
 }
 
 #[derive(Debug)]

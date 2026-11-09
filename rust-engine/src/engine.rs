@@ -777,8 +777,10 @@ impl Engine {
                         self.refused = Some(format!("the peers file places '{id}', which the network does not declare"));
                         return Ok(());
                     }
-                    Some(n) if !matches!(n.kind, Kind::Run(_)) => {
-                        self.refused = Some(format!("the peers file places '{id}', and P0 carries only `run` neurons to a peer"));
+                    Some(n) if !matches!(n.kind, Kind::Run(_) | Kind::Network(_)) => {
+                        self.refused = Some(format!(
+                            "the peers file places '{id}', and this engine carries only `run` neurons and whole networks to a peer"
+                        ));
                         return Ok(());
                     }
                     Some(_) => {}
@@ -866,11 +868,21 @@ impl Engine {
         for n in net.nodes.iter() {
             let node = self.nodes.len();
             local.insert(n.id.clone(), node);
+            // A placed neuron (decision 0013): only the outer file's, and only
+            // what `plant` let through.
+            let peer = if inst == 0 {
+                self.peers.as_ref().and_then(|p| p.placement.get(&n.id).copied())
+            } else {
+                None
+            };
             if let Kind::Network(_) = &n.kind {
                 // Each `network` entry is its own instance (2.6), numbered
-                // before this file's other composed nodes plant.
-                self.inner_inst_of.insert(node, self.next_inst);
-                self.next_inst += 1;
+                // before this file's other composed nodes plant. A placed one
+                // is planted by its peer and gets no instance here (0013).
+                if peer.is_none() {
+                    self.inner_inst_of.insert(node, self.next_inst);
+                    self.next_inst += 1;
+                }
             }
             let (cmd, env) = match &n.kind {
                 Kind::Run(cmd) | Kind::Serve(cmd) => (cmd.clone(), n.opts.env.clone()),
@@ -891,13 +903,6 @@ impl Engine {
                     }
                 })
                 .or_else(|| Some(dir.clone()));
-            // A placed neuron (decision 0013): only the outer file's, and
-            // only what `plant` let through.
-            let peer = if inst == 0 {
-                self.peers.as_ref().and_then(|p| p.placement.get(&n.id).copied())
-            } else {
-                None
-            };
             self.nodes.push(INode {
                 inst,
                 peer,
@@ -919,6 +924,11 @@ impl Engine {
         for n in net.nodes.iter() {
             if let Kind::Network(p) = &n.kind {
                 let node = local[&n.id];
+                if self.nodes[node].peer.is_some() {
+                    // Hosted by a peer: this engine keeps no inner instance
+                    // (0013). The peer holds the file tree and plants it.
+                    continue;
+                }
                 let inner_inst = self.inner_inst_of[&node];
                 let file = files.get(p).ok_or_else(|| format!("the composed file '{}' is not loaded", p))?;
                 let (inner, inner_dir) = (file.net.clone(), file.dir.clone());
@@ -1080,6 +1090,11 @@ impl Engine {
                     (t, d) => t.or(d),
                 };
                 if self.host_step(cap) {
+                    // A process outcome may have emptied a composed call's
+                    // inside: 2.6 step 3's quiet/inner error is due at this
+                    // instant, and only a wake-up used to check it (the real
+                    // host would wait for the composed call's timeout instead).
+                    self.wake_composed_calls();
                     continue;
                 }
                 if self.deadline_due() {
@@ -1093,6 +1108,7 @@ impl Engine {
                     // deadline when one is set, and to nothing at all when
                     // none is (a process's end is the only closer).
                     if self.host_step(self.deadline) {
+                        self.wake_composed_calls();
                         continue;
                     }
                     if self.deadline_due() {
@@ -1540,9 +1556,13 @@ impl Engine {
             }
             WKind::Composed => {
                 self.emit(0, self.node_note(node, "cancel"));
-                self.composed_cancel_inner(work);
-                self.commit_call(work);
-                self.works[work].done = true;
+                if let Some(l0) = self.works[work].l0 {
+                    self.terminate_l0(l0);
+                } else {
+                    self.composed_cancel_inner(work);
+                    self.commit_call(work);
+                    self.works[work].done = true;
+                }
             }
         }
     }
@@ -1952,9 +1972,15 @@ impl Engine {
                         self.works[work].done = true;
                     }
                     WKind::Composed => {
-                        self.composed_cancel_inner(work);
-                        self.commit_call(work);
-                        self.works[work].done = true;
+                        // A composed instance on a peer has a level 0 entry for
+                        // its cancel (0013); one planted here has none.
+                        if let Some(l0) = self.works[work].l0 {
+                            self.terminate_l0(l0);
+                        } else {
+                            self.composed_cancel_inner(work);
+                            self.commit_call(work);
+                            self.works[work].done = true;
+                        }
                     }
                 }
             }
@@ -2490,6 +2516,7 @@ impl Engine {
     fn host_l0_done(&mut self, l0: usize, out: host::L0Out) {
         let Some(p) = self.l0s.get(l0) else { return };
         let work = p.work;
+        let kind = self.works[work].kind;
         let still_running = self.works[work].running() && !self.works[work].cut && !self.works[work].reported;
         let gid = p.gid;
         let remote = p.remote;
@@ -2502,6 +2529,12 @@ impl Engine {
             }
         }
         self.l0s[l0].leader_alive = false;
+        if kind == WKind::Composed {
+            // A whole network answered from a peer (0013): the reply is the
+            // composed neuron's own (2.6 step 2), not a program's outcome.
+            self.composed_remote_done(work, out);
+            return;
+        }
         if still_running && !self.works[work].done {
             self.l0_finished(work, l0_out_of(out));
             self.finish_check(None);
@@ -3130,6 +3163,7 @@ fn l0_out_of(out: host::L0Out) -> L0Out {
             code: "exit",
             msg: format!("signal {}: {}", host::signal_name(num), trim_500(stderr.trim())),
         },
+        host::L0Out::Inner(msg) => L0Out::Fail { code: "inner", msg },
     }
 }
 
@@ -4249,6 +4283,51 @@ impl Engine {
             self.works[work].done = true;
             return;
         }
+        if self.is_real() {
+            if let Some(peer) = self.nodes[node].peer {
+                // The instance lives on a peer (0013): the call is dispatched
+                // whole and its exit's reply comes back as the outcome. It gets
+                // a level 0 entry with no local group, as a placed program does,
+                // so a cut reaches the peer through the same term/grace path.
+                self.reserve_call(work);
+                let sig = self.works[work].sig;
+                let payload = self.sigs[&sig].payload.as_full();
+                let l0 = self.l0s.len();
+                self.l0s.push(L0Proc {
+                    work,
+                    leader_alive: true,
+                    survivor: false,
+                    ignore_term: false,
+                    gid: None,
+                    killed: false,
+                    remote: true,
+                });
+                self.works[work].l0 = Some(l0);
+                let req = crate::peers::CallReq {
+                    node: self.nodes[node].display.clone(),
+                    argv: Vec::new(),
+                    cwd: self.nodes[node].cwd.clone(),
+                    env: Vec::new(),
+                    input: json::write(&payload),
+                    timeout: self.nodes[node].timeout,
+                };
+                let post = self.host().post_handle();
+                let started = match self.peers.as_mut() {
+                    Some(peers) => peers.start(post, l0, peer, req),
+                    None => Err("no peers table for a placed neuron".into()),
+                };
+                if let Err(why) = started {
+                    self.commit_call(work);
+                    self.emit_fail(work, "inner", &why);
+                    self.l0s[l0].leader_alive = false;
+                    self.works[work].done = true;
+                    self.finish_check(None);
+                    return;
+                }
+                self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
+                return;
+            }
+        }
         self.reserve_call(work);
         // The input is delivered to `entry` as a new inner root signal: new
         // inner trace, hops 0, the same payload, the outer input's key.
@@ -4315,6 +4394,41 @@ impl Engine {
     /// The first reply of `exit` is the composed neuron's reply (2.6 step 2):
     /// the remaining inner work of the call is cancelled without reports, and
     /// the composed call commits and answers like any other.
+    /// A composed call hosted by a peer answered (0013): the exit's reply is the
+    /// neuron's reply (2.6 step 2); an `inner` failure is its error; a call
+    /// already cut or reported takes nothing.
+    fn composed_remote_done(&mut self, work: usize, out: host::L0Out) {
+        if self.works[work].done || self.works[work].cut {
+            // A late outcome after the cut or the timeout: the grace owns the
+            // call's end (6.2 rule 6), and its report is already out.
+            return;
+        }
+        match l0_out_of(out) {
+            L0Out::Answer { payload } => self.composed_exit_replied(
+                work,
+                work,
+                Outcome::Answer {
+                    payload,
+                    to: None,
+                    replaces: None,
+                },
+            ),
+            L0Out::Quiet => self.composed_exit_replied(work, work, Outcome::Quiet),
+            L0Out::Fail { msg, .. } => {
+                self.emit_fail(work, "inner", &msg);
+                self.commit_call(work);
+                self.works[work].done = true;
+                self.finish_check(None);
+            }
+            L0Out::Overlong => {
+                self.emit_fail(work, "inner", "no answer: the answer was over the wire cap");
+                self.commit_call(work);
+                self.works[work].done = true;
+                self.finish_check(None);
+            }
+        }
+    }
+
     fn composed_exit_replied(&mut self, work: usize, cw: usize, outcome: Outcome) {
         if self.works[cw].exit_replied {
             // A later reply of exit is discarded; the slot frees like any

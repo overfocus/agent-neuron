@@ -36,6 +36,8 @@
     "demo:human": "npm run -s engine -- run examples/human/human.network.json --inputs examples/human/human.inputs.jsonl",
     "demo:loop": "npm run -s build && node examples/loop.mjs",
     "rust:build": "cargo build --release --manifest-path rust/Cargo.toml",
+    "p2p:build": "cargo build --release --manifest-path rust-engine/Cargo.toml",
+    "demo:p2p": "npm run -s p2p:build && node examples/p2p/launch.mjs",
     "rust:test": "cargo test --manifest-path rust/Cargo.toml",
     "demo:rust": "npm run -s build && npm run -s rust:build && node examples/rust.mjs",
     "demo:composed": "npm run -s build && npm run -s rust:build && node examples/composed.mjs",
