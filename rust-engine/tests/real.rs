@@ -836,6 +836,52 @@ fn a_composed_neuron_whose_exit_fails_is_an_inner_error() {
     assert!(!has(&trace, "timed out"), "the composed call waited for its timeout: {trace}");
 }
 
+// -- A composed call cuts the work still running inside (2.6 step 2) ---------
+
+/// The `exit`'s first reply is the composed neuron's reply and the remaining
+/// inner work is cancelled (2.6 step 2). The inside has a serve neuron with
+/// one slot on a slow call: the cut must reach that call — the neuron sees the
+/// cancel line and frees its slot — instead of the bookkeeping alone moving on
+/// while the real work keeps running (finding 2, 0014).
+#[test]
+fn a_composed_call_cuts_the_work_still_running_inside() {
+    let temp = Temp::new("composed-cut");
+    let log = temp.path("slow.log");
+    let _ = std::fs::remove_file(&log);
+    temp.write(
+        "inner.network.json",
+        &format!(
+            r#"
+{{
+  "version": 0,
+  "name": "inner-cut",
+  "neurons": [
+    {{"id": "entry", "description": "in", "run": ["/bin/cat"]}},
+    {{"id": "slow", "description": "one slow slot", "serve": ["python3", "{}", "1", "1500", "{}"], "timeout": 30000}},
+    {{"id": "exit", "description": "answers first", "run": ["/bin/sh", "-c", "sleep 0.3; printf '{{\"fast\":1}}'"]}}
+  ],
+  "links": [{{"from": "entry", "to": "slow"}}, {{"from": "entry", "to": "exit"}}],
+  "entry": "entry",
+  "exit": "exit"
+}}
+"#,
+            progs("composed_serve.py"),
+            log.to_string_lossy(),
+        ),
+    );
+    let net = temp.write(
+        "network.json",
+        &network("", &[("graph", "\"network\"", "\"inner.network.json\"", ", \"timeout\": 20000")]),
+    );
+    let inputs = inputs_file(&temp, &[("0", "src", "{\"n\": 1}")]);
+    let out = run_cli(&temp, &net, &inputs, &[]);
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "{\"fast\":1}", "the composed answer: {}", stdout(&out));
+    let said = std::fs::read_to_string(&log).unwrap_or_default();
+    assert!(has(&said, "\"what\":\"start\""), "the inner call began: {said}");
+    assert!(has(&said, "\"what\":\"cancel\""), "the cut reached the inner serve: {said}");
+}
+
 #[cfg(unix)]
 fn make_fifo(path: &Path) {
     use std::os::unix::ffi::OsStrExt;

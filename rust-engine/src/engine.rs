@@ -4479,31 +4479,16 @@ impl Engine {
             .map(|(ix, _)| ix)
             .collect();
         for w in doomed {
-            // A composed call in the inside cancels its own inside too
-            // (2.6 step 4: the inner work is cancelled, recursively).
-            let inner = self.works[w].inner_root;
-            self.works[w].done = true;
-            self.silently_free_slot(w);
-            for ((_, trace), list) in self.groups.iter_mut() {
-                if *trace == root {
-                    list.retain(|&x| x != w);
-                }
-            }
-            if let Some(s) = self.serves.get_mut(&self.works[w].node) {
-                s.queue.retain(|&x| x != w);
-            }
-            if inner.is_some() {
-                self.composed_cancel_inner(w);
-            }
-        }
-    }
-
-    /// Free a cancelled slot without any report (a cut composed call's inside
-    /// is cancelled silently, 2.6).
-    fn silently_free_slot(&mut self, work: usize) {
-        let node = self.works[work].node;
-        if let Some(p) = self.proc_of(node) {
-            p.slots.retain(|slot| slot.work != work);
+            // Each open item goes through the same cut an outer staleness cut
+            // gives it (5.4): the level 0 process signalled, the serve slot
+            // cancelled until its neuron answers or the slot deadline passes,
+            // the human withdrawn, the http socket shut down. The inside's
+            // reports are sealed (2.6: cancelled without reports — `emit`
+            // drops every inner event), and each work stays open until its
+            // process or slot actually finishes (6.2 rule 6). A composed call
+            // in the inside cascades to its own inside too (2.6 step 4) by
+            // the same path (finding 2, 0014).
+            self.cut_work(w);
         }
     }
 
