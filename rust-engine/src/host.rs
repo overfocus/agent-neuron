@@ -68,8 +68,12 @@ pub enum Line {
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum Ev {
-    /// A level 0 program produced its whole outcome.
-    L0Done { l0: usize, out: L0Out },
+    /// A level 0 program produced its whole outcome. `started` says whether
+    /// the call ever began where it ran: a remote outcome that could not
+    /// reach its worker, or was refused by it before anything could run,
+    /// arrives with `false` (the driver's `run` marks it, 11.3's unstarted
+    /// case; finding 8, 0014). A local program always ran.
+    L0Done { l0: usize, out: L0Out, started: bool },
     /// A level 1 process wrote one line.
     L1Line { server: usize, gen: usize, line: Line },
     /// A level 1 process's stdout closed (`exited: false`) or the process
@@ -570,7 +574,14 @@ impl Host {
                                 // engine kills the group now, whatever the
                                 // process does after it wrote (6.3, 3.1).
                                 if !over_reported.swap(true, Ordering::SeqCst) {
-                                    push_ev(&reader_events, Ev::L0Done { l0, out: L0Out::Overlong });
+                                    push_ev(
+                                        &reader_events,
+                                        Ev::L0Done {
+                                            l0,
+                                            out: L0Out::Overlong,
+                                            started: true,
+                                        },
+                                    );
                                 }
                             } else {
                                 h.data.extend_from_slice(&buf[..n]);
@@ -630,7 +641,7 @@ impl Host {
                     },
                 };
                 unregister_group(gid);
-                push_ev(&monitor, Ev::L0Done { l0, out });
+                push_ev(&monitor, Ev::L0Done { l0, out, started: true });
             })
             .ok();
         Ok(gid)
@@ -940,7 +951,7 @@ mod probe {
                 panic!("{}: no outcome in 5 s", what);
             };
             match m.ev {
-                Ev::L0Done { l0: 0, out } => match out {
+                Ev::L0Done { l0: 0, out, .. } => match out {
                     L0Out::Answer(_) => {
                         // (the answer's shape is the probe's own business)
                     }

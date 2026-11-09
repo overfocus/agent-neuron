@@ -1269,7 +1269,7 @@ impl Engine {
         };
         self.now = self.now.max(m.t);
         match m.ev {
-            host::Ev::L0Done { l0, out } => self.host_l0_done(l0, out),
+            host::Ev::L0Done { l0, out, started } => self.host_l0_done(l0, out, started),
             host::Ev::L1Line { server, gen, line } => self.consume_line(server, gen, line),
             host::Ev::L1Down { server, gen, exited } => self.host_l1_down(server, gen, exited),
             host::Ev::HttpDone { idx, out } => self.host_http_done(idx, out),
@@ -2544,7 +2544,11 @@ impl Engine {
     /// exit and the stdout head were read, the settle happened. A call whose
     /// outcome is not yet out takes it; one already reported (its timeout, an
     /// earlier error) commits only when its group is gone (10.4, 6.2 rule 6).
-    fn host_l0_done(&mut self, l0: usize, out: host::L0Out) {
+    /// A remote outcome that the peer never ran is a failure of a call that
+    /// never started: `emit_fail_unstarted` keeps it an error even for an
+    /// effect neuron, and the ambiguity of started work stays `unknown`
+    /// (finding 8, 0014).
+    fn host_l0_done(&mut self, l0: usize, out: host::L0Out, started: bool) {
         let Some(p) = self.l0s.get(l0) else { return };
         let work = p.work;
         let kind = self.works[work].kind;
@@ -2573,7 +2577,19 @@ impl Engine {
             }
         }
         if still_running && !self.works[work].done {
-            self.l0_finished(work, l0_out_of(out));
+            let out = l0_out_of(out);
+            // The peer was never reached, the handshake was refused, or the
+            // peer refused the program's own start: nothing ran there, and
+            // the failure is an error whatever the effect says (11.3's
+            // unstarted case).
+            if let (L0Out::Fail { code, msg }, true) = (&out, remote && !started) {
+                self.commit_call(work);
+                self.emit_fail_unstarted(work, code, msg);
+                self.works[work].done = true;
+                self.finish_check(None);
+                return;
+            }
+            self.l0_finished(work, out);
             self.finish_check(None);
             return;
         }

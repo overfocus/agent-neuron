@@ -274,7 +274,7 @@ impl Peers {
         let local = self.local.clone();
         self.live.insert(l0, call);
         host::spawn_thread("peer-call", move || {
-            let (out, answered) = dispatch(&p, &local, &req, &handle);
+            let (out, answered, started) = dispatch(&p, &local, &req, &handle);
             if handle.cancelled.load(Ordering::SeqCst) && !answered {
                 // The socket went away under us: nothing to report, and the
                 // grace owns the call's end (6.2 rule 6).
@@ -284,7 +284,7 @@ impl Peers {
             if let Some(s) = handle.sock.lock().ok().and_then(|mut g| g.take()) {
                 let _ = s.shutdown(std::net::Shutdown::Both);
             }
-            post.post(host::Ev::L0Done { l0, out });
+            post.post(host::Ev::L0Done { l0, out, started });
         });
         Ok(())
     }
@@ -343,10 +343,18 @@ impl Peers {
     }
 }
 
-/// The driver's thread body: one connection, one call.
-fn dispatch(p: &Peer, local: &str, req: &CallReq, call: &Call) -> (L0Out, bool) {
+/// The driver's thread body: one connection, one call. The returned `started`
+/// says whether the call could have begun on the peer: nothing that fails
+/// before the call line went out (connect, handshake, a refused send) started
+/// the effect, and everything that fails after it — the wire dying, a timed
+/// read, a malformed reply — is genuinely ambiguous. The peer's own `done`
+/// message narrows that: a program call whose spawn was refused carries
+/// `started: false` though the call was written (finding 8, 0014).
+fn dispatch(p: &Peer, local: &str, req: &CallReq, call: &Call) -> (L0Out, bool, bool) {
     // `false` says the peer never answered: the call failed to start, or the
-    // wire broke — not a program's outcome.
+    // wire broke — not a program's outcome. `began` turns true when the call
+    // line has gone out: from there the outcome is ambiguous, not unstarted.
+    let began = std::cell::Cell::new(false);
     let fail = |why: String| {
         (
             L0Out::Exit {
@@ -354,6 +362,7 @@ fn dispatch(p: &Peer, local: &str, req: &CallReq, call: &Call) -> (L0Out, bool) 
                 stderr: format!("peer {}: {}", p.name, why),
             },
             false,
+            began.get(),
         )
     };
     let Some(mut stream) = connect(p) else {
@@ -423,6 +432,7 @@ fn dispatch(p: &Peer, local: &str, req: &CallReq, call: &Call) -> (L0Out, bool) 
     if let Err(e) = write_line(&mut stream, &call_line) {
         return fail(e);
     }
+    began.set(true);
     let done = match read_line(&mut reader, WIRE_CAP) {
         Ok(text) => match json::parse(&text) {
             Ok(v) => v,
@@ -430,9 +440,13 @@ fn dispatch(p: &Peer, local: &str, req: &CallReq, call: &Call) -> (L0Out, bool) 
         },
         Err(e) => return fail(e),
     };
+    // A `started` of false says the peer took the call and never ran it (its
+    // own spawn was refused, or its cancel was already in); a peer of this
+    // wire always says so, so a missing field keeps the call's ambiguity.
+    let peer_started = done.get("started").and_then(Value::as_bool).unwrap_or(true);
     match done.get("out") {
         Some(out) => match outcome_of_json(out) {
-            Ok(o) => (o, true),
+            Ok(o) => (o, true, began.get() && peer_started),
             Err(why) => fail(format!("the outcome is malformed ({})", why)),
         },
         None => fail("the outcome carries no `out`".into()),
@@ -615,10 +629,14 @@ fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Arc<Graph>>) 
                 // and the reader's insert share the set's lock, so a cancel
                 // recorded before this instant cannot be missed (0014, finding 1).
                 if wire_cancelled(&cancels, &dead, id) {
+                    // The call never ran: the outcome says so, and the driver
+                    // reports an error for it, never an unknown (finding 8,
+                    // 0014).
                     let reply = Obj::new()
                         .str("type", "done")
                         .int("id", id)
                         .set("out", cancelled_outcome(name))
+                        .set("started", Value::Bool(false))
                         .build();
                     if write_line(&mut writer, &reply).is_err() {
                         return;
@@ -676,17 +694,31 @@ fn cancelled_outcome(name: &str) -> Value {
 /// 1 MiB cap, the same settle and the same classification a local call gets.
 fn execute_program(call: &Value, name: &str, cancels: &Mutex<HashSet<i64>>, dead: &AtomicBool) -> Value {
     let id = wire_call_id(call);
-    let reply = |out: Value| Obj::new().str("type", "done").int("id", id).set("out", out).build();
+    // `started` says whether the program was ever spawned: a call refused for
+    // its argv, for a cancel already in, or by the spawn itself never ran,
+    // and the driver reports an error for it, never an unknown (finding 8,
+    // 0014).
+    let reply = |out: Value, started: bool| {
+        Obj::new()
+            .str("type", "done")
+            .int("id", id)
+            .set("out", out)
+            .set("started", Value::Bool(started))
+            .build()
+    };
     let argv: Vec<String> = call
         .get("argv")
         .and_then(Value::as_arr)
         .map(|a| a.iter().filter_map(|s| s.as_str().map(|s| s.to_string())).collect())
         .unwrap_or_default();
     if argv.is_empty() {
-        return reply(outcome_json(&L0Out::Exit {
-            code: 127,
-            stderr: format!("peer {}: the call names no program", name),
-        }));
+        return reply(
+            outcome_json(&L0Out::Exit {
+                code: 127,
+                stderr: format!("peer {}: the call names no program", name),
+            }),
+            false,
+        );
     }
     let env: Vec<String> = call
         .get("env")
@@ -701,11 +733,11 @@ fn execute_program(call: &Value, name: &str, cancels: &Mutex<HashSet<i64>>, dead
     // (0014 finding 1). A cancel that arrives after this instant is caught by
     // the pump below, before the program can finish.
     if wire_cancelled(cancels, dead, id) {
-        return reply(cancelled_outcome(name));
+        return reply(cancelled_outcome(name), false);
     }
     let mut host = host::Host::new();
     if let Err(why) = host.l0_begin(0, &argv, cwd.as_deref(), &env, input.as_bytes()) {
-        return reply(outcome_json(&L0Out::Exit { code: 127, stderr: why }));
+        return reply(outcome_json(&L0Out::Exit { code: 127, stderr: why }), false);
     }
     // The worker's backstop: the engine's timeout owns the call, so a program
     // still alive past it is work nobody will report — it is killed here.
@@ -753,7 +785,7 @@ fn execute_program(call: &Value, name: &str, cancels: &Mutex<HashSet<i64>>, dead
             host::kill_group(gid);
         }
     }
-    reply(outcome_json(&out))
+    reply(outcome_json(&out), true)
 }
 
 /// Run one call as a whole network: the payload enters the file's `entry`, the
@@ -761,13 +793,25 @@ fn execute_program(call: &Value, name: &str, cancels: &Mutex<HashSet<i64>>, dead
 /// 2.6's rules, applied to a run of the file as instance 0).
 fn execute_graph(g: &Graph, call: &Value, name: &str, cancels: &Mutex<HashSet<i64>>, dead: &AtomicBool) -> Value {
     let id = call.get("id").and_then(Value::as_i64).unwrap_or(0);
-    let reply = |out: Value| Obj::new().str("type", "done").int("id", id).set("out", out).build();
-    let inner = |why: String| reply(Obj::new().str("kind", "inner").str("message", why).build());
+    // The flag rides the wire for uniformity; the composed boundary reports
+    // `inner` failures, which 6.1 keeps an error whatever started.
+    let reply = |out: Value, started: bool| {
+        Obj::new()
+            .str("type", "done")
+            .int("id", id)
+            .set("out", out)
+            .set("started", Value::Bool(started))
+            .build()
+    };
+    let inner = |why: String, started: bool| reply(Obj::new().str("kind", "inner").str("message", why).build(), started);
     // A call whose cancel is already in never plants an engine here (finding
     // 1, 0014). Mid-run, a cancel is still the socket shutdown plus the
     // graph's deadline: the engine-per-instance cancel handle is finding 3's.
+    // Nothing ran, and the reply says so (finding 8, 0014); a graph's other
+    // replies need no flag — the composed boundary reports an `inner`
+    // failure, which 6.1 keeps an error whatever started.
     if wire_cancelled(cancels, dead, id) {
-        return reply(cancelled_outcome(name));
+        return reply(cancelled_outcome(name), false);
     }
     // A hosted graph cannot be cancelled mid-run yet: its own engine owns the
     // loop, and a cancel here would leave that engine's processes behind. The
@@ -776,7 +820,7 @@ fn execute_graph(g: &Graph, call: &Value, name: &str, cancels: &Mutex<HashSet<i6
     let text = call.get("input").and_then(Value::as_str).unwrap_or("");
     let payload = match json::parse(text) {
         Ok(v) => v,
-        Err(e) => return inner(format!("the call's input is not JSON ({})", e)),
+        Err(e) => return inner(format!("the call's input is not JSON ({})", e), false),
     };
     let timeout = call.get("timeout").and_then(Value::as_u64).unwrap_or(30_000).min(3_600_000);
     // The file is instance 0 here, so its own placement (plain neuron ids) is
@@ -812,7 +856,7 @@ fn execute_graph(g: &Graph, call: &Value, name: &str, cancels: &Mutex<HashSet<i6
         // cannot be written is dropped: a closed stderr pipe must not take the
         // connection (and the call) down with it.
         let _ = writeln!(std::io::stderr(), "peer {}: graph {:?} failed: {}", name, g.net.name, why);
-        inner("no answer: an inner neuron failed".to_string())
+        inner("no answer: an inner neuron failed".to_string(), true)
     };
     if let Some(p) = &g.peers {
         match Peers::load(p) {
@@ -844,7 +888,7 @@ fn execute_graph(g: &Graph, call: &Value, name: &str, cancels: &Mutex<HashSet<i6
         None => outcome.answers.first(),
     };
     if let Some((_, payload)) = pick {
-        return reply(Obj::new().str("kind", "answer").set("payload", payload.as_full()).build());
+        return reply(Obj::new().str("kind", "answer").set("payload", payload.as_full()).build(), true);
     }
     // No answer and something failed inside: 2.6's `inner` (the message keeps
     // the inner cause, as a composed neuron's own error text does).
@@ -856,7 +900,7 @@ fn execute_graph(g: &Graph, call: &Value, name: &str, cancels: &Mutex<HashSet<i6
         let msg = ev.get("message").and_then(Value::as_str).unwrap_or("an inner neuron failed");
         return failed(format!("an error event: {}", msg));
     }
-    reply(Obj::new().str("kind", "quiet").build())
+    reply(Obj::new().str("kind", "quiet").build(), true)
 }
 
 /// A level 0 outcome as one wire object: the classification the engine applies,

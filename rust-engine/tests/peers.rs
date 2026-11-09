@@ -933,6 +933,65 @@ fn a_remote_call_reserves_commits_and_refuses_the_second_under_a_budget() {
     }
 }
 
+// -- An effect that never started (finding 8, 0014) -------------------------
+
+/// An effect call whose program exists only in the file: on a peer the call
+/// cannot even reach (`peer b: cannot reach ...`), or the worker takes it and
+/// finds no such program to start. Nothing ever ran, and 6.1/11.3's rule for
+/// a call that never started is an `error` — the `unknown` of a started effect
+/// stays pinned by `an_effect_call_on_a_dead_peer_is_unknown`, which is the
+/// genuinely ambiguous case (the wire carried the call and died mid-flight).
+const CHARGE_NOEXE: &str = r#"{
+  "version": 0,
+  "name": "charge",
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "charge", "description": "an irreversible call", "run": ["/no/such/charge"], "effect": true, "timeout": 20000}
+  ],
+  "links": [{"from": "src", "to": "charge"}]
+}
+"#;
+
+#[test]
+fn an_effect_that_never_started_on_a_peer_is_an_error() {
+    let temp = Temp::new("effect-unstarted");
+    let net = temp.write("net.json", CHARGE_NOEXE);
+    let inputs = temp.write("inputs.jsonl", INPUTS);
+
+    // A peer that is not there: the call is never delivered to anything.
+    let down = temp.write("peers.json", &peers_text(free_port(), TOKEN, "{\"charge\": \"b\"}"));
+    let _ = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("down.json"),
+        &["--peers", down.to_str().expect("a path")],
+        &[],
+    );
+    let trace = std::fs::read_to_string(temp.path("down.json")).expect("the trace");
+    assert!(trace.contains("\"type\":\"error\""), "the unreachable peer's failure: {trace}");
+    assert!(trace.contains("\"code\":\"exit\""), "the exit code stands: {trace}");
+    assert!(trace.contains("exit 127: peer b: cannot reach"), "the message reads: {trace}");
+    assert!(!trace.contains("\"type\":\"unknown\""), "the effect never started: {trace}");
+
+    // A peer that takes the call and finds no such program on its machine.
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &[]);
+    let peers = temp.write("peers2.json", &peers_text(port, TOKEN, "{\"charge\": \"b\"}"));
+    let _ = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("noexe.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    let trace = std::fs::read_to_string(temp.path("noexe.json")).expect("the trace");
+    assert!(trace.contains("\"type\":\"error\""), "the spawn refusal: {trace}");
+    assert!(trace.contains("\"code\":\"exit\""), "the exit code stands: {trace}");
+    assert!(!trace.contains("\"type\":\"unknown\""), "the effect never started: {trace}");
+}
+
 // -- A late remote outcome (finding 4, 0014) --------------------------------
 
 /// The inner graph whose `exit` answers late: past any short outer timeout.
