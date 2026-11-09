@@ -100,7 +100,7 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 103: mcp 19, real 28, check 16, desk 17, http 11, peers 10, unit 2
+cargo test                                          # 105: mcp 19, real 28, check 16, desk 17, http 11, peers 12, unit 2
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 224, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
@@ -436,12 +436,12 @@ note surface, `http` (`http://` only, `https` refused at plant), the desk for
 `human` neurons (0008/0010), composed neurons with sealing and 10.5 pools,
 budgets, effects, observers and the live stream, and the ground (0012).
 
-**Measured on this tree:** `cargo test` 103 (unit 2, check 16, desk 17, http 11,
-mcp 19, peers 10, real 28); `cargo fmt --check` and `clippy --all-targets -- -D
+**Measured on this tree:** `cargo test` 105 (unit 2, check 16, desk 17, http 11,
+mcp 19, peers 12, real 28); `cargo fmt --check` and `clippy --all-targets -- -D
 warnings` clean; `conform spec/fixtures` 224/0/0 on five consecutive identical
-runs; `conform py/probes` 10/0/0. Sizes: 13,421 lines of `src` in 15 files,
-4,507 of tests in 6 (`engine.rs` 4602, `desk.rs` 1524, `mcp.rs` 1448, `net.rs`
-1298, `host.rs` 957, `peers.rs` 848).
+runs; `conform py/probes` 10/0/0. Sizes: 13,502 lines of `src` in 15 files,
+4,642 of tests in 6 (`engine.rs` 4602, `desk.rs` 1524, `mcp.rs` 1448, `net.rs`
+1298, `host.rs` 957, `peers.rs` 929).
 
 **Known gaps, stated plainly.**
 
@@ -462,12 +462,14 @@ runs; `conform py/probes` 10/0/0. Sizes: 13,421 lines of `src` in 15 files,
 
 0. ~~Merge the peer layer (P0 + P0.5)~~ — merged to `main` 2026-11-09, gated on
    the merged tree.
-1. **P1, the call lifecycle across the wire**: the `cancel` message (with the
-   term / 2 s grace / kill notes), a peer-hosted `serve` with slots and restarts,
-   `effect` on a dead peer as `unknown`, budgets with an owner per trace (or
-   declared shares), and the two things a remote graph drops today — the exit
-   reply's `replaces` and the composed `cost` capping the inner budget. Gate:
-   every 6.1 code exercised across the wire; conformance untouched.
+1. **P1, the call lifecycle across the wire** — *started 2026-11-09*: the
+   `cancel` message is built (the peer stops the program and answers; a cut
+   writes the same drop/cancel/term notes as a local one and the run is not held
+   for the grace) and `effect` on a dead peer is pinned as `unknown`. Still open:
+   a peer-hosted `serve` with slots and restarts, budgets with an owner per trace
+   (or declared shares), a cancel handle a hosted graph's own engine reads, and
+   the graph boundary's `replaces` and composed `cost`. Gate: every 6.1 code
+   exercised across the wire; conformance untouched.
 2. **P2, cross-peer links**: `answer.to` resolved at the driver, `cut` routed,
    peer-numbered ids and the merged-trace rule — the step that makes a driver run
    itself placeable as one neuron in another network. Gate: a two-peer network
