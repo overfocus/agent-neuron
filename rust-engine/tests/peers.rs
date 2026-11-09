@@ -151,6 +151,14 @@ impl Drop for Worker {
     }
 }
 
+impl Worker {
+    /// End the peer now (a machine that died mid-call).
+    fn kill(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 fn start_worker(port: u16, token: &str, name: &str, env: &[(&str, &str)], extra: &[&str]) -> Worker {
     let mut cmd = Command::new(engine());
     cmd.arg("peer")
@@ -549,6 +557,133 @@ fn a_graph_node_needs_a_graph_peer() {
         "the trace reads: {trace}"
     );
     assert!(trace.contains("\"code\":\"inner\""), "the trace reads: {trace}");
+}
+
+// -- A cut reaches the peer (P1: the cancel message) ------------------------
+
+/// The network's `replaces` cuts a *running* call on the peer: the driver sends
+/// a cancel, the peer stops the program and answers, and the run ends with the
+/// same drop/cancel/term notes a local cut writes — not held for the 2 s grace.
+const CUT: &str = r#"{
+  "version": 0,
+  "name": "cut",
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "worker", "description": "slow, or quick", "run": ["/bin/sh", "-c", "read line; case \"$line\" in *late*) sleep 5; printf '{\"late\":1}';; *) printf '{\"ok\":1}';; esac"], "timeout": 60000}
+  ],
+  "links": [{"from": "src", "to": "worker"}]
+}
+"#;
+
+#[test]
+fn a_cut_reaches_the_peer_and_the_run_is_not_held() {
+    let temp = Temp::new("cut");
+    let net = temp.write("net.json", CUT);
+    // Two inputs on one key: the second cuts the first, whose program sleeps.
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": {\"mode\": \"late\"}, \"replaces\": \"k\"}\n\
+         {\"at\": 200, \"source\": \"src\", \"payload\": {\"mode\": \"now\"}, \"replaces\": \"k\"}\n",
+    );
+
+    let local = run(&temp, &net, &inputs, &temp.path("local.json"), &[], &[]);
+    assert!(local.status.success(), "the local run failed: {}", stderr(&local));
+
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &[]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"worker\": \"b\"}"));
+    let started = std::time::Instant::now();
+    let remote = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("remote.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    let took = started.elapsed();
+    assert!(remote.status.success(), "the peer run failed: {}", stderr(&remote));
+
+    assert_eq!(stdout(&local), stdout(&remote), "the answers differ");
+    assert_eq!(stdout(&remote).trim(), "{\"ok\":1}", "the quick answer: {}", stdout(&remote));
+    let a = events(&temp.path("local.json"));
+    let b = events(&temp.path("remote.json"));
+    assert_eq!(a.len(), b.len(), "the event counts differ: {:?} vs {:?}", a, b);
+    for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+        assert!(
+            x.deep_eq(y),
+            "event {} differs:\n  local: {}\n  peer:  {}",
+            i,
+            json::write(x),
+            json::write(y)
+        );
+    }
+    let trace = std::fs::read_to_string(temp.path("remote.json")).expect("the trace");
+    assert!(trace.contains("\"what\":\"term\""), "the cut signalled the peer: {trace}");
+    assert!(
+        !trace.contains("\"what\":\"kill\""),
+        "the peer stopped on TERM, so no kill is owed: {trace}"
+    );
+    // The 5 s program was stopped when it was cut: a run held for the grace
+    // (2 s) or for the program (5 s) is the failure this test exists for.
+    assert!(
+        took < std::time::Duration::from_millis(2000),
+        "the run took {:?}, so the cancel did not reach the peer",
+        took
+    );
+}
+
+// -- A dead peer, an effect, an `unknown` (P1) ------------------------------
+
+/// An effect call on a peer that dies after it started is `unknown` (11.3), not
+/// an error: nobody can tell whether the effect happened, and it is never
+/// retried.
+const CHARGE: &str = r#"{
+  "version": 0,
+  "name": "charge",
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "charge", "description": "an irreversible call", "run": ["/bin/sh", "-c", "read line; sleep 5; printf '{\"charged\":1}'"], "effect": true, "timeout": 60000}
+  ],
+  "links": [{"from": "src", "to": "charge"}]
+}
+"#;
+
+#[test]
+fn an_effect_call_on_a_dead_peer_is_unknown() {
+    let temp = Temp::new("dead-peer");
+    let net = temp.write("net.json", CHARGE);
+    let inputs = temp.write("inputs.jsonl", INPUTS);
+    let port = free_port();
+    let mut peer = start_worker(port, TOKEN, "b", &[], &[]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"charge\": \"b\"}"));
+
+    // The run has to be up while the peer dies: spawn it, kill the peer, then
+    // read the run's outcome.
+    let child = Command::new(engine())
+        .arg("run")
+        .arg(&net)
+        .arg("--inputs")
+        .arg(&inputs)
+        .arg("--trace")
+        .arg(temp.path("trace.json"))
+        .arg("--peers")
+        .arg(&peers)
+        .current_dir(temp.dir.clone())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the engine runs");
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    peer.kill();
+    let out = child.wait_with_output().expect("the run ends");
+    assert!(out.status.success(), "the run completes: {}", String::from_utf8_lossy(&out.stderr));
+
+    let trace = std::fs::read_to_string(temp.path("trace.json")).expect("the trace");
+    assert!(trace.contains("\"type\":\"unknown\""), "the trace reads: {trace}");
+    assert!(trace.contains("\"code\":\"exit\""), "the trace reads: {trace}");
+    assert!(!trace.contains("\"type\":\"error\""), "an effect is never an error: {trace}");
+    assert_eq!(stdout(&out), "", "an unknown outcome answers nothing");
 }
 
 /// The peers file itself: closed, and its refusals name the field.

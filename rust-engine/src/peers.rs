@@ -274,9 +274,11 @@ impl Peers {
         let local = self.local.clone();
         self.live.insert(l0, call);
         host::spawn_thread("peer-call", move || {
-            let out = dispatch(&p, &local, &req, &handle);
-            if handle.cancelled.load(Ordering::SeqCst) {
-                return; // the engine cut the call; its report is not ours
+            let (out, answered) = dispatch(&p, &local, &req, &handle);
+            if handle.cancelled.load(Ordering::SeqCst) && !answered {
+                // The socket went away under us: nothing to report, and the
+                // grace owns the call's end (6.2 rule 6).
+                return;
             }
             handle.done.store(true, Ordering::SeqCst);
             if let Some(s) = handle.sock.lock().ok().and_then(|mut g| g.take()) {
@@ -287,16 +289,27 @@ impl Peers {
         Ok(())
     }
 
-    /// Cut a call (5.4): the socket is shut down both ways, as the http client's
-    /// cancel is, and `true` says the call had not reported yet — so the engine
-    /// owes it a kill grace.
+    /// Cut a call (5.4): a `cancel` line asks the peer to stop the program and
+    /// answer, and `true` says the call had not reported yet — the engine owes
+    /// it the kill grace in case the peer never answers. A socket that cannot
+    /// take the line is shut down instead (P1: the message, not the shutdown).
     pub fn cancel(&mut self, l0: usize) -> bool {
         let Some(call) = self.live.get(&l0) else { return false };
         call.cancelled.store(true, Ordering::SeqCst);
-        if let Ok(mut slot) = call.sock.lock() {
-            if let Some(s) = slot.take() {
-                let _ = s.shutdown(std::net::Shutdown::Both);
+        let line = Obj::new().str("type", "cancel").int("id", 1).build();
+        let mut wrote = false;
+        if let Ok(slot) = call.sock.lock() {
+            if let Some(s) = slot.as_ref() {
+                // A clone writes on the same socket; the dispatch thread may be
+                // reading it, and only one writer exists at this instant.
+                if let Ok(mut c) = s.try_clone() {
+                    wrote = write_line(&mut c, &line).is_ok();
+                }
             }
+        }
+        if !wrote {
+            self.abort(l0);
+            return false;
         }
         !call.done.load(Ordering::SeqCst)
     }
@@ -331,10 +344,17 @@ impl Peers {
 }
 
 /// The driver's thread body: one connection, one call.
-fn dispatch(p: &Peer, local: &str, req: &CallReq, call: &Call) -> L0Out {
-    let fail = |why: String| L0Out::Exit {
-        code: 127,
-        stderr: format!("peer {}: {}", p.name, why),
+fn dispatch(p: &Peer, local: &str, req: &CallReq, call: &Call) -> (L0Out, bool) {
+    // `false` says the peer never answered: the call failed to start, or the
+    // wire broke — not a program's outcome.
+    let fail = |why: String| {
+        (
+            L0Out::Exit {
+                code: 127,
+                stderr: format!("peer {}: {}", p.name, why),
+            },
+            false,
+        )
     };
     let Some(mut stream) = connect(p) else {
         return fail(format!("cannot reach {}:{}", p.host, p.port));
@@ -406,7 +426,7 @@ fn dispatch(p: &Peer, local: &str, req: &CallReq, call: &Call) -> L0Out {
     };
     match done.get("out") {
         Some(out) => match outcome_of_json(out) {
-            Ok(o) => o,
+            Ok(o) => (o, true),
             Err(why) => fail(format!("the outcome is malformed ({})", why)),
         },
         None => fail("the outcome carries no `out`".into()),
@@ -539,25 +559,70 @@ fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Arc<Graph>>) 
     // A call runs for its own timeout; the socket's read timeout is the
     // handshake's and must not cut a long call short.
     let _ = reader.get_ref().set_read_timeout(None);
-    loop {
-        let Ok(line) = read_line(&mut reader, WIRE_CAP) else { return };
-        let Ok(msg) = json::parse(&line) else { return };
-        if msg.get("type").and_then(Value::as_str) != Some("call") {
-            return;
+    // A reader of its own, so a `cancel` line is seen while a call runs: the
+    // running program is stopped and answered, instead of the driver waiting
+    // out its kill grace (P1).
+    let (tx, rx) = std::sync::mpsc::channel::<Msg>();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let reader_cancel = cancel.clone();
+    host::spawn_thread("peer-read", move || {
+        let mut reader = reader;
+        loop {
+            match read_line(&mut reader, WIRE_CAP) {
+                Ok(line) => match json::parse(&line) {
+                    Ok(msg) if msg.get("type").and_then(Value::as_str) == Some("call") => {
+                        if tx.send(Msg::Call(msg)).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(msg) if msg.get("type").and_then(Value::as_str) == Some("cancel") => {
+                        reader_cancel.store(true, Ordering::SeqCst);
+                        let _ = tx.send(Msg::Cancel);
+                    }
+                    _ => {
+                        reader_cancel.store(true, Ordering::SeqCst);
+                        let _ = tx.send(Msg::Eof);
+                        break;
+                    }
+                },
+                Err(_) => {
+                    reader_cancel.store(true, Ordering::SeqCst);
+                    let _ = tx.send(Msg::Eof);
+                    break;
+                }
+            }
         }
-        let done = match &graph {
-            Some(g) => execute_graph(g, &msg, name),
-            None => execute_program(&msg, name),
-        };
-        if write_line(&mut writer, &done).is_err() {
-            return;
+    });
+    while let Ok(msg) = rx.recv() {
+        match msg {
+            Msg::Call(call) => {
+                // A cancel from the previous call's last instant is not this
+                // call's (one call at a time on a connection).
+                cancel.store(false, Ordering::SeqCst);
+                let done = match &graph {
+                    Some(g) => execute_graph(g, &call, name),
+                    None => execute_program(&call, name, &cancel),
+                };
+                if write_line(&mut writer, &done).is_err() {
+                    return;
+                }
+            }
+            Msg::Cancel => continue,
+            Msg::Eof => return,
         }
     }
 }
 
+/// What the connection's reader hands the serving thread.
+enum Msg {
+    Call(Value),
+    Cancel,
+    Eof,
+}
+
 /// Run one program call here, in this host's code: the same spawn, the same
 /// 1 MiB cap, the same settle and the same classification a local call gets.
-fn execute_program(call: &Value, name: &str) -> Value {
+fn execute_program(call: &Value, name: &str, cancel: &AtomicBool) -> Value {
     let id = call.get("id").and_then(Value::as_i64).unwrap_or(0);
     let reply = |out: Value| Obj::new().str("type", "done").int("id", id).set("out", out).build();
     let argv: Vec<String> = call
@@ -586,12 +651,20 @@ fn execute_program(call: &Value, name: &str) -> Value {
     // The worker's backstop: the engine's timeout owns the call, so a program
     // still alive past it is work nobody will report — it is killed here.
     let due = host::clock_ms().saturating_add(timeout).saturating_add(BACKSTOP_MS);
+    // The pump's cap is the cancel's poll: a 50 ms tick is the worst delay
+    // between the driver's `cancel` and the program's SIGTERM.
+    let mut cancelled = false;
     let out = loop {
-        if let Some(m) = host.pump(Some(due)) {
+        let tick = host::clock_ms().saturating_add(50).min(due);
+        if let Some(m) = host.pump(Some(tick)) {
             if let host::Ev::L0Done { out, .. } = m.ev {
                 break Some(out);
             }
             continue;
+        }
+        if cancel.load(Ordering::SeqCst) {
+            cancelled = true;
+            break None;
         }
         if host::clock_ms() >= due {
             break None;
@@ -606,7 +679,11 @@ fn execute_program(call: &Value, name: &str) -> Value {
             }
             L0Out::Signal {
                 num: 9,
-                stderr: format!("peer {}: the call outlived its timeout", name),
+                stderr: if cancelled {
+                    format!("peer {}: the driver cancelled the call", name)
+                } else {
+                    format!("peer {}: the call outlived its timeout", name)
+                },
             }
         }
     };
@@ -624,6 +701,10 @@ fn execute_program(call: &Value, name: &str) -> Value {
 /// file's `exit` answers (or an inner failure is `inner`, or nothing is quiet —
 /// 2.6's rules, applied to a run of the file as instance 0).
 fn execute_graph(g: &Graph, call: &Value, name: &str) -> Value {
+    // A hosted graph cannot be cancelled mid-run yet: its own engine owns the
+    // loop, and a cancel here would leave that engine's processes behind. The
+    // driver's socket shutdown plus the graph's deadline is the backstop (P1's
+    // rest: a cancel handle the engine's loop reads).
     let id = call.get("id").and_then(Value::as_i64).unwrap_or(0);
     let reply = |out: Value| Obj::new().str("type", "done").int("id", id).set("out", out).build();
     let inner = |why: String| reply(Obj::new().str("kind", "inner").str("message", why).build());

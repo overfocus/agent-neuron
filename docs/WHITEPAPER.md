@@ -295,7 +295,7 @@ down — with the standard library only (a one-package `Cargo.lock`, nothing fet
 
 **Result:** every fixture passes, identically over five consecutive runs — 224 in `spec/fixtures/`
 (224 passed, 0 failed, 0 pending) and the ten probes in `py/probes/` (10 passed, 0 failed, 0 pending) —
-plus 103 Rust tests on its own gates and 264 vitest tests on the merged tree, rerun for the record on
+plus 105 Rust tests on its own gates and 264 vitest tests on the merged tree, rerun for the record on
 2026-11-07 (decision 0009 records each gate and who reran it) and again on `main` at `def7a46`
 (2026-11-08, decision 0012 included).
 
