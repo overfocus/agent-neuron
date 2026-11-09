@@ -1186,6 +1186,81 @@ sys.exit(1)
     assert!(text.contains("\"code\":\"crash\""), "the first call failed with the crash: {text}");
 }
 
+// -- A stale slot deadline (finding 7, 0014) --------------------------------
+
+/// The serve's first generation takes one call, is cut, and ends early; the
+/// input that cut it queues until the restart, and a third input (again on
+/// the same key) cuts *that* call, leaving its slot cancelled past the
+/// neuron's own reply. The first generation's slot deadline for `re` 1 is
+/// still armed — and `re` restarts at 1 per generation — so without its
+/// process generation the old deadline can kill the new process 1.6 s before
+/// the new slot's own deadline fires. The second restart's distance from the
+/// cut that armed the new deadline is exact in the engine's own times: 2500
+/// ms (the node timeout) after the second cut in a correct engine, ~900 ms
+/// after it when the old generation's deadline strikes.
+#[test]
+fn a_stale_slot_deadline_never_kills_a_restarted_serve() {
+    let mut c = Client::start();
+    handshake(&mut c);
+    let temp = Temp::new("stale-slot");
+    let mark = format!("{}/stale-slot.mark", temp.dir.to_string_lossy());
+    let prog = temp.write(
+        "serve_gens.py",
+        r#"import json, os, sys, time
+mark = sys.argv[1]
+first = not os.path.exists(mark)
+if first:
+   open(mark, "w").close()
+print(json.dumps({"type": "ready", "v": 1, "maxInflight": 1}), flush=True)
+sys.stdin.readline()
+if first:
+   time.sleep(0.4)
+   sys.exit(1)
+time.sleep(60)
+"#,
+    );
+    let net = temp.write(
+        "net.json",
+        &network(
+            "stale",
+            &[(
+                "s",
+                "\"serve\"",
+                &format!("[\"python3\", \"{}\", \"{}\"]", prog, mark),
+                r#", "timeout": 2500"#,
+            )],
+        ),
+    );
+    let inputs = r#"[{"at":0,"source":"src","payload":{"n":1},"replaces":"k"},{"at":200,"source":"src","payload":{"n":2},"replaces":"k"},{"at":1800,"source":"src","payload":{"n":3},"replaces":"k"}]"#;
+    let reply = c.rpc(3, &run_call(&net, inputs, r#","timeout_ms":6000"#));
+    let (body, _) = c.tool_body(&reply);
+    let events = body.get("events").and_then(|e| e.as_arr()).expect("events").to_vec();
+    let ts_of = |what: &str| -> Vec<i64> {
+        let mut out = Vec::new();
+        for e in &events {
+            if e.get("type").and_then(|t| t.as_str()) == Some("note") && e.get("what").and_then(|w| w.as_str()) == Some(what) {
+                if let Some(t) = e.get("t").and_then(|t| t.as_i64()) {
+                    out.push(t);
+                }
+            }
+        }
+        out
+    };
+    let cancels = ts_of("cancel");
+    let restarts = ts_of("restart");
+    assert!(cancels.len() >= 2, "two cuts: {}", json::write(&body));
+    assert!(restarts.len() >= 2, "two generations: {}", json::write(&body));
+    // The second slot deadline belongs to the generation that was cut at
+    // `cancels[1]`: its process dies no earlier than its own timeout after
+    // that instant — the first generation's armed deadline never acts.
+    let gap = restarts[1] - cancels[1];
+    assert!(
+        gap >= 2200,
+        "the second restart came {gap} ms after the second cut (cancels {cancels:?}, restarts {restarts:?}); \
+        the first generation's deadline is killing the restarted process"
+    );
+}
+
 #[test]
 fn the_server_leaves_when_the_client_closes() {
     let mut c = Client::start();

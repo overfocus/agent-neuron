@@ -440,7 +440,7 @@ enum Wake {
     PingTick { server: usize, gen: usize },
     PongArrive { server: usize, gen: usize, n: u64 },
     PongDeadline { server: usize, gen: usize, n: u64 },
-    SlotDeadline { server: usize, re: u64 },
+    SlotDeadline { server: usize, gen: usize, re: u64 },
 }
 
 pub struct RunOutcome {
@@ -1302,7 +1302,7 @@ impl Engine {
             Wake::PingTick { server, gen } => self.fire_ping_tick(server, gen),
             Wake::PongArrive { server, gen, n } => self.fire_pong_arrive(server, gen, n),
             Wake::PongDeadline { server, gen, n } => self.fire_pong_deadline(server, gen, n),
-            Wake::SlotDeadline { server, re } => self.fire_slot_deadline(server, re),
+            Wake::SlotDeadline { server, gen, re } => self.fire_slot_deadline(server, gen, re),
         }
     }
 
@@ -1573,8 +1573,12 @@ impl Engine {
                     }
                 }
                 let re = self.works[work].re;
-                self.send_cancel_line(node, re);
-                self.arm(self.now + self.nodes[node].timeout, Wake::SlotDeadline { server: node, re });
+                // The deadline carries the process generation: a slot
+                // deadline is a decision about ONE call on ONE process (the
+                // process it began on), never about the neuron's next one
+                // (finding 7, 0014).
+                let gen = self.proc_of(node).map(|p| p.gen).unwrap_or(0);
+                self.arm(self.now + self.nodes[node].timeout, Wake::SlotDeadline { server: node, gen, re });
             }
             WKind::Composed => {
                 self.emit(0, self.node_note(node, "cancel"));
@@ -1967,9 +1971,13 @@ impl Engine {
                                         slot.cancelled = true;
                                     }
                                 }
+                                // The generation rides with the slot: the
+                                // armed deadline belongs to this process only
+                                // (finding 7, 0014).
+                                let gen = p.gen;
+                                let timeout = self.nodes[node].timeout;
+                                self.arm(self.now + timeout, Wake::SlotDeadline { server: node, gen, re });
                             }
-                            let timeout = self.nodes[node].timeout;
-                            self.arm(self.now + timeout, Wake::SlotDeadline { server: node, re });
                         }
                         // The cancel line is answered as the entry's
                         // `onCancel` writes it, after `after` ms (5.1): the
@@ -4314,12 +4322,16 @@ impl Engine {
     }
 
     /// A cancelled call's slot that the neuron never freed: the process is
-    /// treated as hung (3.2, SPEC 6.2 rule 6).
-    fn fire_slot_deadline(&mut self, server: usize, re: u64) {
+    /// treated as hung (3.2, SPEC 6.2 rule 6). The deadline is exact — it
+    /// belongs to one call on one process, so an old generation's armed
+    /// deadline for the same `re` does nothing to the restarted process
+    /// (finding 7, 0014).
+    fn fire_slot_deadline(&mut self, server: usize, gen: usize, re: u64) {
         let cancelled = self
             .serves
             .get(&server)
             .and_then(|s| s.cur.as_ref())
+            .filter(|p| p.gen == gen)
             .and_then(|p| p.slots.iter().find(|s| s.re == re).map(|s| s.cancelled))
             .unwrap_or(false);
         if !cancelled {
