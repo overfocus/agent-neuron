@@ -1428,16 +1428,12 @@ fn serve_net(delay: u64, timeout: u64) -> String {
 /// same events (ids renormalised by first appearance, CONFORMANCE 8.3; the
 /// wall-clock `t` zeroed).
 ///
-/// red: the served call's answer still flaps on the relay loop's timing — the
-/// driver read it 1 to 8 seconds after the process wrote it (the worst
-/// observed run: the signal written at host-clock 128 ms, the answer's line
-/// read by the driver's relay at 8363 ms), the engine's 5000 ms timeout wins
-/// first, and the run answers nothing: `assert_eq!(stdout(&local),
-/// stdout(&remote), "the answers differ")` fails with `{"n":4}\n` against
-/// `""` (1-in-4 runs of the suite). The shape is right; the relay loop's
-/// latency is not, and that is the next pass's work. Ignored so the suite
-/// stays green.
-#[ignore]
+/// The wire's relay loop never sleeps holding the serve host's mutex: a first
+/// cut polled with a 50 ms tick inside the lock, the relay re-acquired within
+/// microseconds of letting go, and the wire reader's own l1_send starved
+/// behind it for up to 33 s (observed) — the call died on its timeout while
+/// the relay kept its turn. A millisecond tick and a lock-free sleep let the
+/// reader through; the answer now crosses within its own milliseconds.
 #[test]
 fn a_serve_on_a_peer_answers_like_a_local_one() {
     let temp = Temp::new("peer-serve");

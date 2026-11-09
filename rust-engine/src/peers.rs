@@ -1283,8 +1283,17 @@ fn serve_host_conn(stream: TcpStream, token: &str, name: &str) {
             if relay_eof.load(Ordering::SeqCst) {
                 return;
             }
-            let tick = host::clock_ms().saturating_add(50);
+            // The host mutex is held for the poll alone, never for the wait:
+            // a relay that slept a 50 ms tick holding it starved the wire
+            // reader's own l1_send behind the same mutex for tens of seconds
+            // (the relay re-acquires within microseconds of letting go, and
+            // the runner wins the lock race against the parked waiter). A
+            // millisecond tick, then a sleep with the lock released: a line
+            // reaches the process at most a tick or two later, and the wire
+            // reader always gets its turn.
+            let tick = host::clock_ms().saturating_add(1);
             let Some(msg) = relay_host.lock().expect("the serve's host").pump(Some(tick)) else {
+                host::sleep_ms(5);
                 continue;
             };
             let kind = if first { "ready" } else { "line" };
