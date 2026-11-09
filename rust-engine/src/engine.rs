@@ -2532,9 +2532,15 @@ impl Engine {
         self.l0s[l0].leader_alive = false;
         if kind == WKind::Composed {
             // A whole network answered from a peer (0013): the reply is the
-            // composed neuron's own (2.6 step 2), not a program's outcome.
-            self.composed_remote_done(work, out);
-            return;
+            // composed neuron's own (2.6 step 2), not a program's outcome —
+            // but only while the call is still eligible: one outcome per
+            // call, and a late remote outcome after its timeout or cut is
+            // cleanup only, like any other late program outcome (finding 4,
+            // 0014).
+            if still_running && !self.works[work].done {
+                self.composed_remote_done(work, out);
+                return;
+            }
         }
         if still_running && !self.works[work].done {
             self.l0_finished(work, l0_out_of(out));

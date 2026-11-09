@@ -843,6 +843,63 @@ fn the_peers_file_is_closed_and_checked() {
     }
 }
 
+// -- A late remote outcome (finding 4, 0014) --------------------------------
+
+/// The inner graph whose `exit` answers late: past any short outer timeout.
+const LATE_INNER: &str = r#"{
+  "version": 0,
+  "name": "inner-late",
+  "neurons": [
+    {"id": "entry", "description": "in", "run": ["/bin/cat"]},
+    {"id": "exit", "description": "late", "run": ["/bin/sh", "-c", "sleep 1.2; printf '{\"late\":1}'"]}
+  ],
+  "links": [{"from": "entry", "to": "exit"}],
+  "entry": "entry",
+  "exit": "exit"
+}
+"#;
+
+/// A remote composed call whose inner answer arrives after its timeout has
+/// reported: the trace carries the timeout and nothing else, and stdout
+/// prints nothing — one outcome per call; the late outcome is cleanup only
+/// (finding 4, 0014).
+#[test]
+fn a_remote_composed_call_never_answers_after_its_timeout() {
+    let temp = Temp::new("late-graph");
+    let inner = temp.write("inner.network.json", LATE_INNER);
+    let net = temp.write(
+        "net.json",
+        r#"{
+  "version": 0,
+  "name": "outer-late",
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "graph", "description": "a whole network", "network": "inner.network.json", "timeout": 500}
+  ],
+  "links": [{"from": "src", "to": "graph"}]
+}
+"#,
+    );
+    let inputs = temp.write("inputs.jsonl", INPUTS);
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--network", inner.to_str().expect("a path")]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"graph\": \"b\"}"));
+    let out = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("trace.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    let trace = std::fs::read_to_string(temp.path("trace.json")).expect("the trace");
+    assert!(trace.contains("\"code\":\"timeout\""), "the timeout is reported: {trace}");
+    assert!(!trace.contains("\"type\":\"answer\""), "the answer came after the timeout: {trace}");
+    assert!(!trace.contains("\"late\""), "the late answer is in the trace: {trace}");
+    assert_eq!(stdout(&out), "", "the late answer printed: {}", stdout(&out));
+}
+
 // -- A cancelled call never runs (finding 1, 0014) ---------------------------
 
 /// When a cancel reaches the worker, in which order it met the call.
