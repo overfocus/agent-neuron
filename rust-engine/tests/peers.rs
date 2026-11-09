@@ -843,6 +843,96 @@ fn the_peers_file_is_closed_and_checked() {
     }
 }
 
+// -- Budgets across the wire (0014, handoff priority 2) ---------------------
+
+/// Both calls of one trace are placed on a peer, and the root budget is
+/// smaller than two calls' worth: the first reserves and commits in the trace
+/// exactly as a local call does, and the second — the pool cannot cover — is
+/// refused with the budget error (10.3, 10.4, 6.1), never started.
+const BUDGETED: &str = r#"{
+  "version": 0,
+  "name": "budgeted",
+  "budget": {"credits": 3},
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "a", "description": "first call", "run": ["/bin/cat"], "cost": {"credits": 2}},
+    {"id": "b", "description": "second call", "run": ["/bin/cat"], "cost": {"credits": 2}}
+  ],
+  "links": [
+    {"from": "src", "to": "a"},
+    {"from": "a", "to": "b"}
+  ]
+}
+"#;
+
+/// The events with the commit's real `ms` zeroed too: a placed call spends its
+/// milliseconds on the wire and on the peer, and the budget notes travel in
+/// the trace of the run that metered them (`t` and the ids are already
+/// renormalised by `events`).
+fn without_ms(events: Vec<Value>) -> Vec<Value> {
+    events
+        .into_iter()
+        .map(|e| match e {
+            Value::Obj(entries) => Value::Obj(
+                entries
+                    .into_iter()
+                    .map(|(k, v)| if k == "ms" { (k, Value::Int(0)) } else { (k, v) })
+                    .collect(),
+            ),
+            other => other,
+        })
+        .collect()
+}
+
+#[test]
+fn a_remote_call_reserves_commits_and_refuses_the_second_under_a_budget() {
+    let temp = Temp::new("budget");
+    let net = temp.write("net.json", BUDGETED);
+    let inputs = temp.write("inputs.jsonl", INPUTS);
+    let local = run(&temp, &net, &inputs, &temp.path("local.json"), &[], &[]);
+    assert!(local.status.success(), "the local run failed: {}", stderr(&local));
+
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &[]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, r#"{"a": "b", "b": "b"}"#));
+    let remote = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("remote.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(remote.status.success(), "the peer run failed: {}", stderr(&remote));
+
+    // The meter of the run is the driver's, whatever ran where: the reserve
+    // and the commit of the first call are in the trace, and the second call
+    // — for which 3 credits do not cover two calls of 2 — fails with the
+    // budget error without a reserve of its own (nothing was touched).
+    let trace = std::fs::read_to_string(temp.path("remote.json")).expect("the trace");
+    assert!(trace.contains("\"what\":\"reserve\""), "the reserve is in the trace: {trace}");
+    assert!(trace.contains("\"what\":\"commit\""), "the commit is in the trace: {trace}");
+    assert!(trace.contains("\"code\":\"budget\""), "the budget error is in the trace: {trace}");
+    assert!(
+        trace.contains("budget: needs 2 credits, 1 left"),
+        "the refusal says what was short: {trace}"
+    );
+
+    // A placed call is metered like a local one: the whole event list agrees.
+    let a = without_ms(events(&temp.path("local.json")));
+    let b = without_ms(events(&temp.path("remote.json")));
+    assert_eq!(a.len(), b.len(), "the event counts differ: {:?} vs {:?}", a, b);
+    for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+        assert!(
+            x.deep_eq(y),
+            "event {} differs:\n  local: {}\n  peer:  {}",
+            i,
+            json::write(x),
+            json::write(y)
+        );
+    }
+}
+
 // -- A late remote outcome (finding 4, 0014) --------------------------------
 
 /// The inner graph whose `exit` answers late: past any short outer timeout.
