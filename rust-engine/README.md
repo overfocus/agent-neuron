@@ -30,7 +30,7 @@ of my own, written into a scratch directory outside the repository.
 ## M1 — the process layer
 
 - `neuron-engine run <file> --inputs <jsonl> [--trace <out.json>]
-  [--stream <path>] [--ping <ms>]` (SPEC 9.1's command form): the producer's
+  [--stream <path>] [--ping <ms>] [--peers <json>]` (SPEC 9.1's command form): the producer's
   injections at their `at` ms from time zero (the instant the last serve
   program said ready, CONFORMANCE 4.2's real analogue), the answers of the
   neurons with no outgoing links on stdout, one per line. Exit 1 on a run the
@@ -100,7 +100,7 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 92: mcp 19, real 27, check 16, desk 17, http 11, unit 2
+cargo test                                          # 98: mcp 19, real 27, check 16, desk 17, http 11, peers 6, unit 2
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 224, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
@@ -108,6 +108,7 @@ target/debug/neuron-engine run spec/examples/alerts-python-serve.network.json --
 target/debug/neuron-engine run spec/examples/alerts-budget.network.json --inputs spec/examples/alerts.inputs.jsonl
 target/debug/neuron-engine check <file>
 neuron-engine mcp                                   # the M3 server on stdin/stdout
+neuron-engine peer --listen 127.0.0.1:7301 --token <hex> [--name b]   # a peer (P0, decision 0013)
 ```
 
 Results when M1 closed, re-run the commands above to check: `spec/fixtures`
@@ -368,6 +369,43 @@ surface.
   (this machine's closing run: 316/316/587 events — counts vary run to run
   with the machine's load, as the M1 section notes).
 
+## P0 — one call on a peer (decision 0013, docs/P2P.md)
+
+The seam of a peer-to-peer run, not yet the protocol: `run --peers <file>` names
+the machines that execute some of the network's `run` neurons, and
+`neuron-engine peer --listen <addr> --token <hex> [--name <n>]` is the worker.
+
+- **The peers file** is a side file, as `--grants` is (decision 0010):
+  `{version: 0, self?, peers: [{name, address, token}], placement: {neuron id:
+  peer name}}`, closed, the token 16 to 128 hex characters compared in constant
+  time at the handshake. Errors name the file. A placement that names a neuron
+  the network does not declare, or one that is not `run`, refuses the run at
+  the plant.
+- **The wire** is newline-delimited JSON over TCP, `v` 1: a `hello`, then
+  `call` / `done` pairs, one call at a time per connection. The call carries
+  exactly what the local host would give the program (argv, cwd, the `env`
+  names, the one stdin value, the timeout); the peer executes it with the same
+  `host` code (its own process group, the 1 MiB cap, the 100 ms settle) and
+  returns the outcome classified — `answer`, `quiet`, `junk`, `exit`, `signal`,
+  `overlong` — so 6.1 applies to one machine's program and another's
+  identically.
+- **The engine's side** is one queue entry (`Ev::L0Done`, reused: a peer's
+  outcome is a program's outcome) and one place per call a cancel reaches: the
+  socket's shutdown, as the http client's cancel is. A cut call writes `term`,
+  asks the peer to stop, and keeps the run open through the 2 s grace, as a
+  group's kill does; a peer that cannot be reached fails the call `exit 127`,
+  as a missing executable does.
+- **P0 carries `run` neurons only.** `serve`, `http`, `human` and composed
+  neurons are not placed, the ground does not replicate, budgets are the
+  driver's, and quiescence is single-machine. The rest is docs/P2P.md's P1-P4.
+
+Gates at P0: `cargo test` 98 (peers 6), `cargo fmt --check` and
+`clippy --all-targets -- -D warnings` clean, `conform spec/fixtures` 224/0/0 on
+five consecutive identical runs and `conform py/probes` 10/0/0, unchanged. The
+peers suite proves the claim end to end: one loopback peer runs a `run` neuron,
+and the peer run's trace is the local run's event for event, the wall-clock `t`
+zeroed.
+
 ## Design in one page
 
 `main.rs` (the CLI: discovery, argument, output) and `runner.rs` (the runner of
@@ -489,6 +527,12 @@ Updated after M3 (`wc -l` of the same files, plus the new ones): `mcp.rs`
 (new) 1335, `engine.rs` 4182, `host.rs` 953, `run.rs` 168; tests:
 `mcp.rs` (new) 927. Sources 11152, tests 3280 (with the two desk/http test
 files of M2 and the probe unit test), 14432 all told.
+
+At P0 (`wc -l` of the tree after the ground and the peer seam): sources 13067,
+tests 4206, 17273 all told. P0 added `src/peers.rs` 624 and `tests/peers.rs`
+325; the files it touched: `engine.rs` 4476, `run.rs` 201, `main.rs` 202,
+`lib.rs` 16 (the ground's earlier growth included: `net.rs` 1298, `trace.rs`
+249).
 
 For scale: the TypeScript reference engine (`src/engine/`) is 1353 by
 `wc -l` (decision 0005's table). This crate is larger for the same honest
