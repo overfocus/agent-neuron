@@ -98,6 +98,6 @@ as fixes land.
 
 ## Where it stands
 
-Started 2026-11-09 on `feat/audit-lifecycle` with findings 1–9 and the budget
-regression test; counts quoted above are the audit's at `e407c21` and the branch
-gate restates them from the tree before the merge.
+Merged to `main` (`76f04e9`) on Kevin's go, 2026-11-09: findings 1–9 and the
+budget pin landed (`1c4f2aa`..`80d5ea2`); the merge gate ran on the merged tree.
+Findings 10–17 remain.

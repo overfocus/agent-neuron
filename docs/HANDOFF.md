@@ -6,12 +6,13 @@ Build a recursive, composable, peer-to-peer neural agent graph: a neuron may
 contain a whole graph, graphs may nest and compose behind one interface, and
 peers may host and run parts of the same graph without a central controller.
 
-**State.** `main` is `da0b7c7` (pushed): the peer layer P0, P0.5, P1.1 and P2 are
-merged, as is the composed-neuron fix P0 exposed. Working tree clean. Gates on
-this tree: `cargo test` 106 (unit 2, check 16, desk 17, http 11, mcp 19, peers 13,
-real 28), fmt and clippy clean, `conform spec/fixtures` 224/0/0 on five
-consecutive identical runs, `conform py/probes` 10/0/0, `npm run demo:p2p` exit 0
-with four peers, vitest 264.
+**State.** `main` is `76f04e9` (pushed): the audit gate built (0014 — findings
+1–9 and the budget pin, one commit each, red-test first), the peer layer P0,
+P0.5, P1.1 and P2 merged before it, as is the composed-neuron fix P0 exposed.
+Working tree clean. Gates on this tree: `cargo test` 117 (unit 2, check 16, desk
+17, http 11, mcp 22, peers 20, real 29), fmt and clippy clean, `conform
+spec/fixtures` 224/0/0 on identical reruns, `conform py/probes` 10/0/0, `npm run
+demo:p2p` exit 0 with four peers, `npm run check` (vitest 264).
 
 Where the design lives: [docs/P2P.md](P2P.md) (the plan, the shapes, the
 breakages, the per-step gates), [decision 0013](decisions/0013-p2p.md) (what was
