@@ -358,7 +358,11 @@ fn l0_cwd_and_relative_command() {
 #[test]
 fn l0_term_then_kill_with_survivor() {
     // A cut call whose group ignores SIGTERM: term, then the kill 2 s later,
-    // and the run waits for the group (6.3, 6.2 rule 6).
+    // and the run waits for the group (6.3, 6.2 rule 6). The 1500 ms timeout
+    // is an order past the leader's own start-up (python's imports, the
+    // survivor's spawn): the leader must be running when the cut signs it —
+    // a term that arrives before the survivor exists owes no kill, and on a
+    // loaded machine the 250 ms cut raced the spawn.
     let temp = Temp::new("l0-leaves");
     let net = temp.write(
         "network.json",
@@ -368,7 +372,7 @@ fn l0_term_then_kill_with_survivor() {
                 "l",
                 "\"run\"",
                 &format!("[\"python3\", \"{}\"]", progs("leaves_ignore.py")),
-                ", \"timeout\": 250",
+                ", \"timeout\": 1500",
             )],
         ),
     );

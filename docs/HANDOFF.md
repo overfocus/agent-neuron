@@ -42,33 +42,18 @@ remain queued after the serve build.
 
 ## Remaining, in the order I would take it
 
-### 1. Peer-hosted `serve` (P1's big piece)
+### 1. Peer-hosted `serve` (P1's big piece) — built (2026-11-09)
 
-The last call kind, and the only reply that carries `to` and `replaces` (3.2) —
-today a peer runs one level-0 program per call and nothing long-lived. A
-timbre-style crew (a writer, two reviewers) is `serve` neurons; until this lands
-they can only run on the driver's machine.
+A placed `serve` runs on its peer (`peer --serve`; the hello's mode grew `serve`
+and an unhostable worker is refused at the handshake): the wire carries
+`serve_start`, `ready` (with `maxInflight`), the relayed lines, and `down`; the
+relay never holds its host; an unanswered start fails the plant by the node's
+deadline (the 0014 finding-5 cap). Slots, `maxInflight`, a restart, a cancel and
+a crash mid-call all act over the wire, and the event lists equal the local
+runs'. Commits `1d373f5`..`4191af4` (the red-side first, then the relay-latency
+root cause and the remaining levers).
 
-Where: `engine.rs` (`new_serve`, `start_serves`, `signal_line`, `consume_line`,
-`restart`, slot bookkeeping — all keyed by node index and assuming a local
-process), `peers.rs` (the worker spawns an L1 process, relays its lines, answers
-`cancel`, reports its exit). The wire grows `serve_start` / `ready` / `line` /
-`down`; the hello already reports the peer's mode.
-
-Gate: a peer-hosted `serve` test beside the existing level 1 tests (slots,
-`maxInflight`, a restart, a cancel line, a crash mid-call), conformance untouched.
-Trap: `start_serves` blocks the plant until every serve says ready; a peer that
-never answers must be a start failure, not a hung plant.
-
-### 2. Budgets across the wire (probably already true — pin it)
-
-Under A the driver holds the pool and does `reserve_call`/`commit_call` for a
-remote call exactly as for a local one, so the accounting should already be
-right. Nobody has tested it.
-
-Gate: a network with a `budget`, a placed neuron, and a second call the pool
-cannot cover: the trace carries the `reserve`/`commit` notes and the `budget`
-error. If it passes with no code, change nothing but the test.
+### 2. Budgets across the wire — pinned (2026-11-09, no engine change)
 
 ### 3. A cancel a hosted graph's engine reads
 

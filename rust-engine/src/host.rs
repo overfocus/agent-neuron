@@ -79,6 +79,13 @@ pub enum Ev {
     /// A level 1 process's stdout closed (`exited: false`) or the process
     /// exited (`exited: true`, after the settle).
     L1Down { server: usize, gen: usize, exited: bool },
+    /// A serve start the worker could not even take (decision 0013, P1):
+    /// unreachable, a handshake mode it does not speak, a spawn it rejected.
+    /// The start failure carries the reason the wire gave, so the engine
+    /// refuses or restarts for the same reasons a local start would — never
+    /// for silence (the start deadline is the last word of a peer that says
+    /// nothing at all, finding 5, 0014).
+    ServeStartFailed { server: usize, gen: usize, why: String },
     /// An http request finished (SPEC 3.3): the engine finds the call by `idx`.
     HttpDone { idx: usize, out: crate::http::HttpOut },
     /// A tick from a side surface (the desk accepted an answer): the engine
