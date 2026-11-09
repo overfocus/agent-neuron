@@ -224,6 +224,9 @@ struct L0Proc {
     gid: Option<i32>,
     /// A real group whose over-long output was already killed at once.
     killed: bool,
+    /// A call dispatched to a peer (decision 0013): no local process group,
+    /// so `gid` stays `None` and the peer's outcome arrives as `L0Done`.
+    remote: bool,
 }
 
 /// A level 1 slot: at most `maxInflight` run at once (SPEC 3.2).
@@ -366,6 +369,10 @@ struct INode {
     cmd: Vec<String>,
     cwd: Option<PathBuf>,
     env: Vec<String>,
+    /// The peer that executes this neuron's calls (decision 0013): `None` is
+    /// this machine. Read from the peers file at the plant; P0 carries only
+    /// the outer file's `run` neurons.
+    peer: Option<usize>,
 }
 
 /// What a script answers a call with (CONFORMANCE 5.2), with the reply's `to`
@@ -543,6 +550,9 @@ pub struct Engine {
     /// decision 0012): 2.6 refuses a ground in a composed file, so only the
     /// outer network's — instance 0 — can ever sit here.
     ground: Option<GroundState>,
+    /// The peers this run dispatches to (decision 0013), when `--peers` named
+    /// any: the placement is read at the plant, the wire at each call.
+    peers: Option<crate::peers::Peers>,
 }
 
 impl Engine {
@@ -599,6 +609,7 @@ impl Engine {
             wants_desk: true,
             grants: None,
             ground: None,
+            peers: None,
         }
     }
 
@@ -632,6 +643,13 @@ impl Engine {
         self.grants = Some(grants);
     }
 
+    /// The peers (decision 0013): the machines that execute some of this
+    /// run's neurons, and the wire to them. Set before the plant; absent is a
+    /// run whose every call is local.
+    pub fn set_peers(&mut self, peers: crate::peers::Peers) {
+        self.peers = Some(peers);
+    }
+
     /// No desk on this route: a network with `human` neurons is refused at
     /// plant (a person answers at a desk, and this route has none to offer).
     pub fn set_no_desk(&mut self) {
@@ -642,6 +660,9 @@ impl Engine {
     /// ready): the start spawned processes; they are stopped, silently.
     pub fn stop_after_refusal(&mut self) {
         self.desk_close();
+        if let Some(peers) = self.peers.as_mut() {
+            peers.abort_all();
+        }
         if self.real.is_none() {
             return;
         }
@@ -745,6 +766,25 @@ impl Engine {
     /// of decision 0008 is opened here, one page for the run, on 127.0.0.1
     /// only, and the run's stderr carries its address.
     pub fn plant(&mut self, outer: &Network, files: &HashMap<String, NetFile>, base: Option<&PathBuf>) -> Result<(), String> {
+        if let Some(peers) = &self.peers {
+            // P0's placement rule: the outer file's `run` neurons only. A
+            // composed neuron is planted wholly on the machine that plants its
+            // file (its instance is the unit of placement), and a source,
+            // http, human or serve neuron has no level 0 call to carry yet.
+            for id in peers.placement.keys() {
+                match outer.node(id) {
+                    None => {
+                        self.refused = Some(format!("the peers file places '{id}', which the network does not declare"));
+                        return Ok(());
+                    }
+                    Some(n) if !matches!(n.kind, Kind::Run(_)) => {
+                        self.refused = Some(format!("the peers file places '{id}', and P0 carries only `run` neurons to a peer"));
+                        return Ok(());
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
         self.plant_net(outer, files, 0, None, "", base.map(PathBuf::from).unwrap_or_default())?;
         let bad: Option<String> = self.nodes.iter().find_map(|n| match &n.kind {
             Kind::Http(url) => {
@@ -851,8 +891,16 @@ impl Engine {
                     }
                 })
                 .or_else(|| Some(dir.clone()));
+            // A placed neuron (decision 0013): only the outer file's, and
+            // only what `plant` let through.
+            let peer = if inst == 0 {
+                self.peers.as_ref().and_then(|p| p.placement.get(&n.id).copied())
+            } else {
+                None
+            };
             self.nodes.push(INode {
                 inst,
+                peer,
                 kind: n.kind.clone(),
                 display: n.id.clone(),
                 threshold: n.opts.threshold.unwrap_or(1),
@@ -1090,6 +1138,9 @@ impl Engine {
     /// same way (decision 0001: the engine kills a call's process group).
     fn end_run_quietly(&mut self) {
         self.desk_close();
+        if let Some(peers) = self.peers.as_mut() {
+            peers.abort_all();
+        }
         let mut serve_gids: Vec<i32> = Vec::new();
         let mut close: Vec<(usize, usize)> = Vec::new();
         for (node, s) in self.serves.iter() {
@@ -1118,6 +1169,9 @@ impl Engine {
     /// ids.
     pub fn kill_leftovers(&mut self) {
         self.desk_close();
+        if let Some(peers) = self.peers.as_mut() {
+            peers.abort_all();
+        }
         if self.real.is_none() {
             return;
         }
@@ -2203,6 +2257,7 @@ impl Engine {
             let env = self.nodes[node].env.clone();
             let cwd = self.nodes[node].cwd.clone();
             let input = json::write(&self.input_value_of(work));
+            let peer = self.nodes[node].peer;
             let l0 = self.l0s.len();
             self.l0s.push(L0Proc {
                 work,
@@ -2211,23 +2266,47 @@ impl Engine {
                 ignore_term: false,
                 gid: None,
                 killed: false,
+                remote: peer.is_some(),
             });
             self.works[work].l0 = Some(l0);
             self.works[work].st = WSt::Running;
-            let spawn = self.host().l0_begin(l0, &cmd, cwd.as_deref(), &env, input.as_bytes());
-            match spawn {
-                Ok(gid) => self.l0s[l0].gid = Some(gid),
-                Err(why) => {
-                    // The program never ran: an error even for an effect
-                    // neuron (11.3 is for calls that started).
-                    self.commit_call(work);
-                    self.emit_fail_unstarted(work, "exit", &format!("exit 127: {}", why));
-                    self.l0s[l0].leader_alive = false;
-                    self.works[work].done = true;
-                    self.finish_check(None);
+            let started = match peer {
+                // The call leaves this machine (decision 0013, P0): the peer
+                // runs the same level 0 contract and classifies its outcome
+                // the same way, and that outcome arrives as `L0Done`, stamped
+                // by the queue like any program's.
+                Some(peer) => {
+                    let req = crate::peers::CallReq {
+                        node: self.nodes[node].display.clone(),
+                        argv: cmd.clone(),
+                        cwd: cwd.clone(),
+                        env: env.clone(),
+                        input: input.clone(),
+                        timeout: self.nodes[node].timeout,
+                    };
+                    let post = self.host().post_handle();
+                    match self.peers.as_mut() {
+                        Some(peers) => peers.start(post, l0, peer, req),
+                        None => Err("no peers table for a placed neuron".into()),
+                    }
                 }
+                None => self
+                    .host()
+                    .l0_begin(l0, &cmd, cwd.as_deref(), &env, input.as_bytes())
+                    .map(|gid| self.l0s[l0].gid = Some(gid)),
+            };
+            if let Err(why) = started {
+                // The program never ran: an error even for an effect neuron
+                // (11.3 is for calls that started). A peer that cannot be
+                // reached fails the call the same way a missing executable
+                // does (Appendix C's `exit 127`).
+                self.commit_call(work);
+                self.emit_fail_unstarted(work, "exit", &format!("exit 127: {}", why));
+                self.l0s[l0].leader_alive = false;
+                self.works[work].done = true;
+                self.finish_check(None);
             }
-            if !self.works[work].done && self.l0s[l0].gid.is_some() {
+            if !self.works[work].done && (self.l0s[l0].gid.is_some() || self.l0s[l0].remote) {
                 self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
             }
             return;
@@ -2245,6 +2324,9 @@ impl Engine {
             ignore_term,
             gid: None,
             killed: false,
+            // The scripted host has no wire: a call is either scripted here or
+            // carried by a peer, never both.
+            remote: false,
         });
         self.works[work].l0 = Some(l0);
         self.works[work].st = WSt::Running;
@@ -2277,6 +2359,24 @@ impl Engine {
     /// who is still in it, and SIGTERM goes to the group now.
     fn terminate_l0(&mut self, l0: usize) {
         if self.is_real() {
+            if self.l0s[l0].remote {
+                // The peer's program is asked to stop the way a local group is
+                // signalled: the request, a `term` note when the call had not
+                // already reported, and the same 2 s grace before the kill
+                // (6.3). The peer's confirmation is the group's death (6.2
+                // rule 6).
+                let node = self.works[self.l0s[l0].work].node;
+                let open = self.peers.as_mut().map(|p| p.cancel(l0)).unwrap_or(false);
+                if open {
+                    self.emit_node_note(node, "term");
+                    self.arm(self.now + host::GRACE_MS, Wake::L0Grace { proc: l0 });
+                } else {
+                    let work = self.l0s[l0].work;
+                    self.commit_call(work);
+                    self.works[work].done = true;
+                }
+                return;
+            }
             let Some(gid) = self.l0s[l0].gid else {
                 // Never spawned (a spawn failure): the call is over.
                 let work = self.l0s[l0].work;
@@ -2328,16 +2428,20 @@ impl Engine {
         }
         let node = self.works[work].node;
         let killed: bool = if self.is_real() {
-            match self.l0s[l0].gid {
-                Some(gid) => {
-                    let alive = host::group_alive(gid);
-                    if alive {
-                        host::kill_group(gid);
+            if self.l0s[l0].remote {
+                self.peers.as_mut().map(|p| p.abort(l0)).unwrap_or(false)
+            } else {
+                match self.l0s[l0].gid {
+                    Some(gid) => {
+                        let alive = host::group_alive(gid);
+                        if alive {
+                            host::kill_group(gid);
+                        }
+                        self.host().l0_forget(l0);
+                        alive
                     }
-                    self.host().l0_forget(l0);
-                    alive
+                    None => false,
                 }
-                None => false,
             }
         } else {
             std::mem::replace(&mut self.l0s[l0].survivor, false) || std::mem::replace(&mut self.l0s[l0].leader_alive, false)
@@ -2356,6 +2460,12 @@ impl Engine {
     /// error. The script's word is its flags; the real host probes and kills.
     fn kill_l0_group_now(&mut self, l0: usize) -> bool {
         if self.is_real() {
+            if self.l0s[l0].remote {
+                let open = self.peers.as_mut().map(|p| p.abort(l0)).unwrap_or(false);
+                self.l0s[l0].leader_alive = false;
+                self.l0s[l0].killed = true;
+                return open;
+            }
             let Some(gid) = self.l0s[l0].gid else { return false };
             let alive = host::group_alive(gid);
             if alive {
@@ -2382,6 +2492,15 @@ impl Engine {
         let work = p.work;
         let still_running = self.works[work].running() && !self.works[work].cut && !self.works[work].reported;
         let gid = p.gid;
+        let remote = p.remote;
+        if remote {
+            // The peer's call is over when its outcome arrives: the entry that
+            // let a cancel reach the socket goes now (a long run must not hold
+            // one per finished call).
+            if let Some(peers) = self.peers.as_mut() {
+                peers.forget(l0);
+            }
+        }
         self.l0s[l0].leader_alive = false;
         if still_running && !self.works[work].done {
             self.l0_finished(work, l0_out_of(out));

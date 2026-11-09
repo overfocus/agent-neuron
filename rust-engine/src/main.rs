@@ -12,14 +12,15 @@ use rust_engine::mcp;
 use rust_engine::run::{self, RunOpts};
 use rust_engine::runner;
 use rust_engine::trace;
-use rust_engine::{check, host, json};
+use rust_engine::{check, host, json, peers};
 use std::path::Path;
 
 fn usage() -> ! {
     eprintln!("usage: neuron-engine conform <dir> [--only <text>]");
-    eprintln!("       neuron-engine run <file> --inputs <jsonl> [--trace <out.json>] [--stream <path>] [--ping <ms>] [--grants <json>]");
+    eprintln!("       neuron-engine run <file> --inputs <jsonl> [--trace <out.json>] [--stream <path>] [--ping <ms>] [--grants <json>] [--peers <json>]");
     eprintln!("       neuron-engine check <file>");
     eprintln!("       neuron-engine mcp");
+    eprintln!("       neuron-engine peer --listen <host:port> --token <hex> [--name <name>]");
     std::process::exit(2);
 }
 
@@ -57,6 +58,7 @@ fn main() {
         "run" => run(&args[1..]),
         "check" => check::main(&args[1..]),
         "mcp" => mcp::main(&args[1..]),
+        "peer" => peers::main(&args[1..]),
         _ => usage(),
     }
 }
@@ -125,7 +127,7 @@ fn run(args: &[String]) {
     if flags
         .named
         .iter()
-        .any(|(n, _)| !matches!(n.as_str(), "inputs" | "trace" | "stream" | "ping" | "grants"))
+        .any(|(n, _)| !matches!(n.as_str(), "inputs" | "trace" | "stream" | "ping" | "grants" | "peers"))
     {
         usage();
     }
@@ -169,6 +171,7 @@ fn run(args: &[String]) {
         inputs: inputs.clone(),
         ping_every,
         grants: get("grants"),
+        peers: get("peers"),
     };
     match run::run_with_stream(&file, &opts, sink) {
         Ok(result) => {

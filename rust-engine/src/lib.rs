@@ -10,6 +10,7 @@ pub mod http;
 pub mod json;
 pub mod mcp;
 pub mod net;
+pub mod peers;
 pub mod run;
 pub mod runner;
 pub mod trace;

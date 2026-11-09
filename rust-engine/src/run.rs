@@ -28,6 +28,9 @@ pub struct RunOpts {
     pub ping_every: u64,
     /// A grants file for the desk (decision 0010): who may answer what.
     pub grants: Option<String>,
+    /// A peers file (decision 0013): the machines that execute some of this
+    /// run's neurons, and who runs which. Absent: every call is local.
+    pub peers: Option<String>,
 }
 
 /// The inputs file: JSONL entries `{ at, source, payload, replaces?, budget? }`
@@ -93,6 +96,10 @@ pub fn run_with_stream(file: &str, opts: &RunOpts, sink: Option<StreamSink>) -> 
             .collect();
         grants.check_against(&humans).map_err(|e| format!("cannot run: {e}"))?;
         eng.set_grants(grants);
+    }
+    if let Some(p) = &opts.peers {
+        let peers = crate::peers::Peers::load(p).map_err(|e| format!("cannot run: {e}"))?;
+        eng.set_peers(peers);
     }
     if let Err(e) = eng.plant(&outer, &files, Some(&base)) {
         return Err(format!("cannot run: {}", e));
