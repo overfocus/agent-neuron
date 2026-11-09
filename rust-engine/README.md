@@ -424,6 +424,69 @@ for event (wall-clock `t` zeroed, ids renormalised by first appearance), a
 peer-hosted graph is the local composed neuron answer for answer and event for
 event, and a graph spread over two engines answers as a wholly local run does.
 
+## Where it stands, and the roadmap (2026-11-09)
+
+**Surfaces.** `conform <dir>` (the fixture runner, CONFORMANCE 8); `run <file>`
+with `--inputs`, `--trace`, `--stream`, `--ping`, `--grants`, `--peers`;
+`check <file>` (2.7 errors and warnings, positioned); `mcp` (five tools,
+`describe_network`, `spec://` resources, `run://` jobs, stdio JSON-RPC);
+`peer --listen` (P0/P0.5: a program worker, or `--network <file>` for a peer that
+is one neuron). Inside: level 0 and level 1 with the whole 6.1/6.3 failure and
+note surface, `http` (`http://` only, `https` refused at plant), the desk for
+`human` neurons (0008/0010), composed neurons with sealing and 10.5 pools,
+budgets, effects, observers and the live stream, and the ground (0012).
+
+**Measured on this tree:** `cargo test` 103 (unit 2, check 16, desk 17, http 11,
+mcp 19, peers 10, real 28); `cargo fmt --check` and `clippy --all-targets -- -D
+warnings` clean; `conform spec/fixtures` 224/0/0 on five consecutive identical
+runs; `conform py/probes` 10/0/0. Sizes: 13,421 lines of `src` in 15 files,
+4,507 of tests in 6 (`engine.rs` 4602, `desk.rs` 1524, `mcp.rs` 1448, `net.rs`
+1298, `host.rs` 957, `peers.rs` 848).
+
+**Known gaps, stated plainly.**
+
+- `describe_network` does not carry `ground`: the demos' run manifest loses it.
+- The `http` failure row has no fixture (decision 0004).
+- No durable state: an open hold, the grants and the trail die with the run.
+- No presence event and no quiescence trigger: "the run settled" has no shape.
+- Peers carry `run` and `network` nodes only; there is no `cancel` message (the
+  socket's shutdown plus the worker's deadline is the backstop); budgets stay
+  the driver's; the ground does not replicate; a multi-peer run has no merged
+  trace; `check` does not know `--peers`.
+- Open SPEC questions that are engine-visible: #24 (both engines disagree on a
+  composed exit at its timeout instant), #21, #20, #19, #23, #22, #26, #25, #27,
+  #28, #29.
+- POSIX only; no TLS; no CI (`.github` is absent, the gate is local).
+
+**Roadmap.**
+
+0. ~~Merge the peer layer (P0 + P0.5)~~ — merged to `main` 2026-11-09, gated on
+   the merged tree.
+1. **P1, the call lifecycle across the wire**: the `cancel` message (with the
+   term / 2 s grace / kill notes), a peer-hosted `serve` with slots and restarts,
+   `effect` on a dead peer as `unknown`, budgets with an owner per trace (or
+   declared shares), and the two things a remote graph drops today — the exit
+   reply's `replaces` and the composed `cost` capping the inner budget. Gate:
+   every 6.1 code exercised across the wire; conformance untouched.
+2. **P2, cross-peer links**: `answer.to` resolved at the driver, `cut` routed,
+   peer-numbered ids and the merged-trace rule — the step that makes a driver run
+   itself placeable as one neuron in another network. Gate: a two-peer network
+   whose merged trace equals the single-engine trace.
+3. **P3, the ground over the wire**: deposits as a folded list, gossip, seeds
+   reading the merged trail. Gate: a two-peer colony drawing the same numbers as
+   one engine.
+4. **P4, quiescence** (issue #30 item 4), now distributed termination detection.
+   Gate: a run that ends only when every peer is empty; a silent peer keeps it
+   open and then fails honestly.
+5. **P5, the contract pass**: decision record, SPEC section, `TRACE.md`'s merged
+   reading, a scripted-peer fixture area.
+
+The engine track runs in parallel, from issue #30: durable run state (item 1 —
+the keystone under carry-over and async play), who may answer (grants are built,
+the org directory is not), presence (item 3). Then the small gaps above:
+`describe_network` carrying `ground`, the `http` failure fixture, the SPEC
+questions #24/#21/#20/#19.
+
 ## Design in one page
 
 `main.rs` (the CLI: discovery, argument, output) and `runner.rs` (the runner of
