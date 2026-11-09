@@ -1,10 +1,16 @@
 # Decision record 0014: the rust engine's lifecycle audit (2026-11-09)
 
-**Status: decided (Kevin, 2026-11-09)** — before peer-hosted `serve` (the handoff's
-priority 1), audit findings 1–9 are fixed with a failing-test-first regression test
-each, and handoff priority 2 (budgets across the wire) gets its regression test in
-the same pass with no engine change beyond findings 1–9. Findings 10–17 follow
-after the serve build. Nothing here changes the SPEC or the fixtures: every item
+**Status: decided and built (Kevin, 2026-11-09)** — findings 1–9 and the budget
+regression test are on `feat/audit-lifecycle` today, one commit per item
+(`75a3cd3` 1, `cf2954d` 2, `09df92a` 4, `2b571cd` the budget pin, `de505d2` 5,
+`2dc86ed` 6, `79a2a17` 7, `ef94c27` 8, `b314149` 9, `2cc536c` 3), each red-test
+first and gated before its commit. Measured on the branch at `2cc536c`, by the
+merge gate's owner: cargo test 117/0 (unit 2, check 16, desk 17, http 11,
+mcp 22, peers 20, real 29), fmt and clippy
+clean, conform `spec/fixtures` 224/0/0 on five identical runs, `conform
+py/probes` 10/0/0, `demo:p2p` and `npm run check` on the same tip. Findings
+10–17 stay queued after the serve build. Nothing here changes the SPEC or the
+fixtures: every item
 below is a bug fix under text the SPEC already fixes, and the budget item pins
 behavior that already holds. The peer wire changes only as far as findings 1, 3,
 8 and 9 and the serve build need.

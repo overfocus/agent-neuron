@@ -32,9 +32,12 @@ stands, and the roadmap").
 
 Before priority 1, audit findings 1–9 are fixed with a failing-test-first
 regression test each, and priority 2 gets its regression test (engine change:
-none — it already holds). Findings 10–17 are queued after the serve build.
-The findings, with file:line at `e407c21` and the accepted per-finding gates:
-[docs/decisions/0014-engine-lifecycle-audit.md](decisions/0014-engine-lifecycle-audit.md).
+none — it already holds). **Done, on `feat/audit-lifecycle` (2026-11-09)**, one
+commit per item, decision record
+[docs/decisions/0014-engine-lifecycle-audit.md](decisions/0014-engine-lifecycle-audit.md)
+carrying the findings, the fixes and the measured gate (cargo test 117,
+conform 224/0/0 five runs identical). Merge on Kevin's go; findings 10–17
+remain queued after the serve build.
 
 ## Remaining, in the order I would take it
 
