@@ -32,7 +32,7 @@ use crate::engine::Engine;
 use crate::host::{self, L0Out};
 use crate::json::{self, Obj, Value};
 use crate::net::{Kind, Link, NetFile, Network, Node};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
@@ -404,6 +404,12 @@ fn dispatch(p: &Peer, local: &str, req: &CallReq, call: &Call) -> (L0Out, bool) 
             p.name, mode, want
         ));
     }
+    // The call goes out only if no cancel for it is already in: `cancel` marks
+    // the call before it writes the cancel line, and the worker refuses a call
+    // whose id its cancels already hold either way (0014, finding 1).
+    if call.cancelled.load(Ordering::SeqCst) {
+        return fail("the call was cancelled before it was sent".into());
+    }
     let call_line = Obj::new()
         .str("type", "call")
         .int("id", 1)
@@ -561,10 +567,16 @@ fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Arc<Graph>>) 
     let _ = reader.get_ref().set_read_timeout(None);
     // A reader of its own, so a `cancel` line is seen while a call runs: the
     // running program is stopped and answered, instead of the driver waiting
-    // out its kill grace (P1).
+    // out its kill grace (P1). A cancel is kept by the call's id and never
+    // cleared: it is a decision about a call, not a phase of one, so a cancel
+    // that arrives before (or with) its call still reaches it (finding 1,
+    // 0014). The wire dying is the one unconditional stop, as the socket
+    // shutdown's fallback has always been.
     let (tx, rx) = std::sync::mpsc::channel::<Msg>();
-    let cancel = Arc::new(AtomicBool::new(false));
-    let reader_cancel = cancel.clone();
+    let cancels = Arc::new(Mutex::new(HashSet::new()));
+    let dead = Arc::new(AtomicBool::new(false));
+    let reader_cancels = cancels.clone();
+    let reader_dead = dead.clone();
     host::spawn_thread("peer-read", move || {
         let mut reader = reader;
         loop {
@@ -576,17 +588,19 @@ fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Arc<Graph>>) 
                         }
                     }
                     Ok(msg) if msg.get("type").and_then(Value::as_str) == Some("cancel") => {
-                        reader_cancel.store(true, Ordering::SeqCst);
+                        if let Ok(mut ids) = reader_cancels.lock() {
+                            ids.insert(wire_call_id(&msg));
+                        }
                         let _ = tx.send(Msg::Cancel);
                     }
                     _ => {
-                        reader_cancel.store(true, Ordering::SeqCst);
+                        reader_dead.store(true, Ordering::SeqCst);
                         let _ = tx.send(Msg::Eof);
                         break;
                     }
                 },
                 Err(_) => {
-                    reader_cancel.store(true, Ordering::SeqCst);
+                    reader_dead.store(true, Ordering::SeqCst);
                     let _ = tx.send(Msg::Eof);
                     break;
                 }
@@ -596,12 +610,24 @@ fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Arc<Graph>>) 
     while let Ok(msg) = rx.recv() {
         match msg {
             Msg::Call(call) => {
-                // A cancel from the previous call's last instant is not this
-                // call's (one call at a time on a connection).
-                cancel.store(false, Ordering::SeqCst);
+                let id = wire_call_id(&call);
+                // A call whose cancel is already in does not run: the check
+                // and the reader's insert share the set's lock, so a cancel
+                // recorded before this instant cannot be missed (0014, finding 1).
+                if wire_cancelled(&cancels, &dead, id) {
+                    let reply = Obj::new()
+                        .str("type", "done")
+                        .int("id", id)
+                        .set("out", cancelled_outcome(name))
+                        .build();
+                    if write_line(&mut writer, &reply).is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 let done = match &graph {
-                    Some(g) => execute_graph(g, &call, name),
-                    None => execute_program(&call, name, &cancel),
+                    Some(g) => execute_graph(g, &call, name, &cancels, &dead),
+                    None => execute_program(&call, name, &cancels, &dead),
                 };
                 if write_line(&mut writer, &done).is_err() {
                     return;
@@ -620,10 +646,36 @@ enum Msg {
     Eof,
 }
 
+/// A call's id on the wire (the driver sends one on every call and cancel).
+fn wire_call_id(v: &Value) -> i64 {
+    v.get("id").and_then(Value::as_i64).unwrap_or(0)
+}
+
+/// Whether this call's cancel is already in, or the wire is gone. The set is
+/// the reader's and the executors' only shared state, so a cancel is recorded
+/// or read in one order: the final check before a spawn cannot miss a cancel
+/// that arrived before it (0014, finding 1).
+fn wire_cancelled(ids: &Mutex<HashSet<i64>>, dead: &AtomicBool, id: i64) -> bool {
+    if dead.load(Ordering::SeqCst) {
+        return true;
+    }
+    ids.lock().map(|ids| ids.contains(&id)).unwrap_or(false)
+}
+
+/// The outcome of a call refused because its cancel is already in: the same
+/// classification a cancelled run reports (the driver's cut machinery owns the
+/// call's end; the reply only releases the connection).
+fn cancelled_outcome(name: &str) -> Value {
+    outcome_json(&L0Out::Signal {
+        num: 9,
+        stderr: format!("peer {}: the driver cancelled the call", name),
+    })
+}
+
 /// Run one program call here, in this host's code: the same spawn, the same
 /// 1 MiB cap, the same settle and the same classification a local call gets.
-fn execute_program(call: &Value, name: &str, cancel: &AtomicBool) -> Value {
-    let id = call.get("id").and_then(Value::as_i64).unwrap_or(0);
+fn execute_program(call: &Value, name: &str, cancels: &Mutex<HashSet<i64>>, dead: &AtomicBool) -> Value {
+    let id = wire_call_id(call);
     let reply = |out: Value| Obj::new().str("type", "done").int("id", id).set("out", out).build();
     let argv: Vec<String> = call
         .get("argv")
@@ -644,6 +696,13 @@ fn execute_program(call: &Value, name: &str, cancel: &AtomicBool) -> Value {
     let cwd = call.get("cwd").and_then(Value::as_str).map(std::path::PathBuf::from);
     let input = call.get("input").and_then(Value::as_str).unwrap_or("");
     let timeout = call.get("timeout").and_then(Value::as_u64).unwrap_or(30_000).min(3_600_000);
+    // The spawn is the point of no return: a cancel already in for this id
+    // stops the call here, with the check ordered against the reader's insert
+    // (0014 finding 1). A cancel that arrives after this instant is caught by
+    // the pump below, before the program can finish.
+    if wire_cancelled(cancels, dead, id) {
+        return reply(cancelled_outcome(name));
+    }
     let mut host = host::Host::new();
     if let Err(why) = host.l0_begin(0, &argv, cwd.as_deref(), &env, input.as_bytes()) {
         return reply(outcome_json(&L0Out::Exit { code: 127, stderr: why }));
@@ -662,7 +721,7 @@ fn execute_program(call: &Value, name: &str, cancel: &AtomicBool) -> Value {
             }
             continue;
         }
-        if cancel.load(Ordering::SeqCst) {
+        if wire_cancelled(cancels, dead, id) {
             cancelled = true;
             break None;
         }
@@ -700,14 +759,20 @@ fn execute_program(call: &Value, name: &str, cancel: &AtomicBool) -> Value {
 /// Run one call as a whole network: the payload enters the file's `entry`, the
 /// file's `exit` answers (or an inner failure is `inner`, or nothing is quiet —
 /// 2.6's rules, applied to a run of the file as instance 0).
-fn execute_graph(g: &Graph, call: &Value, name: &str) -> Value {
+fn execute_graph(g: &Graph, call: &Value, name: &str, cancels: &Mutex<HashSet<i64>>, dead: &AtomicBool) -> Value {
+    let id = call.get("id").and_then(Value::as_i64).unwrap_or(0);
+    let reply = |out: Value| Obj::new().str("type", "done").int("id", id).set("out", out).build();
+    let inner = |why: String| reply(Obj::new().str("kind", "inner").str("message", why).build());
+    // A call whose cancel is already in never plants an engine here (finding
+    // 1, 0014). Mid-run, a cancel is still the socket shutdown plus the
+    // graph's deadline: the engine-per-instance cancel handle is finding 3's.
+    if wire_cancelled(cancels, dead, id) {
+        return reply(cancelled_outcome(name));
+    }
     // A hosted graph cannot be cancelled mid-run yet: its own engine owns the
     // loop, and a cancel here would leave that engine's processes behind. The
     // driver's socket shutdown plus the graph's deadline is the backstop (P1's
     // rest: a cancel handle the engine's loop reads).
-    let id = call.get("id").and_then(Value::as_i64).unwrap_or(0);
-    let reply = |out: Value| Obj::new().str("type", "done").int("id", id).set("out", out).build();
-    let inner = |why: String| reply(Obj::new().str("kind", "inner").str("message", why).build());
     let text = call.get("input").and_then(Value::as_str).unwrap_or("");
     let payload = match json::parse(text) {
         Ok(v) => v,

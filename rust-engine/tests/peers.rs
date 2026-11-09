@@ -3,8 +3,9 @@
 // is the same run — the same answers on stdout and the same events, wall-clock
 // stamps aside. The wire's refusals are tested where they happen: the placement
 // at the plant, the token at the handshake, an unreachable peer at the call.
-use rust_engine::json::{self, Value};
+use rust_engine::json::{self, Obj, Value};
 use std::io::{BufRead, BufReader, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -839,6 +840,95 @@ fn the_peers_file_is_closed_and_checked() {
         );
         assert!(!out.status.success(), "{name} was accepted");
         assert!(stderr(&out).contains(want), "{name} said: {}", stderr(&out));
+    }
+}
+
+// -- A cancelled call never runs (finding 1, 0014) ---------------------------
+
+/// When a cancel reaches the worker, in which order it met the call.
+#[derive(Debug, Clone, Copy)]
+enum CancelWhen {
+    /// The cancel is on the wire before the call: the worker must not clear it
+    /// when it takes the call.
+    Before,
+    /// The call and the cancel went out together, the call first: the program
+    /// is stopped while it runs, before it can write anything.
+    With,
+}
+
+/// One raw call on the wire (the audit's probe shape): a handshake, then a
+/// cancel and a call for id 1 in the named order. The called program sleeps
+/// two seconds and writes its marker, so a run that happened is seen both in
+/// the file and in the reply's kind. Returns the reply's outcome kind.
+fn raw_cancelled_call(temp: &Temp, port: u16, marker: &str, when: CancelWhen) -> String {
+    let mut sock = TcpStream::connect(("127.0.0.1", port)).expect("the peer accepts");
+    sock.set_read_timeout(Some(std::time::Duration::from_secs(30)))
+        .expect("a read timeout");
+    let mut reader = BufReader::new(sock.try_clone().expect("a second handle"));
+    let hello = Obj::new()
+        .str("type", "hello")
+        .int("v", 1)
+        .str("peer", "t")
+        .str("token", TOKEN)
+        .build();
+    sock.write_all(format!("{}\n", json::write(&hello)).as_bytes())
+        .expect("the hello goes out");
+    let mut reply = String::new();
+    reader.read_line(&mut reply).expect("the handshake replies");
+    let call = Obj::new()
+        .str("type", "call")
+        .int("id", 1)
+        .str("node", "probe")
+        .set(
+            "argv",
+            Value::Arr(vec![
+                Value::Str("/bin/sh".into()),
+                Value::Str("-c".into()),
+                Value::Str(format!("sleep 2; printf ran > {}", marker)),
+            ]),
+        )
+        .set("cwd", Value::Str(temp.dir.to_string_lossy().to_string()))
+        .set("env", Value::Arr(Vec::new()))
+        .str("input", "{}")
+        .int("timeout", 20000)
+        .build();
+    let cancel = Obj::new().str("type", "cancel").int("id", 1).build();
+    let cancel_line = format!("{}\n", json::write(&cancel));
+    let call_line = format!("{}\n", json::write(&call));
+    match when {
+        CancelWhen::Before => {
+            sock.write_all(cancel_line.as_bytes()).expect("the cancel goes out");
+            sock.write_all(call_line.as_bytes()).expect("the call goes out");
+        }
+        CancelWhen::With => {
+            let mut both = call_line;
+            both.push_str(&cancel_line);
+            sock.write_all(both.as_bytes()).expect("the lines go out");
+        }
+    }
+    let mut done = String::new();
+    reader.read_line(&mut done).expect("the call replies");
+    let done = json::parse(done.trim()).expect("the reply is JSON");
+    done.get("out")
+        .and_then(|o| o.get("kind"))
+        .and_then(Value::as_str)
+        .unwrap_or("no kind")
+        .to_string()
+}
+
+/// A cancel is a decision about a call id, never cleared (0014 finding 1): a
+/// cancel that reaches the worker before (or with) its call stops that call
+/// from running, whatever order the wire gave the two.
+#[test]
+fn a_cancelled_peer_call_never_runs() {
+    let temp = Temp::new("cancel-race");
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &[]);
+    for (marker, when) in [("ran-before.txt", CancelWhen::Before), ("ran-with.txt", CancelWhen::With)] {
+        let kind = raw_cancelled_call(&temp, port, marker, when);
+        assert_ne!(kind, "answer", "{:?}: the cancelled call answered: {kind}", when);
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        assert!(!temp.path(marker).exists(), "{:?}: the cancelled call wrote its marker", when);
     }
 }
 
