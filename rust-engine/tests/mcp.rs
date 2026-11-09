@@ -1142,6 +1142,50 @@ fn a_route_deadline_covers_the_serve_start() {
     );
 }
 
+// -- Five failed starts fail the serve (finding 6, 0014) --------------------
+
+/// The serve runs once and erases its own executable; the first start is
+/// good, and every start after it cannot begin. Five consecutive failed
+/// starts fail the neuron (3.2): the input that is queued waiting for it is
+/// failed with `start`, and no restart is scheduled — the run ends. A serve
+/// that restarted for ever would hold the queued input open past any
+/// deadline, which is why the route's timeout is generous and the run is
+/// expected to end on its own.
+#[test]
+fn five_failed_starts_fail_a_serve_and_its_queued_calls() {
+    let mut c = Client::start();
+    handshake(&mut c);
+    let temp = Temp::new("failed-starts");
+    let prog = temp.write(
+        "serve_once.py",
+        r#"import os, sys, time, json
+os.unlink(__file__)
+print(json.dumps({"type": "ready", "v": 1, "maxInflight": 1}), flush=True)
+sys.stdin.readline()
+time.sleep(0.2)
+sys.exit(1)
+"#,
+    );
+    let net = temp.write(
+        "net.json",
+        &network(
+            "onceonly",
+            &[("s", "\"serve\"", &format!("[\"python3\", \"{}\"]", prog), r#", "timeout": 2000"#)],
+        ),
+    );
+    let inputs = r#"[{"at":0,"source":"src","payload":{"n":1}},{"at":1500,"source":"src","payload":{"n":2}}]"#;
+    let reply = c.rpc(3, &run_call(&net, inputs, r#","timeout_ms":9000"#));
+    let (body, is_error) = c.tool_body(&reply);
+    assert_eq!(body.get("status").and_then(|s| s.as_str()), Some("done"), "{}", json::write(&body));
+    assert!(!is_error, "{}", json::write(&body));
+    // The queued second input is failed with `start` (6.1); the first call
+    // failed with the crash of the first generation.
+    let text = json::write(&body);
+    assert!(text.contains("\"code\":\"start\""), "the queued call failed: {text}");
+    assert!(text.contains("neuron failed to start"), "the start error reads: {text}");
+    assert!(text.contains("\"code\":\"crash\""), "the first call failed with the crash: {text}");
+}
+
 #[test]
 fn the_server_leaves_when_the_client_closes() {
     let mut c = Client::start();

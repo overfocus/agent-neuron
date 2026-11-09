@@ -3747,22 +3747,26 @@ impl Engine {
                 }
                 Err(why) => {
                     // A start that never began: the first refuses the engine
-                    // (3.2, Appendix C); a later one is a failed start.
+                    // (3.2, Appendix C); a later one is a failed start — and,
+                    // at five consecutive ones, the final failure of the
+                    // neuron (finding 6, 0014).
                     let procs = self.serves.get(&node).map(|s| s.procs).unwrap_or(0);
                     if procs <= 1 {
                         self.refused = Some(format!(
                             "the serve program of '{}' failed its first start: {}",
                             self.nodes[node].display, why
                         ));
-                    } else {
-                        if let Some(s) = self.serves.get_mut(&node) {
-                            s.f += 1;
-                            s.down = true;
-                            s.ping_open = None;
-                            s.cur = None;
+                    } else if let Some(s) = self.serves.get_mut(&node) {
+                        s.f += 1;
+                        s.down = true;
+                        s.ping_open = None;
+                        s.cur = None;
+                        if s.f >= 5 {
+                            self.serve_failed_at_limit(node);
+                        } else {
+                            let f = s.f;
+                            self.arm(self.now + backoff(f), Wake::RestartDue { server: node });
                         }
-                        let f = self.serves.get(&node).map(|s| s.f).unwrap_or(0);
-                        self.arm(self.now + backoff(f), Wake::RestartDue { server: node });
                     }
                     return;
                 }
@@ -3866,14 +3870,44 @@ impl Engine {
         if grace {
             self.arm_terminate_grace(server, gen, grace);
         }
-        let f = self.serves.get(&server).map(|s| s.f).unwrap_or(0);
-        self.arm(self.now + backoff(f), Wake::RestartDue { server });
         if let Some(s) = self.serves.get_mut(&server) {
             s.down = true;
             s.ping_open = None;
             s.cur = None;
         }
+        // Five consecutive failed starts: the neuron is failed and nothing
+        // waits for a restart to free its queue (finding 6, 0014); before
+        // the limit, the backoff schedules the next start.
+        let f = self.serves.get(&server).map(|s| s.f).unwrap_or(0);
+        if f >= 5 {
+            self.serve_failed_at_limit(server);
+        } else {
+            self.arm(self.now + backoff(f), Wake::RestartDue { server });
+        }
         self.finish_check(None);
+    }
+
+    /// The failed-start limit reached (3.2, SPEC: when `f` reaches 5 the
+    /// neuron is failed): every input waiting for a process is failed with
+    /// `start` (6.1), no restart is scheduled, and `start_new_call` refuses
+    /// the neuron's later inputs. One finalizer for each failed-start path
+    /// (the spawn that never began, a start that produced no ready, a death
+    /// inside the limit), which before this change kept scheduling restarts
+    /// past the limit for ever (finding 6, 0014).
+    fn serve_failed_at_limit(&mut self, server: usize) {
+        let queued: Option<Vec<usize>> = self.serves.get_mut(&server).map(|s| {
+            s.failed = true;
+            std::mem::take(&mut s.queue)
+        });
+        for queued in queued.unwrap_or_default() {
+            let (done, st) = (self.works[queued].done, self.works[queued].st);
+            if done || st != WSt::Queued {
+                continue;
+            }
+            self.commit_call(queued);
+            self.emit_fail(queued, "start", "neuron failed to start");
+            self.works[queued].done = true;
+        }
     }
 
     /// The first line said ready (the real host's path; the scripted host's
@@ -4152,37 +4186,29 @@ impl Engine {
             }
         }
         let now = self.now;
-        let Some(s) = self.serves.get_mut(&server) else { return };
-        if let Some(p) = s.cur.take() {
-            drop(p);
-        }
-        s.down = true;
-        s.ping_open = None;
         // The failed-start count: a pong or a life of at least 1000 ms that
         // does not end in a hang clears it; a shorter life, or the hang
-        // itself, counts the start (3.2).
-        let life = now.saturating_sub(ready_at);
-        if hang || life < 1000 {
-            s.f += 1;
-        } else {
-            s.f = 0;
-        }
-        if s.f >= 5 {
-            s.failed = true;
-            // A failed neuron answers its queued waiting calls at once with
-            // `start` (6.1): no restart will free their slot.
-            let queued_works: Vec<usize> = std::mem::take(&mut s.queue);
-            for queued in queued_works {
-                let st = self.works[queued].st;
-                if self.works[queued].done || st != WSt::Queued {
-                    continue;
-                }
-                self.commit_call(queued);
-                self.emit_fail(queued, "start", "neuron failed to start");
-                self.works[queued].done = true;
+        // itself, counts the start (3.2). At the limit of five, the one
+        // finalizer fails the neuron and its queue (finding 6, 0014).
+        let at_limit = {
+            let Some(s) = self.serves.get_mut(&server) else { return };
+            if let Some(p) = s.cur.take() {
+                drop(p);
             }
+            s.down = true;
+            s.ping_open = None;
+            let life = now.saturating_sub(ready_at);
+            if hang || life < 1000 {
+                s.f += 1;
+            } else {
+                s.f = 0;
+            }
+            s.f >= 5
+        };
+        if at_limit {
+            self.serve_failed_at_limit(server);
         } else {
-            let f = s.f;
+            let f = self.serves.get(&server).map(|s| s.f).unwrap_or(0);
             self.arm(self.now + backoff(f), Wake::RestartDue { server });
         }
         self.finish_check(None);
