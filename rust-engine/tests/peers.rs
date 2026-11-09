@@ -1470,6 +1470,51 @@ fn a_serve_on_a_peer_answers_like_a_local_one() {
     }
 }
 
+/// Slots cross the wire the same way they hold locally: the ready's
+/// `maxInflight` of 2 rides the relayed ready line, three calls of 200 ms
+/// arrive 50 ms apart — two run, the third queues — and all three answer in
+/// the local run's order, with the local run's events (3.2).
+#[test]
+fn a_peer_serve_enforces_its_ready_across_the_wire() {
+    let temp = Temp::new("peer-serve-queue");
+    let net = temp.write("net.json", &serve_net(200, 8000));
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 1}}\n\
+         {\"at\": 50, \"source\": \"src\", \"payload\": {\"n\": 2}}\n\
+         {\"at\": 100, \"source\": \"src\", \"payload\": {\"n\": 3}}\n",
+    );
+    let local = run(&temp, &net, &inputs, &temp.path("local.json"), &[], &[]);
+    assert!(local.status.success(), "the local run failed: {}", stderr(&local));
+    assert_eq!(stdout(&local).lines().count(), 3, "{}", stdout(&local));
+
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--serve"]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"s\": \"b\"}"));
+    let remote = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("remote.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(remote.status.success(), "the peer run failed: {}", stderr(&remote));
+    assert_eq!(stdout(&local), stdout(&remote), "the answers differ");
+    let a = events(&temp.path("local.json"));
+    let b = events(&temp.path("remote.json"));
+    assert_eq!(a.len(), b.len(), "the event counts differ: {:?} vs {:?}", a, b);
+    for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+        assert!(
+            x.deep_eq(y),
+            "event {} differs:\n  local: {}\n  peer:  {}",
+            i,
+            json::write(x),
+            json::write(y)
+        );
+    }
+}
+
 /// The mode-mismatch trap the hello already names for program and graph: a
 /// serve placement on a worker that cannot host one refuses at the handshake
 /// with its own wording, before any neuron of the run could have answered.
