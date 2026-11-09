@@ -1098,6 +1098,50 @@ fn read_trace_reads_a_trace_that_has_no_ids_field() {
     assert!(header.get("ids").is_none(), "{}", json::write(header));
 }
 
+// -- The run's deadline covers the serve start (finding 5, 0014) ------------
+
+/// A serve that never says ready has `timeout` 5000 for its start; the route's
+/// `timeout_ms` is 500. The run's deadline covers the start-up, so the route
+/// stops as timed out near its own deadline — not at the serve's, 5 s later.
+#[test]
+fn a_route_deadline_covers_the_serve_start() {
+    let mut c = Client::start();
+    handshake(&mut c);
+    let temp = Temp::new("start-deadline");
+    let net = temp.write(
+        "net.json",
+        &network(
+            "latestart",
+            &[("s", "\"serve\"", r#"["sh", "-c", "cat > /dev/null"]"#, r#", "timeout": 5000"#)],
+        ),
+    );
+    let started = Instant::now();
+    let reply = c.rpc(3, &run_call(&net, plain_inputs(), r#","timeout_ms":500"#));
+    let took = started.elapsed();
+    assert!(
+        took < Duration::from_millis(2500),
+        "the start-up waited {:?}, past the route's 500 ms deadline",
+        took
+    );
+    // The route's own timeout result: failed, like any run that reaches its
+    // deadline with work open — not a refusal of the serve's start.
+    let (body, is_error) = c.tool_body(&reply);
+    assert!(is_error, "{}", json::write(&body));
+    assert_eq!(
+        body.get("status").and_then(|s| s.as_str()),
+        Some("failed"),
+        "{}",
+        json::write(&body)
+    );
+    assert!(
+        body.get("reason")
+            .and_then(|r| r.as_str())
+            .is_some_and(|r| r.contains("timed out at 500 ms")),
+        "{}",
+        json::write(&body)
+    );
+}
+
 #[test]
 fn the_server_leaves_when_the_client_closes() {
     let mut c = Client::start();

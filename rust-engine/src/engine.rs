@@ -976,21 +976,37 @@ impl Engine {
         }
         if self.is_real() {
             // The real start-up: wait for every serve program's first line.
+            // The run's deadline (a caller's timeout_ms) covers the start-up
+            // too (finding 5, 0014): no wait runs past it, and at the instant
+            // the start is over for this caller — `run` stops there as timed
+            // out, like any run still open at its deadline, after the
+            // start's own cleanup.
             while self.harness.is_none() && self.refused.is_none() && self.any_serve_unready() {
+                if self.deadline_due() {
+                    break;
+                }
                 let next = self.next_wake();
-                if self.host_step(next) {
+                let cap = match (next, self.deadline) {
+                    (Some(t), Some(d)) => Some(t.min(d)),
+                    (t, d) => t.or(d),
+                };
+                if self.host_step(cap) {
                     continue;
                 }
                 match next {
                     Some(t) => {
                         self.now = t;
+                        if self.deadline_due() {
+                            break;
+                        }
                         let Some(w) = self.pop() else { break };
                         self.fire(w);
                         self.wake_composed_calls();
                     }
                     None => {
-                        // Only host events can arrive: wait for one.
-                        if !self.host_step(None) {
+                        // Only host events can arrive: wait for one, never
+                        // past the run's deadline.
+                        if !self.host_step(self.deadline) {
                             break;
                         }
                     }
@@ -1010,10 +1026,16 @@ impl Engine {
             }
         }
         if self.harness.is_none() && self.any_serve_unready() {
-            if let Some(why) = self.refused.clone() {
+            if self.is_real() && self.refused.is_none() && self.deadline_due() {
+                // The run's deadline covered the start-up (finding 5, 0014):
+                // not a refusal — the caller's `run` stops as timed out at
+                // once, after the start's cleanup, the way any run with work
+                // still open at its deadline does.
+            } else if let Some(why) = self.refused.clone() {
                 return Err(why);
+            } else {
+                return Err("a serve program never became ready".into());
             }
-            return Err("a serve program never became ready".into());
         }
         self.t_zero = self
             .serves
