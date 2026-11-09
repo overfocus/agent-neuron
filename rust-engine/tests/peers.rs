@@ -992,6 +992,93 @@ fn an_effect_that_never_started_on_a_peer_is_an_error() {
     assert!(!trace.contains("\"type\":\"unknown\""), "the effect never started: {trace}");
 }
 
+// -- A cut against a backpressured peer (finding 9, 0014) --------------------
+
+/// A peer that completes the handshake and then never reads: the call line it
+/// is sent cannot drain, so the driver's dispatch write blocks in its own
+/// thread, and the cut that follows cannot deliver its cancel either. The
+/// decision thread must not wait on that socket at all: the cancel write
+/// leaves it, and the socket is aborted when the line cannot be delivered
+/// promptly, with the kill grace owning the end (6.3). A decision thread held
+/// for the socket's write timeout (~5 s here) is the failure this pins; the
+/// second connection the replacing call opens is refused at once, so the
+/// run's other shape is quick either way.
+#[test]
+fn a_cut_of_a_backpressured_peer_does_not_stall_the_run() {
+    let temp = Temp::new("backpressure");
+    let net = temp.write("net.json", NET);
+    let fill = "x".repeat(4 * 1024 * 1024);
+    let inputs = temp.write(
+        "inputs.jsonl",
+        &format!(
+            "{{\"at\": 0, \"source\": \"src\", \"payload\": {{\"n\": 1, \"fill\": \"{fill}\"}}, \"replaces\": \"k\"}}\n\
+             {{\"at\": 200, \"source\": \"src\", \"payload\": {{\"n\": 2}}, \"replaces\": \"k\"}}\n"
+        ),
+    );
+
+    // The fake peer: one connection is taken (handshake only — the call line
+    // sits unread for good), later ones are refused at the handshake.
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("the fake peer listens");
+    let port = listener.local_addr().expect("a port").port();
+    std::thread::spawn(move || {
+        let mut first = true;
+        for stream in listener.incoming() {
+            let Ok(s) = stream else { continue };
+            let take_calls = first;
+            first = false;
+            std::thread::spawn(move || {
+                let mut line = String::new();
+                let Ok(mut reader) = s.try_clone().map(std::io::BufReader::new) else {
+                    return;
+                };
+                let _ = std::io::BufRead::read_line(&mut reader, &mut line);
+                let mut s = reader.into_inner();
+                let _ = s.set_write_timeout(Some(std::time::Duration::from_secs(5)));
+                let reply = if take_calls {
+                    "{\"type\":\"hello\",\"v\":1,\"peer\":\"b\",\"mode\":\"program\",\"ok\":true}\n"
+                } else {
+                    "{\"type\":\"hello\",\"v\":1,\"peer\":\"b\",\"mode\":\"program\",\"ok\":false,\"error\":\"one at a time\"}\n"
+                };
+                let _ = s.write_all(reply.as_bytes());
+                let _ = s.flush();
+                if take_calls {
+                    // The call line that arrives next is never read: the
+                    // peer's buffers fill and stay full.
+                    std::thread::sleep(std::time::Duration::from_secs(30));
+                }
+            });
+        }
+    });
+
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"worker\": \"b\"}"));
+    let started = std::time::Instant::now();
+    let out = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("trace.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    let took = started.elapsed();
+
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    // The decision thread never owns a stuck socket: a cut moves the run
+    // along, and the cancel is delivered by its own writer or the socket is
+    // aborted. A run held for the socket's write timeout (5 s) plus its
+    // grace is the blocking the finding describes.
+    assert!(
+        took < std::time::Duration::from_millis(4000),
+        "the run took {took:?}, so a decision-thread write blocked the run"
+    );
+    let trace = std::fs::read_to_string(temp.path("trace.json")).expect("the trace");
+    assert!(trace.contains("\"what\":\"term\""), "the cut asked the peer to stop: {trace}");
+    assert!(
+        trace.contains("\"what\":\"kill\""),
+        "the abort ended the call at the grace: {trace}"
+    );
+}
+
 // -- A late remote outcome (finding 4, 0014) --------------------------------
 
 /// The inner graph whose `exit` answers late: past any short outer timeout.

@@ -48,6 +48,10 @@ pub const WIRE_CAP: usize = 8 * 1024 * 1024;
 const HELLO_CAP: usize = 8 * 1024;
 /// How long a peer gets to open and answer the handshake.
 const CONNECT_MS: u64 = 5_000;
+/// The window a cancel line has to be delivered before the socket is aborted
+/// (finding 9, 0014): wide enough for a reading peer, short enough that a
+/// stuck one does not hold the run.
+const CANCEL_WRITE_MS: u64 = 500;
 /// The worker's backstop past a call's own timeout: the engine's timeout owns
 /// the call, and a worker that kept a program alive past it would leave work
 /// nobody can report. P1's `cancel` makes this backstop rarely reached.
@@ -291,27 +295,46 @@ impl Peers {
 
     /// Cut a call (5.4): a `cancel` line asks the peer to stop the program and
     /// answer, and `true` says the call had not reported yet — the engine owes
-    /// it the kill grace in case the peer never answers. A socket that cannot
-    /// take the line is shut down instead (P1: the message, not the shutdown).
+    /// it the kill grace in case the peer never answers. The write never
+    /// happens on the decision thread (finding 9, 0014): a peer that took its
+    /// handshake and stopped reading holds the socket's write for the whole
+    /// timeout, which would stall every other decision the run owes. A writer
+    /// of its own carries the line, with a short window to deliver it in; a
+    /// socket that cannot take the line promptly is aborted, and the grace
+    /// owns the call's end either way.
     pub fn cancel(&mut self, l0: usize) -> bool {
         let Some(call) = self.live.get(&l0) else { return false };
         call.cancelled.store(true, Ordering::SeqCst);
+        let pending = !call.done.load(Ordering::SeqCst);
+        let sock = call.sock.clone();
         let line = Obj::new().str("type", "cancel").int("id", 1).build();
-        let mut wrote = false;
-        if let Ok(slot) = call.sock.lock() {
-            if let Some(s) = slot.as_ref() {
-                // A clone writes on the same socket; the dispatch thread may be
-                // reading it, and only one writer exists at this instant.
-                if let Ok(mut c) = s.try_clone() {
-                    wrote = write_line(&mut c, &line).is_ok();
+        host::spawn_thread("peer-cancel", move || {
+            // Clone under the lock, write with no lock held: the dispatch
+            // thread takes the lock too (to shut its socket down at the end),
+            // and a hold across a stuck write would block it as well.
+            let clone = sock.lock().ok().and_then(|slot| slot.as_ref().and_then(|s| s.try_clone().ok()));
+            let Some(mut c) = clone else {
+                // No socket to write on: nothing can be delivered, so the
+                // socket is gone either way.
+                if let Ok(mut slot) = sock.lock() {
+                    if let Some(s) = slot.take() {
+                        let _ = s.shutdown(std::net::Shutdown::Both);
+                    }
+                }
+                return;
+            };
+            let _ = c.set_write_timeout(Some(Duration::from_millis(CANCEL_WRITE_MS)));
+            if write_line(&mut c, &line).is_err() {
+                // The line cannot be delivered promptly (a stuck peer): the
+                // socket is aborted, and the kill grace owns the call's end.
+                if let Ok(mut slot) = sock.lock() {
+                    if let Some(s) = slot.take() {
+                        let _ = s.shutdown(std::net::Shutdown::Both);
+                    }
                 }
             }
-        }
-        if !wrote {
-            self.abort(l0);
-            return false;
-        }
-        !call.done.load(Ordering::SeqCst)
+        });
+        pending
     }
 
     /// The kill grace's end: the socket is gone and the entry dropped. `true`
