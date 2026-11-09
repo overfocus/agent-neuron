@@ -276,6 +276,12 @@ fn stderr(out: &Output) -> String {
     String::from_utf8_lossy(&out.stderr).to_string()
 }
 
+/// The occurrences of a needle in the outputs the run gave, the way the real
+/// suite counts a line of stdout.
+fn count(hay: &str, needle: &str) -> usize {
+    hay.matches(needle).count()
+}
+
 /// The trace's events with every `t` zeroed (two real runs stamp wall-clock
 /// milliseconds) and its ids renormalised to `#1`, `#2`, ... by first
 /// appearance (CONFORMANCE 8.3's rule): ids are opaque and per engine, and a
@@ -1594,4 +1600,211 @@ fn a_serve_peer_that_never_answers_its_start_fails_by_the_deadline() {
 #[allow(dead_code)]
 fn line(stream: &mut impl Write, text: &str) {
     let _ = writeln!(stream, "{}", text);
+}
+
+// -- A restart, a cancel, a crash on a peer (P3: the serve lifecycle) --------
+
+/// One serve neuron on `tests/progs/serve_crash.py`: its first start says
+/// ready, then dies with a word on stderr; the restarted instance answers
+/// like a working serve (a marker in the working directory marks the crashed
+/// start, 3.2).
+fn serve_crash_net(timeout: u64) -> String {
+    format!(
+        r#"{{
+  "version": 0,
+  "name": "peer-serve-crash",
+  "neurons": [
+    {{"id": "src", "description": "in", "source": true}},
+    {{"id": "s", "description": "a served neuron", "serve": ["python3", "{}"], "timeout": {}}}
+  ],
+  "links": [{{"from": "src", "to": "s"}}]
+}}
+"#,
+        progs("serve_crash.py"),
+        timeout
+    )
+}
+
+/// A crash mid-life reports honestly over the wire: the worker's `down`
+/// carries the process's stderr head, the call fails with `crash` and that
+/// word, the neuron restarts with the backoff (the restart note, 6.3), and
+/// the restarted process answers the next call — the local run's trace, ids
+/// renormalised (CONFORMANCE 8.3).
+#[test]
+fn a_peer_serve_crash_restarts_and_the_next_call_answers() {
+    // Two working directories on purpose: `serve_crash.py` marks its crashed
+    // start in the neuron's working directory, and the comparison runs the
+    // same scenario twice — a crashed flag left by the local run's own
+    // served process would make the peer run never crash at all.
+    let local_temp = Temp::new("peer-serve-crash-local");
+    let temp = Temp::new("peer-serve-crash");
+    let net = serve_crash_net(10000);
+    // The second input sits at 3000 ms — an order past the crash's ~100 ms
+    // settle and the 200 ms restart backoff (the real suite's own wide
+    // margins between scripted delays and call timeouts): at 300 ms the two
+    // engines' orderings race the tie and a loaded machine can flip it.
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 1}}\n\
+         {\"at\": 3000, \"source\": \"src\", \"payload\": {\"n\": 2}}\n",
+    );
+    let local_net = local_temp.write("net.json", &net);
+    let local_inputs = local_temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 1}}\n\
+         {\"at\": 3000, \"source\": \"src\", \"payload\": {\"n\": 2}}\n",
+    );
+
+    let local = run(&local_temp, &local_net, &local_inputs, &local_temp.path("local.json"), &[], &[]);
+    assert!(local.status.success(), "the local run failed: {}", stderr(&local));
+    let local_trace = std::fs::read_to_string(local_temp.path("local.json")).expect("the trace was written");
+    assert!(
+        local_trace.contains("\"code\":\"crash\"") && local_trace.contains("the model went away"),
+        "the crashed call's word: {}",
+        local_trace
+    );
+    assert!(
+        local_trace.contains("\"what\":\"restart\""),
+        "the restart is counted: {}",
+        local_trace
+    );
+    assert_eq!(
+        count(&stdout(&local), "\"seen\":"),
+        1,
+        "the restarted serve answers once: {}",
+        stdout(&local)
+    );
+
+    let net = temp.write("net.json", &net);
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--serve"]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"s\": \"b\"}"));
+    let remote = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("remote.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(remote.status.success(), "the peer run failed: {}", stderr(&remote));
+    let trace = std::fs::read_to_string(temp.path("remote.json")).expect("the trace was written");
+    assert!(
+        trace.contains("\"code\":\"crash\"") && trace.contains("the model went away"),
+        "the crash's word came over the wire: {}",
+        trace
+    );
+    assert!(trace.contains("\"what\":\"restart\""), "the restart is counted: {}", trace);
+    assert_eq!(
+        count(&stdout(&remote), "\"seen\":"),
+        1,
+        "the restarted serve answers once: {}",
+        stdout(&remote)
+    );
+
+    let a = events(&local_temp.path("local.json"));
+    let b = events(&temp.path("remote.json"));
+    assert_eq!(a.len(), b.len(), "the event counts differ: {:?} vs {:?}", a, b);
+    for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+        assert!(
+            x.deep_eq(y),
+            "event {} differs:\n  local: {}\n  peer:  {}",
+            i,
+            json::write(x),
+            json::write(y)
+        );
+    }
+}
+
+/// One serve neuron on `tests/progs/composed_serve.py` (the same program the
+/// real suite's composed-cut test reads): `maxInflight` in its first
+/// argument, `delay` in its second, and each `start`/`cancel`/`answer` it
+/// sees recorded at `log` — the program's own word on what reached it.
+fn serve_log_net(delay: u64, timeout: u64, log: &Path) -> String {
+    format!(
+        r#"{{
+  "version": 0,
+  "name": "peer-serve-cut",
+  "neurons": [
+    {{"id": "src", "description": "in", "source": true}},
+    {{"id": "s", "description": "a served neuron", "serve": ["python3", "{}", "2", "{}", "{}"], "timeout": {}}}
+  ],
+  "links": [{{"from": "src", "to": "s"}}]
+}}
+"#,
+        progs("composed_serve.py"),
+        delay,
+        log.to_string_lossy(),
+        timeout
+    )
+}
+
+/// The cancel line crosses the wire (3.2): a newer input on one key cuts the
+/// running served call — the drop is running, the cancel note, and the peer's
+/// program records `cancel` in its own log and answers quiet for the cut
+/// reply, which frees the slot; the replacing call answers. A lost cancel
+/// would show only as the program's own `answer` where `cancel` should be.
+#[test]
+fn a_cancel_line_reaches_a_served_call_on_a_peer() {
+    let temp = Temp::new("peer-serve-cancel");
+    let local = temp.path("local.cancels.log");
+    let remote_log = temp.path("remote.cancels.log");
+    let _ = std::fs::remove_file(&local);
+    let _ = std::fs::remove_file(&remote_log);
+    let local_net = temp.write("net-local.json", &serve_log_net(1500, 60000, &local));
+    let remote_net = temp.write("net-remote.json", &serve_log_net(1500, 60000, &remote_log));
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 1}, \"replaces\": \"k\"}\n\
+         {\"at\": 150, \"source\": \"src\", \"payload\": {\"n\": 2}, \"replaces\": \"k\"}\n",
+    );
+
+    let first = run(&temp, &local_net, &inputs, &temp.path("local.json"), &[], &[]);
+    assert!(first.status.success(), "the local run failed: {}", stderr(&first));
+    let said = std::fs::read_to_string(&local).unwrap_or_default();
+    assert!(said.contains("\"what\":\"start\""), "the first call ran: {said}");
+    assert!(said.contains("\"what\":\"cancel\""), "the local cut cancel: {said}");
+    assert_eq!(
+        count(&stdout(&first), "\"slow\":"),
+        1,
+        "the replacing call answers: {}",
+        stdout(&first)
+    );
+    let trace = std::fs::read_to_string(temp.path("local.json")).expect("the trace was written");
+    assert!(trace.contains("\"reason\":\"replaced\",\"phase\":\"running\""), "{}", trace);
+    assert!(trace.contains("\"what\":\"cancel\""), "{}", trace);
+
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--serve"]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"s\": \"b\"}"));
+    let second = run(
+        &temp,
+        &remote_net,
+        &inputs,
+        &temp.path("remote.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(second.status.success(), "the peer run failed: {}", stderr(&second));
+    let said = std::fs::read_to_string(&remote_log).unwrap_or_default();
+    assert!(said.contains("\"what\":\"start\""), "the first call ran on the peer: {said}");
+    assert!(
+        said.contains("\"what\":\"cancel\""),
+        "the cancel line crossed the wire — the program's own word: {said}"
+    );
+    let trace = std::fs::read_to_string(temp.path("remote.json")).expect("the trace was written");
+    assert!(trace.contains("\"reason\":\"replaced\",\"phase\":\"running\""), "{}", trace);
+
+    let a = events(&temp.path("local.json"));
+    let b = events(&temp.path("remote.json"));
+    assert_eq!(a.len(), b.len(), "the event counts differ: {:?} vs {:?}", a, b);
+    for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+        assert!(
+            x.deep_eq(y),
+            "event {} differs:\n  local: {}\n  peer:  {}",
+            i,
+            json::write(x),
+            json::write(y)
+        );
+    }
 }

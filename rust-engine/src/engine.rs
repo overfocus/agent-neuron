@@ -3438,7 +3438,7 @@ impl Engine {
             return;
         }
         let line = json::write(&Obj::new().str("type", "cancel").int("re", re as i64).build());
-        self.host().l1_send(node, gen, line);
+        self.l1_write(node, gen, line);
     }
 
     /// A free slot takes the next waiting call, in the order it queued (3.2).
@@ -3922,6 +3922,26 @@ impl Engine {
     /// the engine does not restart a neuron whose first start fails); a later
     /// one is a failed start, with the backoff and the limit of 5. The real
     /// host's group is term'd at once, its grace armed if it may survive.
+    /// The stderr head a serve process left (6.1's crash message): a local
+    /// process's own head, or the one the worker's `down` carried for a
+    /// hosted one.
+    fn serve_stderr_head(&self, node: usize, gen: usize) -> String {
+        if self.nodes[node].peer.is_some() {
+            if let Some(peers) = &self.peers {
+                return peers.serve_stderr(node, gen);
+            }
+        }
+        match self.real.as_ref() {
+            Some(host) => host.l1_stderr_head(node, gen),
+            None => String::new(),
+        }
+    }
+
+    /// A start failed (no ready, a `ready` of the wrong shape, a spawn that
+    /// never began): the first start refuses the engine (3.2, Appendix C:
+    /// the engine does not restart a neuron whose first start fails); a later
+    /// one is a failed start, with the backoff and the limit of 5. The real
+    /// host's group is term'd at once, its grace armed if it may survive.
     fn start_failed(&mut self, server: usize, gen: usize, reason: String) {
         let real = self.is_real();
         let procs = self.serves.get(&server).map(|s| s.procs).unwrap_or(0);
@@ -3936,6 +3956,14 @@ impl Engine {
                 }
             }
             return;
+        }
+        // A hosted serve's failed start drops its connection: the worker
+        // stops the process stdin-first (3.2), and whatever of the start
+        // attempt may have spawned is the peer's to end.
+        if real && self.nodes[server].peer.is_some() {
+            if let Some(peers) = self.peers.as_mut() {
+                peers.serve_abort(server, gen);
+            }
         }
         let (alive, ignore_term, survivor, gid) = if real {
             let filtered = self
@@ -4251,7 +4279,7 @@ impl Engine {
             .unwrap_or((false, false, 0, 0, Vec::new(), None));
         let (leaves, ignore_term, gen, ready_at, slots, gid) = spec;
         let crash_msg = if self.is_real() {
-            let stderr = self.host().l1_stderr_head(server, gen);
+            let stderr = self.serve_stderr_head(server, gen);
             if stderr.trim().is_empty() {
                 "process failed".to_string()
             } else {
@@ -4281,7 +4309,10 @@ impl Engine {
             }
         }
         // What remains of the process group is killed with SIGTERM; the kill
-        // grace follows 2000 ms later when a member remains (6.3).
+        // grace follows 2000 ms later when a member remains (6.3). A hosted
+        // serve has no group of the engine's own: dropping the connection is
+        // the whole lever, and the worker ends the process stdin-first, then
+        // term and kill (3.2, 6.3).
         if self.is_real() {
             if let Some(g) = gid {
                 let alive = host::group_alive(g);
@@ -4291,6 +4322,10 @@ impl Engine {
                 }
                 if alive {
                     self.arm_terminate_grace(server, gen, true);
+                }
+            } else if self.nodes[server].peer.is_some() {
+                if let Some(peers) = self.peers.as_mut() {
+                    peers.serve_abort(server, gen);
                 }
             }
         } else {
@@ -4390,7 +4425,7 @@ impl Engine {
             let gen = self.proc_of(server).map(|p| p.gen).unwrap_or(0);
             if gen > 0 {
                 let line = json::write(&Obj::new().str("type", "ping").int("n", n as i64).build());
-                self.host().l1_send(server, gen, line);
+                self.l1_write(server, gen, line);
             }
         } else if let Some(pong) = pong {
             self.arm(self.now + pong, Wake::PongArrive { server, gen, n });
