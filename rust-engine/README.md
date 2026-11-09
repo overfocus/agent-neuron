@@ -100,7 +100,7 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 106: mcp 19, real 28, check 16, desk 17, http 11, peers 13, unit 2
+cargo test                                          # 117: mcp 22, real 29, check 16, desk 17, http 11, peers 20, unit 2
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 224, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
@@ -436,12 +436,12 @@ note surface, `http` (`http://` only, `https` refused at plant), the desk for
 `human` neurons (0008/0010), composed neurons with sealing and 10.5 pools,
 budgets, effects, observers and the live stream, and the ground (0012).
 
-**Measured on this tree:** `cargo test` 106 (unit 2, check 16, desk 17, http 11,
-mcp 19, peers 13, real 28); `cargo fmt --check` and `clippy --all-targets -- -D
+**Measured on this tree:** `cargo test` 117 (unit 2, check 16, desk 17, http 11,
+mcp 22, peers 20, real 29); `cargo fmt --check` and `clippy --all-targets -- -D
 warnings` clean; `conform spec/fixtures` 224/0/0 on five consecutive identical
-runs; `conform py/probes` 10/0/0. Sizes: 13,502 lines of `src` in 15 files,
-4,772 of tests in 6 (`engine.rs` 4602, `desk.rs` 1524, `mcp.rs` 1448, `net.rs`
-1298, `host.rs` 957, `peers.rs` 929).
+runs; `conform py/probes` 10/0/0. Sizes: 13,989 lines of `src` in 15 files,
+5,539 of tests in 6 (`engine.rs` 4835, `desk.rs` 1524, `mcp.rs` 1448, `net.rs`
+1298, `host.rs` 968, `peers.rs` 1172).
 
 **Known gaps, stated plainly.**
 

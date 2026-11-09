@@ -440,7 +440,7 @@ enum Wake {
     PingTick { server: usize, gen: usize },
     PongArrive { server: usize, gen: usize, n: u64 },
     PongDeadline { server: usize, gen: usize, n: u64 },
-    SlotDeadline { server: usize, re: u64 },
+    SlotDeadline { server: usize, gen: usize, re: u64 },
 }
 
 pub struct RunOutcome {
@@ -457,6 +457,29 @@ pub struct RunOutcome {
     /// open: the loop broke there, the teardown followed, and these are the
     /// facts of the run up to the deadline. Only the real host sets it.
     pub timed_out: bool,
+}
+
+/// One call to a peer-hosted graph (finding 3, 0014), the shape the worker's
+/// connection reads as its `done` reply. The engine is planted once for the
+/// worker process and the call enters its own composed boundary, so the
+/// outcome is 2.6's per-call rules: the inside's `exit` replied, or the
+/// inside was quiet, or it failed.
+pub enum GraphOut {
+    /// The first reply of the file's `exit` (2.6 step 2): the boundary's
+    /// answer, the whole payload.
+    Answer(Value),
+    /// The inside settled with nothing running, queued or held for the call
+    /// and `exit` had not replied (2.6 step 3).
+    Quiet,
+    /// An inner failure (2.6 step 3): the wire says the boundary's fixed
+    /// `inner` message whatever `why` says — `why` is the cause for the
+    /// worker's stderr only (sealing keeps it out of anything reported).
+    Failed(Option<String>),
+    /// The call's timeout cut it (2.6 step 4): the caller reported the
+    /// timeout at the same instant; the reply only releases the connection.
+    TimedOut,
+    /// The wire's cancel cut the call (5.4's cut): the driver owns the end.
+    Cancelled,
 }
 
 impl RunOutcome {
@@ -553,6 +576,12 @@ pub struct Engine {
     /// The peers this run dispatches to (decision 0013), when `--peers` named
     /// any: the placement is read at the plant, the wire at each call.
     peers: Option<crate::peers::Peers>,
+    /// An inner failure's own wording, for a caller that runs ONE boundary
+    /// over many calls (the peer's graph worker, finding 3, 0014): the wire
+    /// says the boundary's fixed `inner` message; this is the cause for the
+    /// worker's stderr only, and a diagnostic — nothing of the run's records
+    /// reads it (sealing holds: inner events are never reported out).
+    inner_why: Option<String>,
 }
 
 impl Engine {
@@ -610,6 +639,7 @@ impl Engine {
             grants: None,
             ground: None,
             peers: None,
+            inner_why: None,
         }
     }
 
@@ -976,21 +1006,37 @@ impl Engine {
         }
         if self.is_real() {
             // The real start-up: wait for every serve program's first line.
+            // The run's deadline (a caller's timeout_ms) covers the start-up
+            // too (finding 5, 0014): no wait runs past it, and at the instant
+            // the start is over for this caller — `run` stops there as timed
+            // out, like any run still open at its deadline, after the
+            // start's own cleanup.
             while self.harness.is_none() && self.refused.is_none() && self.any_serve_unready() {
+                if self.deadline_due() {
+                    break;
+                }
                 let next = self.next_wake();
-                if self.host_step(next) {
+                let cap = match (next, self.deadline) {
+                    (Some(t), Some(d)) => Some(t.min(d)),
+                    (t, d) => t.or(d),
+                };
+                if self.host_step(cap) {
                     continue;
                 }
                 match next {
                     Some(t) => {
                         self.now = t;
+                        if self.deadline_due() {
+                            break;
+                        }
                         let Some(w) = self.pop() else { break };
                         self.fire(w);
                         self.wake_composed_calls();
                     }
                     None => {
-                        // Only host events can arrive: wait for one.
-                        if !self.host_step(None) {
+                        // Only host events can arrive: wait for one, never
+                        // past the run's deadline.
+                        if !self.host_step(self.deadline) {
                             break;
                         }
                     }
@@ -1010,10 +1056,16 @@ impl Engine {
             }
         }
         if self.harness.is_none() && self.any_serve_unready() {
-            if let Some(why) = self.refused.clone() {
+            if self.is_real() && self.refused.is_none() && self.deadline_due() {
+                // The run's deadline covered the start-up (finding 5, 0014):
+                // not a refusal — the caller's `run` stops as timed out at
+                // once, after the start's cleanup, the way any run with work
+                // still open at its deadline does.
+            } else if let Some(why) = self.refused.clone() {
                 return Err(why);
+            } else {
+                return Err("a serve program never became ready".into());
             }
-            return Err("a serve program never became ready".into());
         }
         self.t_zero = self
             .serves
@@ -1247,7 +1299,7 @@ impl Engine {
         };
         self.now = self.now.max(m.t);
         match m.ev {
-            host::Ev::L0Done { l0, out } => self.host_l0_done(l0, out),
+            host::Ev::L0Done { l0, out, started } => self.host_l0_done(l0, out, started),
             host::Ev::L1Line { server, gen, line } => self.consume_line(server, gen, line),
             host::Ev::L1Down { server, gen, exited } => self.host_l1_down(server, gen, exited),
             host::Ev::HttpDone { idx, out } => self.host_http_done(idx, out),
@@ -1280,7 +1332,7 @@ impl Engine {
             Wake::PingTick { server, gen } => self.fire_ping_tick(server, gen),
             Wake::PongArrive { server, gen, n } => self.fire_pong_arrive(server, gen, n),
             Wake::PongDeadline { server, gen, n } => self.fire_pong_deadline(server, gen, n),
-            Wake::SlotDeadline { server, re } => self.fire_slot_deadline(server, re),
+            Wake::SlotDeadline { server, gen, re } => self.fire_slot_deadline(server, gen, re),
         }
     }
 
@@ -1551,8 +1603,12 @@ impl Engine {
                     }
                 }
                 let re = self.works[work].re;
-                self.send_cancel_line(node, re);
-                self.arm(self.now + self.nodes[node].timeout, Wake::SlotDeadline { server: node, re });
+                // The deadline carries the process generation: a slot
+                // deadline is a decision about ONE call on ONE process (the
+                // process it began on), never about the neuron's next one
+                // (finding 7, 0014).
+                let gen = self.proc_of(node).map(|p| p.gen).unwrap_or(0);
+                self.arm(self.now + self.nodes[node].timeout, Wake::SlotDeadline { server: node, gen, re });
             }
             WKind::Composed => {
                 self.emit(0, self.node_note(node, "cancel"));
@@ -1673,6 +1729,12 @@ impl Engine {
         self.works[work].reported = true;
         if sigrec.inst != 0 {
             if let Some(cw) = sigrec.owner_call {
+                // The wording the peer's worker logs when this instance's
+                // call fails: the wire says the boundary's fixed `inner`,
+                // and sealing keeps this out of the run's records.
+                if self.inner_why.is_none() {
+                    self.inner_why = Some(msg.to_string());
+                }
                 self.works[cw].fail_inner = true;
             }
         }
@@ -1945,9 +2007,13 @@ impl Engine {
                                         slot.cancelled = true;
                                     }
                                 }
+                                // The generation rides with the slot: the
+                                // armed deadline belongs to this process only
+                                // (finding 7, 0014).
+                                let gen = p.gen;
+                                let timeout = self.nodes[node].timeout;
+                                self.arm(self.now + timeout, Wake::SlotDeadline { server: node, gen, re });
                             }
-                            let timeout = self.nodes[node].timeout;
-                            self.arm(self.now + timeout, Wake::SlotDeadline { server: node, re });
                         }
                         // The cancel line is answered as the entry's
                         // `onCancel` writes it, after `after` ms (5.1): the
@@ -2514,7 +2580,11 @@ impl Engine {
     /// exit and the stdout head were read, the settle happened. A call whose
     /// outcome is not yet out takes it; one already reported (its timeout, an
     /// earlier error) commits only when its group is gone (10.4, 6.2 rule 6).
-    fn host_l0_done(&mut self, l0: usize, out: host::L0Out) {
+    /// A remote outcome that the peer never ran is a failure of a call that
+    /// never started: `emit_fail_unstarted` keeps it an error even for an
+    /// effect neuron, and the ambiguity of started work stays `unknown`
+    /// (finding 8, 0014).
+    fn host_l0_done(&mut self, l0: usize, out: host::L0Out, started: bool) {
         let Some(p) = self.l0s.get(l0) else { return };
         let work = p.work;
         let kind = self.works[work].kind;
@@ -2532,12 +2602,30 @@ impl Engine {
         self.l0s[l0].leader_alive = false;
         if kind == WKind::Composed {
             // A whole network answered from a peer (0013): the reply is the
-            // composed neuron's own (2.6 step 2), not a program's outcome.
-            self.composed_remote_done(work, out);
-            return;
+            // composed neuron's own (2.6 step 2), not a program's outcome —
+            // but only while the call is still eligible: one outcome per
+            // call, and a late remote outcome after its timeout or cut is
+            // cleanup only, like any other late program outcome (finding 4,
+            // 0014).
+            if still_running && !self.works[work].done {
+                self.composed_remote_done(work, out);
+                return;
+            }
         }
         if still_running && !self.works[work].done {
-            self.l0_finished(work, l0_out_of(out));
+            let out = l0_out_of(out);
+            // The peer was never reached, the handshake was refused, or the
+            // peer refused the program's own start: nothing ran there, and
+            // the failure is an error whatever the effect says (11.3's
+            // unstarted case).
+            if let (L0Out::Fail { code, msg }, true) = (&out, remote && !started) {
+                self.commit_call(work);
+                self.emit_fail_unstarted(work, code, msg);
+                self.works[work].done = true;
+                self.finish_check(None);
+                return;
+            }
+            self.l0_finished(work, out);
             self.finish_check(None);
             return;
         }
@@ -3719,22 +3807,26 @@ impl Engine {
                 }
                 Err(why) => {
                     // A start that never began: the first refuses the engine
-                    // (3.2, Appendix C); a later one is a failed start.
+                    // (3.2, Appendix C); a later one is a failed start — and,
+                    // at five consecutive ones, the final failure of the
+                    // neuron (finding 6, 0014).
                     let procs = self.serves.get(&node).map(|s| s.procs).unwrap_or(0);
                     if procs <= 1 {
                         self.refused = Some(format!(
                             "the serve program of '{}' failed its first start: {}",
                             self.nodes[node].display, why
                         ));
-                    } else {
-                        if let Some(s) = self.serves.get_mut(&node) {
-                            s.f += 1;
-                            s.down = true;
-                            s.ping_open = None;
-                            s.cur = None;
+                    } else if let Some(s) = self.serves.get_mut(&node) {
+                        s.f += 1;
+                        s.down = true;
+                        s.ping_open = None;
+                        s.cur = None;
+                        if s.f >= 5 {
+                            self.serve_failed_at_limit(node);
+                        } else {
+                            let f = s.f;
+                            self.arm(self.now + backoff(f), Wake::RestartDue { server: node });
                         }
-                        let f = self.serves.get(&node).map(|s| s.f).unwrap_or(0);
-                        self.arm(self.now + backoff(f), Wake::RestartDue { server: node });
                     }
                     return;
                 }
@@ -3838,14 +3930,44 @@ impl Engine {
         if grace {
             self.arm_terminate_grace(server, gen, grace);
         }
-        let f = self.serves.get(&server).map(|s| s.f).unwrap_or(0);
-        self.arm(self.now + backoff(f), Wake::RestartDue { server });
         if let Some(s) = self.serves.get_mut(&server) {
             s.down = true;
             s.ping_open = None;
             s.cur = None;
         }
+        // Five consecutive failed starts: the neuron is failed and nothing
+        // waits for a restart to free its queue (finding 6, 0014); before
+        // the limit, the backoff schedules the next start.
+        let f = self.serves.get(&server).map(|s| s.f).unwrap_or(0);
+        if f >= 5 {
+            self.serve_failed_at_limit(server);
+        } else {
+            self.arm(self.now + backoff(f), Wake::RestartDue { server });
+        }
         self.finish_check(None);
+    }
+
+    /// The failed-start limit reached (3.2, SPEC: when `f` reaches 5 the
+    /// neuron is failed): every input waiting for a process is failed with
+    /// `start` (6.1), no restart is scheduled, and `start_new_call` refuses
+    /// the neuron's later inputs. One finalizer for each failed-start path
+    /// (the spawn that never began, a start that produced no ready, a death
+    /// inside the limit), which before this change kept scheduling restarts
+    /// past the limit for ever (finding 6, 0014).
+    fn serve_failed_at_limit(&mut self, server: usize) {
+        let queued: Option<Vec<usize>> = self.serves.get_mut(&server).map(|s| {
+            s.failed = true;
+            std::mem::take(&mut s.queue)
+        });
+        for queued in queued.unwrap_or_default() {
+            let (done, st) = (self.works[queued].done, self.works[queued].st);
+            if done || st != WSt::Queued {
+                continue;
+            }
+            self.commit_call(queued);
+            self.emit_fail(queued, "start", "neuron failed to start");
+            self.works[queued].done = true;
+        }
     }
 
     /// The first line said ready (the real host's path; the scripted host's
@@ -4124,37 +4246,29 @@ impl Engine {
             }
         }
         let now = self.now;
-        let Some(s) = self.serves.get_mut(&server) else { return };
-        if let Some(p) = s.cur.take() {
-            drop(p);
-        }
-        s.down = true;
-        s.ping_open = None;
         // The failed-start count: a pong or a life of at least 1000 ms that
         // does not end in a hang clears it; a shorter life, or the hang
-        // itself, counts the start (3.2).
-        let life = now.saturating_sub(ready_at);
-        if hang || life < 1000 {
-            s.f += 1;
-        } else {
-            s.f = 0;
-        }
-        if s.f >= 5 {
-            s.failed = true;
-            // A failed neuron answers its queued waiting calls at once with
-            // `start` (6.1): no restart will free their slot.
-            let queued_works: Vec<usize> = std::mem::take(&mut s.queue);
-            for queued in queued_works {
-                let st = self.works[queued].st;
-                if self.works[queued].done || st != WSt::Queued {
-                    continue;
-                }
-                self.commit_call(queued);
-                self.emit_fail(queued, "start", "neuron failed to start");
-                self.works[queued].done = true;
+        // itself, counts the start (3.2). At the limit of five, the one
+        // finalizer fails the neuron and its queue (finding 6, 0014).
+        let at_limit = {
+            let Some(s) = self.serves.get_mut(&server) else { return };
+            if let Some(p) = s.cur.take() {
+                drop(p);
             }
+            s.down = true;
+            s.ping_open = None;
+            let life = now.saturating_sub(ready_at);
+            if hang || life < 1000 {
+                s.f += 1;
+            } else {
+                s.f = 0;
+            }
+            s.f >= 5
+        };
+        if at_limit {
+            self.serve_failed_at_limit(server);
         } else {
-            let f = s.f;
+            let f = self.serves.get(&server).map(|s| s.f).unwrap_or(0);
             self.arm(self.now + backoff(f), Wake::RestartDue { server });
         }
         self.finish_check(None);
@@ -4260,12 +4374,16 @@ impl Engine {
     }
 
     /// A cancelled call's slot that the neuron never freed: the process is
-    /// treated as hung (3.2, SPEC 6.2 rule 6).
-    fn fire_slot_deadline(&mut self, server: usize, re: u64) {
+    /// treated as hung (3.2, SPEC 6.2 rule 6). The deadline is exact — it
+    /// belongs to one call on one process, so an old generation's armed
+    /// deadline for the same `re` does nothing to the restarted process
+    /// (finding 7, 0014).
+    fn fire_slot_deadline(&mut self, server: usize, gen: usize, re: u64) {
         let cancelled = self
             .serves
             .get(&server)
             .and_then(|s| s.cur.as_ref())
+            .filter(|p| p.gen == gen)
             .and_then(|p| p.slots.iter().find(|s| s.re == re).map(|s| s.cancelled))
             .unwrap_or(false);
         if !cancelled {
@@ -4450,8 +4568,13 @@ impl Engine {
         match outcome {
             Outcome::Fail { code, msg } => {
                 // An inner failure: the composed call's error comes when the
-                // inside has nothing left for the call.
-                let _ = (code, msg);
+                // inside has nothing left for the call. The exit's own
+                // wording rides with the worker's diagnostic (the wire says
+                // the boundary's fixed `inner`; sealing holds).
+                let _ = code;
+                if self.inner_why.is_none() {
+                    self.inner_why = Some(msg.clone());
+                }
                 self.works[cw].fail_inner = true;
             }
             Outcome::Quiet => self.call_replied(cw, Outcome::Quiet),
@@ -4479,31 +4602,16 @@ impl Engine {
             .map(|(ix, _)| ix)
             .collect();
         for w in doomed {
-            // A composed call in the inside cancels its own inside too
-            // (2.6 step 4: the inner work is cancelled, recursively).
-            let inner = self.works[w].inner_root;
-            self.works[w].done = true;
-            self.silently_free_slot(w);
-            for ((_, trace), list) in self.groups.iter_mut() {
-                if *trace == root {
-                    list.retain(|&x| x != w);
-                }
-            }
-            if let Some(s) = self.serves.get_mut(&self.works[w].node) {
-                s.queue.retain(|&x| x != w);
-            }
-            if inner.is_some() {
-                self.composed_cancel_inner(w);
-            }
-        }
-    }
-
-    /// Free a cancelled slot without any report (a cut composed call's inside
-    /// is cancelled silently, 2.6).
-    fn silently_free_slot(&mut self, work: usize) {
-        let node = self.works[work].node;
-        if let Some(p) = self.proc_of(node) {
-            p.slots.retain(|slot| slot.work != work);
+            // Each open item goes through the same cut an outer staleness cut
+            // gives it (5.4): the level 0 process signalled, the serve slot
+            // cancelled until its neuron answers or the slot deadline passes,
+            // the human withdrawn, the http socket shut down. The inside's
+            // reports are sealed (2.6: cancelled without reports — `emit`
+            // drops every inner event), and each work stays open until its
+            // process or slot actually finishes (6.2 rule 6). A composed call
+            // in the inside cascades to its own inside too (2.6 step 4) by
+            // the same path (finding 2, 0014).
+            self.cut_work(w);
         }
     }
 
@@ -4537,6 +4645,131 @@ impl Engine {
                 self.call_replied(cw, Outcome::Quiet);
             }
         }
+    }
+}
+// ---------------------------------------------------------------------------
+// One call to a hosted graph (finding 3, 0014)
+// ---------------------------------------------------------------------------
+
+impl Engine {
+    /// A plant-time refusal (a file this route cannot host), for a caller
+    /// that drives many calls against one engine: the refusal is about the
+    /// instance, so it repeats for every call.
+    pub(crate) fn refusal(&self) -> Option<&str> {
+        self.refused.as_deref()
+    }
+
+    /// One call to a peer-hosted graph (finding 3, 0014). The engine was
+    /// planted once for the worker process, the hosted file sitting behind
+    /// one composed boundary of instance 0 (`boundary`, the id peers.rs gave
+    /// it), so a call arrives the way a composed node's call arrives here: a
+    /// signal at the boundary starts the call, `start_composed` delivers the
+    /// payload at the file's `entry` as a new inner root (new trace, hops 0,
+    /// its own pool, 2.6 step 1), and the engine's own machinery finishes
+    /// the call — the first reply of the file's `exit` is the boundary's
+    /// reply and the remaining inner work is cancelled through the composed
+    /// cut (`composed_exit_replied`, `composed_cancel_inner`, 2.6 step 2),
+    /// an inside with nothing left is quiet, or `inner` after an inner
+    /// failure (step 3, via `wake_composed_calls` — the loop gives it the
+    /// same check after every wake-up the run's loop does), and a timeout of
+    /// the call cuts it like any call's timeout (step 4). The engine
+    /// persists: its serve programs and their state are shared by the
+    /// instance's calls, isolated per call by the fresh root (2.6 step 4).
+    ///
+    /// `cancelled` is the wire's word: the connection's reader holds what a
+    /// cancel saw, and this loop polls it one step at a time — the closure
+    /// decides by THIS call's id, so a cancel held for another call never
+    /// cuts this one. When it fires, the call is cut the way any staleness
+    /// cut is (`cut_work`, 5.4) and the caller answers what the wire needs.
+    pub fn hosted_call(&mut self, boundary: &str, payload: Value, timeout_ms: u64, cancelled: &dyn Fn() -> bool) -> GraphOut {
+        let Some(node) = self
+            .nodes
+            .iter()
+            .position(|n| n.inst == 0 && matches!(n.kind, Kind::Network(_)) && n.display == boundary)
+        else {
+            return GraphOut::Failed(Some(format!("no composed boundary '{boundary}' in the graph the worker hosts")));
+        };
+        if let Some(why) = self.refusal().map(|s| s.to_string()) {
+            return GraphOut::Failed(Some(why));
+        }
+        // The call is one root, and the events of the calls before it are
+        // their own: this call's harvest starts here (the caller's next
+        // answer must not see a predecessor's leftovers).
+        self.inner_why = None;
+        self.events.clear();
+        let sig = self.new_signal(node, vec![node], payload_of(payload), 0, None, None, None, None, 0, None);
+        let work = self.make_call(node, sig, WSt::Running);
+        // The call's timeout is the wire's: `start_composed` arms it with
+        // the boundary's timeout (6.2), so the cut cancels the inside at it.
+        self.nodes[node].timeout = timeout_ms;
+        self.start_new_call(work);
+        while !self.works[work].done {
+            if cancelled() {
+                // A cancel for this call is on the wire (the reader saw it
+                // and the id is this call's): the cut a staleness cut would
+                // give the call (5.4, 2.6 step 4). The reply is the caller's
+                // cut machinery's own; the wire carries a stopped call.
+                self.cut_work(work);
+                return GraphOut::Cancelled;
+            }
+            if self.deadline_due() {
+                // The worker's backstop (the caller's budget is the driver's
+                // timeout plus its own): cut the call as its timeout would
+                // (2.6 step 4) and say the run stopped here.
+                self.cut_work(work);
+                return GraphOut::TimedOut;
+            }
+            let next = self.next_wake();
+            let cap = match (next, self.deadline) {
+                (Some(t), Some(d)) => Some(t.min(d)),
+                (t, d) => t.or(d),
+            };
+            if self.host_step(cap) {
+                self.wake_composed_calls();
+                continue;
+            }
+            if self.deadline_due() {
+                self.cut_work(work);
+                return GraphOut::TimedOut;
+            }
+            self.now = next.unwrap_or_else(|| self.now + 65_536);
+            let Some(w) = self.pop() else {
+                // The heap is empty and nothing is due: only a process
+                // outcome can close the call. The pump waits to the deadline
+                // when one is set, and a step at a time when none is.
+                if self.host_step(self.deadline) {
+                    self.wake_composed_calls();
+                    continue;
+                }
+                if self.deadline_due() {
+                    self.cut_work(work);
+                    return GraphOut::TimedOut;
+                }
+                // The next event ends this instant; the loop's own checks
+                // are the deadlines that matter.
+                continue;
+            };
+            self.fire(w);
+            self.wake_composed_calls();
+        }
+        // The call is done of itself. The boundary's answer is the inside's
+        // first exit reply (2.6 step 2) — its own entry in `answers` (the
+        // boundary is a sink by construction: the wrapper plants no links).
+        // A quiet inside pushed nothing (step 3); an inner failure's fixed
+        // message is the wire's word and its cause stays on stderr (sealing).
+        let answers = std::mem::take(&mut self.answers);
+        if answers.last().map(|(who, _)| who.as_str()) == Some(boundary) {
+            return GraphOut::Answer(answers.last().expect("the boundary's answer").1.as_full());
+        }
+        if self.works[work].fail_inner {
+            return GraphOut::Failed(self.inner_why.take());
+        }
+        if self.works[work].reported {
+            // The call's own timeout (the machinery's cut): the caller
+            // reported the timeout at the same instant.
+            return GraphOut::TimedOut;
+        }
+        GraphOut::Quiet
     }
 }
 // ---------------------------------------------------------------------------

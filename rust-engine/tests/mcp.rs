@@ -1098,6 +1098,169 @@ fn read_trace_reads_a_trace_that_has_no_ids_field() {
     assert!(header.get("ids").is_none(), "{}", json::write(header));
 }
 
+// -- The run's deadline covers the serve start (finding 5, 0014) ------------
+
+/// A serve that never says ready has `timeout` 5000 for its start; the route's
+/// `timeout_ms` is 500. The run's deadline covers the start-up, so the route
+/// stops as timed out near its own deadline — not at the serve's, 5 s later.
+#[test]
+fn a_route_deadline_covers_the_serve_start() {
+    let mut c = Client::start();
+    handshake(&mut c);
+    let temp = Temp::new("start-deadline");
+    let net = temp.write(
+        "net.json",
+        &network(
+            "latestart",
+            &[("s", "\"serve\"", r#"["sh", "-c", "cat > /dev/null"]"#, r#", "timeout": 5000"#)],
+        ),
+    );
+    let started = Instant::now();
+    let reply = c.rpc(3, &run_call(&net, plain_inputs(), r#","timeout_ms":500"#));
+    let took = started.elapsed();
+    assert!(
+        took < Duration::from_millis(2500),
+        "the start-up waited {:?}, past the route's 500 ms deadline",
+        took
+    );
+    // The route's own timeout result: failed, like any run that reaches its
+    // deadline with work open — not a refusal of the serve's start.
+    let (body, is_error) = c.tool_body(&reply);
+    assert!(is_error, "{}", json::write(&body));
+    assert_eq!(
+        body.get("status").and_then(|s| s.as_str()),
+        Some("failed"),
+        "{}",
+        json::write(&body)
+    );
+    assert!(
+        body.get("reason")
+            .and_then(|r| r.as_str())
+            .is_some_and(|r| r.contains("timed out at 500 ms")),
+        "{}",
+        json::write(&body)
+    );
+}
+
+// -- Five failed starts fail the serve (finding 6, 0014) --------------------
+
+/// The serve runs once and erases its own executable; the first start is
+/// good, and every start after it cannot begin. Five consecutive failed
+/// starts fail the neuron (3.2): the input that is queued waiting for it is
+/// failed with `start`, and no restart is scheduled — the run ends. A serve
+/// that restarted for ever would hold the queued input open past any
+/// deadline, which is why the route's timeout is generous and the run is
+/// expected to end on its own.
+#[test]
+fn five_failed_starts_fail_a_serve_and_its_queued_calls() {
+    let mut c = Client::start();
+    handshake(&mut c);
+    let temp = Temp::new("failed-starts");
+    let prog = temp.write(
+        "serve_once.py",
+        r#"import os, sys, time, json
+os.unlink(__file__)
+print(json.dumps({"type": "ready", "v": 1, "maxInflight": 1}), flush=True)
+sys.stdin.readline()
+time.sleep(0.2)
+sys.exit(1)
+"#,
+    );
+    let net = temp.write(
+        "net.json",
+        &network(
+            "onceonly",
+            &[("s", "\"serve\"", &format!("[\"python3\", \"{}\"]", prog), r#", "timeout": 2000"#)],
+        ),
+    );
+    let inputs = r#"[{"at":0,"source":"src","payload":{"n":1}},{"at":1500,"source":"src","payload":{"n":2}}]"#;
+    let reply = c.rpc(3, &run_call(&net, inputs, r#","timeout_ms":9000"#));
+    let (body, is_error) = c.tool_body(&reply);
+    assert_eq!(body.get("status").and_then(|s| s.as_str()), Some("done"), "{}", json::write(&body));
+    assert!(!is_error, "{}", json::write(&body));
+    // The queued second input is failed with `start` (6.1); the first call
+    // failed with the crash of the first generation.
+    let text = json::write(&body);
+    assert!(text.contains("\"code\":\"start\""), "the queued call failed: {text}");
+    assert!(text.contains("neuron failed to start"), "the start error reads: {text}");
+    assert!(text.contains("\"code\":\"crash\""), "the first call failed with the crash: {text}");
+}
+
+// -- A stale slot deadline (finding 7, 0014) --------------------------------
+
+/// The serve's first generation takes one call, is cut, and ends early; the
+/// input that cut it queues until the restart, and a third input (again on
+/// the same key) cuts *that* call, leaving its slot cancelled past the
+/// neuron's own reply. The first generation's slot deadline for `re` 1 is
+/// still armed — and `re` restarts at 1 per generation — so without its
+/// process generation the old deadline can kill the new process 1.6 s before
+/// the new slot's own deadline fires. The second restart's distance from the
+/// cut that armed the new deadline is exact in the engine's own times: 2500
+/// ms (the node timeout) after the second cut in a correct engine, ~900 ms
+/// after it when the old generation's deadline strikes.
+#[test]
+fn a_stale_slot_deadline_never_kills_a_restarted_serve() {
+    let mut c = Client::start();
+    handshake(&mut c);
+    let temp = Temp::new("stale-slot");
+    let mark = format!("{}/stale-slot.mark", temp.dir.to_string_lossy());
+    let prog = temp.write(
+        "serve_gens.py",
+        r#"import json, os, sys, time
+mark = sys.argv[1]
+first = not os.path.exists(mark)
+if first:
+   open(mark, "w").close()
+print(json.dumps({"type": "ready", "v": 1, "maxInflight": 1}), flush=True)
+sys.stdin.readline()
+if first:
+   time.sleep(0.4)
+   sys.exit(1)
+time.sleep(60)
+"#,
+    );
+    let net = temp.write(
+        "net.json",
+        &network(
+            "stale",
+            &[(
+                "s",
+                "\"serve\"",
+                &format!("[\"python3\", \"{}\", \"{}\"]", prog, mark),
+                r#", "timeout": 2500"#,
+            )],
+        ),
+    );
+    let inputs = r#"[{"at":0,"source":"src","payload":{"n":1},"replaces":"k"},{"at":200,"source":"src","payload":{"n":2},"replaces":"k"},{"at":1800,"source":"src","payload":{"n":3},"replaces":"k"}]"#;
+    let reply = c.rpc(3, &run_call(&net, inputs, r#","timeout_ms":6000"#));
+    let (body, _) = c.tool_body(&reply);
+    let events = body.get("events").and_then(|e| e.as_arr()).expect("events").to_vec();
+    let ts_of = |what: &str| -> Vec<i64> {
+        let mut out = Vec::new();
+        for e in &events {
+            if e.get("type").and_then(|t| t.as_str()) == Some("note") && e.get("what").and_then(|w| w.as_str()) == Some(what) {
+                if let Some(t) = e.get("t").and_then(|t| t.as_i64()) {
+                    out.push(t);
+                }
+            }
+        }
+        out
+    };
+    let cancels = ts_of("cancel");
+    let restarts = ts_of("restart");
+    assert!(cancels.len() >= 2, "two cuts: {}", json::write(&body));
+    assert!(restarts.len() >= 2, "two generations: {}", json::write(&body));
+    // The second slot deadline belongs to the generation that was cut at
+    // `cancels[1]`: its process dies no earlier than its own timeout after
+    // that instant — the first generation's armed deadline never acts.
+    let gap = restarts[1] - cancels[1];
+    assert!(
+        gap >= 2200,
+        "the second restart came {gap} ms after the second cut (cancels {cancels:?}, restarts {restarts:?}); \
+        the first generation's deadline is killing the restarted process"
+    );
+}
+
 #[test]
 fn the_server_leaves_when_the_client_closes() {
     let mut c = Client::start();

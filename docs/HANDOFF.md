@@ -1,5 +1,11 @@
 # Handoff: the peer layer, and what is left (2026-11-09)
 
+## The goal
+
+Build a recursive, composable, peer-to-peer neural agent graph: a neuron may
+contain a whole graph, graphs may nest and compose behind one interface, and
+peers may host and run parts of the same graph without a central controller.
+
 **State.** `main` is `da0b7c7` (pushed): the peer layer P0, P0.5, P1.1 and P2 are
 merged, as is the composed-neuron fix P0 exposed. Working tree clean. Gates on
 this tree: `cargo test` 106 (unit 2, check 16, desk 17, http 11, mcp 19, peers 13,
@@ -21,6 +27,17 @@ stands, and the roadmap").
 | P1.1 | the `cancel` message: a cut stops the peer's program and is not held for the grace; `effect` on a dead peer is `unknown` |
 | P2 | placement is a node *path* (`audit`, `review/wrap`), so a hosted graph places a composed node of its own: composition nests, three engines deep |
 | fix | a host event that empties a composed call's inside now runs 2.6 step 3's check (the real host used to wait for the composed timeout) |
+
+## The audit gate before them (0014, accepted Kevin, 2026-11-09)
+
+Before priority 1, audit findings 1–9 are fixed with a failing-test-first
+regression test each, and priority 2 gets its regression test (engine change:
+none — it already holds). **Done, on `feat/audit-lifecycle` (2026-11-09)**, one
+commit per item, decision record
+[docs/decisions/0014-engine-lifecycle-audit.md](decisions/0014-engine-lifecycle-audit.md)
+carrying the findings, the fixes and the measured gate (cargo test 117,
+conform 224/0/0 five runs identical). Merge on Kevin's go; findings 10–17
+remain queued after the serve build.
 
 ## Remaining, in the order I would take it
 

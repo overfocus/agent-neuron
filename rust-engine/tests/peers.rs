@@ -3,8 +3,9 @@
 // is the same run — the same answers on stdout and the same events, wall-clock
 // stamps aside. The wire's refusals are tested where they happen: the placement
 // at the plant, the token at the handshake, an unreachable peer at the call.
-use rust_engine::json::{self, Value};
+use rust_engine::json::{self, Obj, Value};
 use std::io::{BufRead, BufReader, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -617,6 +618,181 @@ fn a_graph_node_needs_a_graph_peer() {
     assert!(trace.contains("\"code\":\"inner\""), "the trace reads: {trace}");
 }
 
+// -- The composed boundary of one hosted instance (finding 3, 0014) ----------
+
+/// A program of `tests/progs/`, as the suites use it (the peers tests need
+/// one again: 0014's finding 3 probes a stateful serve across calls).
+fn progs(name: &str) -> String {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/progs")
+        .join(name)
+        .to_string_lossy()
+        .to_string()
+}
+
+/// The graph the audit probed state with: a counter whose count is the serve
+/// process's own. One shared inner network per instance (2.6) means the count
+/// says what the instance kept: two calls see 1 then 2. An engine planted per
+/// call restarts the process and restates 1.
+const STATEFUL_OUTER: &str = r#"{
+  "version": 0,
+  "name": "stateful-outer",
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "graph", "description": "a stateful network", "network": "stateful-inner.network.json", "timeout": 20000}
+  ],
+  "links": [{"from": "src", "to": "graph"}]
+}
+"#;
+
+const STATEFUL_INPUTS: &str = "{\"at\": 0, \"source\": \"src\", \"payload\": {}}\n{\"at\": 500, \"source\": \"src\", \"payload\": {}}\n";
+
+#[test]
+fn a_hosted_graph_keeps_its_inner_serve_state_across_calls() {
+    let temp = Temp::new("graph-state");
+    let inner = temp.write(
+        "stateful-inner.network.json",
+        &format!(
+            r#"
+{{
+  "version": 0,
+  "name": "stateful-inner",
+  "entry": "entry",
+  "exit": "counter",
+  "neurons": [
+    {{"id": "entry", "description": "input", "run": ["/bin/cat"]}},
+    {{"id": "counter", "description": "remembers calls", "serve": ["python3", "{}"], "timeout": 20000}}
+  ],
+  "links": [{{"from": "entry", "to": "counter"}}]
+}}
+"#,
+            progs("counter_serve.py"),
+        ),
+    );
+    let outer = temp.write("outer.network.json", STATEFUL_OUTER);
+    let inputs = temp.write("inputs.jsonl", STATEFUL_INPUTS);
+
+    // The same two calls, one local run: the local composed boundary is the
+    // reference answer (the instance is one, so the count climbs).
+    let local = run(&temp, &outer, &inputs, &temp.path("local.json"), &[], &[]);
+    assert!(local.status.success(), "the local run failed: {}", stderr(&local));
+    assert!(stdout(&local).contains("\"count\":1"), "the first call: {}", stdout(&local));
+    assert!(
+        stdout(&local).contains("\"count\":2"),
+        "the same state seen twice: {}",
+        stdout(&local)
+    );
+
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--network", inner.to_str().expect("a path")]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"graph\": \"b\"}"));
+    let remote = run(
+        &temp,
+        &outer,
+        &inputs,
+        &temp.path("remote.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(remote.status.success(), "the peer run failed: {}", stderr(&remote));
+
+    // The hosted instance is one engine (2.6): the second call enters the
+    // serve process the first call started, so it reads 2 — a fresh engine
+    // per call restates 1.
+    assert_eq!(stdout(&local), stdout(&remote), "the answers differ");
+    assert!(stdout(&remote).contains("\"count\":1"), "the first call: {}", stdout(&remote));
+    assert!(
+        stdout(&remote).contains("\"count\":2"),
+        "the second call saw the first's state: {}",
+        stdout(&remote)
+    );
+    let a = events(&temp.path("local.json"));
+    let b = events(&temp.path("remote.json"));
+    assert_eq!(a.len(), b.len(), "the event counts differ: {:?} vs {:?}", a, b);
+    for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+        assert!(
+            x.deep_eq(y),
+            "event {} differs:\n  local: {}\n  peer:  {}",
+            i,
+            json::write(x),
+            json::write(y)
+        );
+    }
+}
+
+/// The graph whose `exit` answers while a sibling still runs: the first reply
+/// of `exit` is the call's answer and the remaining inner work is cancelled
+/// (2.6 step 2) — the sibling's program is stopped before it can write its
+/// late marker, the way a local composed cut stops it (the composed-cut test
+/// of the real suite, finding 2's style, watched from here through the wire).
+const CUT_OUTER: &str = r#"{
+  "version": 0,
+  "name": "cut-outer",
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "graph", "description": "a whole network", "network": "cut-inner.network.json", "timeout": 20000}
+  ],
+  "links": [{"from": "src", "to": "graph"}]
+}
+"#;
+
+#[test]
+fn a_hosted_graphs_first_exit_reply_cuts_the_work_running_inside() {
+    let temp = Temp::new("graph-cut");
+    let marker = "late-ran.txt";
+    let _ = std::fs::remove_file(temp.path(marker));
+    let inner = temp.write(
+        "cut-inner.network.json",
+        &format!(
+            r#"
+{{
+  "version": 0,
+  "name": "inner-cut",
+  "neurons": [
+    {{"id": "entry", "description": "in", "run": ["/bin/cat"]}},
+    {{"id": "slow", "description": "a slow sibling", "run": ["/bin/sh", "-c", "read line; sleep 1; printf ran > {marker}"]}},
+    {{"id": "exit", "description": "answers first", "run": ["/bin/sh", "-c", "read line; sleep 0.3; printf '{{\"fast\":1}}'"]}}
+  ],
+  "links": [{{"from": "entry", "to": "slow"}}, {{"from": "entry", "to": "exit"}}],
+  "entry": "entry",
+  "exit": "exit"
+}}
+"#,
+            marker = temp.path(marker).to_string_lossy(),
+        ),
+    );
+    let outer = temp.write("outer.network.json", CUT_OUTER);
+    let inputs = temp.write("inputs.jsonl", INPUTS);
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--network", inner.to_str().expect("a path")]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"graph\": \"b\"}"));
+    let out = run(
+        &temp,
+        &outer,
+        &inputs,
+        &temp.path("trace.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    // The first reply of `exit` is the whole answer of the call: nothing else
+    // of the inside crosses (2.6 step 2, sealing).
+    assert_eq!(stdout(&out).trim(), "{\"fast\":1}", "the composed answer: {}", stdout(&out));
+    // The sibling was cut with the call: it never reached its late marker.
+    // A worker that waits the whole inside out is the old engine-per-call
+    // shape the finding forbids.
+    for _ in 0..20 {
+        if temp.path(marker).exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert!(
+        !temp.path(marker).exists(),
+        "the sibling's program wrote its late marker: the exit's first reply did not cut the work running inside (2.6 step 2)"
+    );
+}
+
 // -- A cut reaches the peer (P1: the cancel message) ------------------------
 
 /// The network's `replaces` cuts a *running* call on the peer: the driver sends
@@ -839,6 +1015,388 @@ fn the_peers_file_is_closed_and_checked() {
         );
         assert!(!out.status.success(), "{name} was accepted");
         assert!(stderr(&out).contains(want), "{name} said: {}", stderr(&out));
+    }
+}
+
+// -- Budgets across the wire (0014, handoff priority 2) ---------------------
+
+/// Both calls of one trace are placed on a peer, and the root budget is
+/// smaller than two calls' worth: the first reserves and commits in the trace
+/// exactly as a local call does, and the second — the pool cannot cover — is
+/// refused with the budget error (10.3, 10.4, 6.1), never started.
+const BUDGETED: &str = r#"{
+  "version": 0,
+  "name": "budgeted",
+  "budget": {"credits": 3},
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "a", "description": "first call", "run": ["/bin/cat"], "cost": {"credits": 2}},
+    {"id": "b", "description": "second call", "run": ["/bin/cat"], "cost": {"credits": 2}}
+  ],
+  "links": [
+    {"from": "src", "to": "a"},
+    {"from": "a", "to": "b"}
+  ]
+}
+"#;
+
+/// The events with the commit's real `ms` zeroed too: a placed call spends its
+/// milliseconds on the wire and on the peer, and the budget notes travel in
+/// the trace of the run that metered them (`t` and the ids are already
+/// renormalised by `events`).
+fn without_ms(events: Vec<Value>) -> Vec<Value> {
+    events
+        .into_iter()
+        .map(|e| match e {
+            Value::Obj(entries) => Value::Obj(
+                entries
+                    .into_iter()
+                    .map(|(k, v)| if k == "ms" { (k, Value::Int(0)) } else { (k, v) })
+                    .collect(),
+            ),
+            other => other,
+        })
+        .collect()
+}
+
+#[test]
+fn a_remote_call_reserves_commits_and_refuses_the_second_under_a_budget() {
+    let temp = Temp::new("budget");
+    let net = temp.write("net.json", BUDGETED);
+    let inputs = temp.write("inputs.jsonl", INPUTS);
+    let local = run(&temp, &net, &inputs, &temp.path("local.json"), &[], &[]);
+    assert!(local.status.success(), "the local run failed: {}", stderr(&local));
+
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &[]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, r#"{"a": "b", "b": "b"}"#));
+    let remote = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("remote.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(remote.status.success(), "the peer run failed: {}", stderr(&remote));
+
+    // The meter of the run is the driver's, whatever ran where: the reserve
+    // and the commit of the first call are in the trace, and the second call
+    // — for which 3 credits do not cover two calls of 2 — fails with the
+    // budget error without a reserve of its own (nothing was touched).
+    let trace = std::fs::read_to_string(temp.path("remote.json")).expect("the trace");
+    assert!(trace.contains("\"what\":\"reserve\""), "the reserve is in the trace: {trace}");
+    assert!(trace.contains("\"what\":\"commit\""), "the commit is in the trace: {trace}");
+    assert!(trace.contains("\"code\":\"budget\""), "the budget error is in the trace: {trace}");
+    assert!(
+        trace.contains("budget: needs 2 credits, 1 left"),
+        "the refusal says what was short: {trace}"
+    );
+
+    // A placed call is metered like a local one: the whole event list agrees.
+    let a = without_ms(events(&temp.path("local.json")));
+    let b = without_ms(events(&temp.path("remote.json")));
+    assert_eq!(a.len(), b.len(), "the event counts differ: {:?} vs {:?}", a, b);
+    for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+        assert!(
+            x.deep_eq(y),
+            "event {} differs:\n  local: {}\n  peer:  {}",
+            i,
+            json::write(x),
+            json::write(y)
+        );
+    }
+}
+
+// -- An effect that never started (finding 8, 0014) -------------------------
+
+/// An effect call whose program exists only in the file: on a peer the call
+/// cannot even reach (`peer b: cannot reach ...`), or the worker takes it and
+/// finds no such program to start. Nothing ever ran, and 6.1/11.3's rule for
+/// a call that never started is an `error` — the `unknown` of a started effect
+/// stays pinned by `an_effect_call_on_a_dead_peer_is_unknown`, which is the
+/// genuinely ambiguous case (the wire carried the call and died mid-flight).
+const CHARGE_NOEXE: &str = r#"{
+  "version": 0,
+  "name": "charge",
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "charge", "description": "an irreversible call", "run": ["/no/such/charge"], "effect": true, "timeout": 20000}
+  ],
+  "links": [{"from": "src", "to": "charge"}]
+}
+"#;
+
+#[test]
+fn an_effect_that_never_started_on_a_peer_is_an_error() {
+    let temp = Temp::new("effect-unstarted");
+    let net = temp.write("net.json", CHARGE_NOEXE);
+    let inputs = temp.write("inputs.jsonl", INPUTS);
+
+    // A peer that is not there: the call is never delivered to anything.
+    let down = temp.write("peers.json", &peers_text(free_port(), TOKEN, "{\"charge\": \"b\"}"));
+    let _ = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("down.json"),
+        &["--peers", down.to_str().expect("a path")],
+        &[],
+    );
+    let trace = std::fs::read_to_string(temp.path("down.json")).expect("the trace");
+    assert!(trace.contains("\"type\":\"error\""), "the unreachable peer's failure: {trace}");
+    assert!(trace.contains("\"code\":\"exit\""), "the exit code stands: {trace}");
+    assert!(trace.contains("exit 127: peer b: cannot reach"), "the message reads: {trace}");
+    assert!(!trace.contains("\"type\":\"unknown\""), "the effect never started: {trace}");
+
+    // A peer that takes the call and finds no such program on its machine.
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &[]);
+    let peers = temp.write("peers2.json", &peers_text(port, TOKEN, "{\"charge\": \"b\"}"));
+    let _ = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("noexe.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    let trace = std::fs::read_to_string(temp.path("noexe.json")).expect("the trace");
+    assert!(trace.contains("\"type\":\"error\""), "the spawn refusal: {trace}");
+    assert!(trace.contains("\"code\":\"exit\""), "the exit code stands: {trace}");
+    assert!(!trace.contains("\"type\":\"unknown\""), "the effect never started: {trace}");
+}
+
+// -- A cut against a backpressured peer (finding 9, 0014) --------------------
+
+/// A peer that completes the handshake and then never reads: the call line it
+/// is sent cannot drain, so the driver's dispatch write blocks in its own
+/// thread, and the cut that follows cannot deliver its cancel either. The
+/// decision thread must not wait on that socket at all: the cancel write
+/// leaves it, and the socket is aborted when the line cannot be delivered
+/// promptly, with the kill grace owning the end (6.3). A decision thread held
+/// for the socket's write timeout (~5 s here) is the failure this pins; the
+/// second connection the replacing call opens is refused at once, so the
+/// run's other shape is quick either way.
+#[test]
+fn a_cut_of_a_backpressured_peer_does_not_stall_the_run() {
+    let temp = Temp::new("backpressure");
+    let net = temp.write("net.json", NET);
+    let fill = "x".repeat(4 * 1024 * 1024);
+    let inputs = temp.write(
+        "inputs.jsonl",
+        &format!(
+            "{{\"at\": 0, \"source\": \"src\", \"payload\": {{\"n\": 1, \"fill\": \"{fill}\"}}, \"replaces\": \"k\"}}\n\
+             {{\"at\": 200, \"source\": \"src\", \"payload\": {{\"n\": 2}}, \"replaces\": \"k\"}}\n"
+        ),
+    );
+
+    // The fake peer: one connection is taken (handshake only — the call line
+    // sits unread for good), later ones are refused at the handshake.
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("the fake peer listens");
+    let port = listener.local_addr().expect("a port").port();
+    std::thread::spawn(move || {
+        let mut first = true;
+        for stream in listener.incoming() {
+            let Ok(s) = stream else { continue };
+            let take_calls = first;
+            first = false;
+            std::thread::spawn(move || {
+                let mut line = String::new();
+                let Ok(mut reader) = s.try_clone().map(std::io::BufReader::new) else {
+                    return;
+                };
+                let _ = std::io::BufRead::read_line(&mut reader, &mut line);
+                let mut s = reader.into_inner();
+                let _ = s.set_write_timeout(Some(std::time::Duration::from_secs(5)));
+                let reply = if take_calls {
+                    "{\"type\":\"hello\",\"v\":1,\"peer\":\"b\",\"mode\":\"program\",\"ok\":true}\n"
+                } else {
+                    "{\"type\":\"hello\",\"v\":1,\"peer\":\"b\",\"mode\":\"program\",\"ok\":false,\"error\":\"one at a time\"}\n"
+                };
+                let _ = s.write_all(reply.as_bytes());
+                let _ = s.flush();
+                if take_calls {
+                    // The call line that arrives next is never read: the
+                    // peer's buffers fill and stay full.
+                    std::thread::sleep(std::time::Duration::from_secs(30));
+                }
+            });
+        }
+    });
+
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"worker\": \"b\"}"));
+    let started = std::time::Instant::now();
+    let out = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("trace.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    let took = started.elapsed();
+
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    // The decision thread never owns a stuck socket: a cut moves the run
+    // along, and the cancel is delivered by its own writer or the socket is
+    // aborted. A run held for the socket's write timeout (5 s) plus its
+    // grace is the blocking the finding describes.
+    assert!(
+        took < std::time::Duration::from_millis(4000),
+        "the run took {took:?}, so a decision-thread write blocked the run"
+    );
+    let trace = std::fs::read_to_string(temp.path("trace.json")).expect("the trace");
+    assert!(trace.contains("\"what\":\"term\""), "the cut asked the peer to stop: {trace}");
+    assert!(
+        trace.contains("\"what\":\"kill\""),
+        "the abort ended the call at the grace: {trace}"
+    );
+}
+
+// -- A late remote outcome (finding 4, 0014) --------------------------------
+
+/// The inner graph whose `exit` answers late: past any short outer timeout.
+const LATE_INNER: &str = r#"{
+  "version": 0,
+  "name": "inner-late",
+  "neurons": [
+    {"id": "entry", "description": "in", "run": ["/bin/cat"]},
+    {"id": "exit", "description": "late", "run": ["/bin/sh", "-c", "sleep 1.2; printf '{\"late\":1}'"]}
+  ],
+  "links": [{"from": "entry", "to": "exit"}],
+  "entry": "entry",
+  "exit": "exit"
+}
+"#;
+
+/// A remote composed call whose inner answer arrives after its timeout has
+/// reported: the trace carries the timeout and nothing else, and stdout
+/// prints nothing — one outcome per call; the late outcome is cleanup only
+/// (finding 4, 0014).
+#[test]
+fn a_remote_composed_call_never_answers_after_its_timeout() {
+    let temp = Temp::new("late-graph");
+    let inner = temp.write("inner.network.json", LATE_INNER);
+    let net = temp.write(
+        "net.json",
+        r#"{
+  "version": 0,
+  "name": "outer-late",
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "graph", "description": "a whole network", "network": "inner.network.json", "timeout": 500}
+  ],
+  "links": [{"from": "src", "to": "graph"}]
+}
+"#,
+    );
+    let inputs = temp.write("inputs.jsonl", INPUTS);
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--network", inner.to_str().expect("a path")]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"graph\": \"b\"}"));
+    let out = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("trace.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    let trace = std::fs::read_to_string(temp.path("trace.json")).expect("the trace");
+    assert!(trace.contains("\"code\":\"timeout\""), "the timeout is reported: {trace}");
+    assert!(!trace.contains("\"type\":\"answer\""), "the answer came after the timeout: {trace}");
+    assert!(!trace.contains("\"late\""), "the late answer is in the trace: {trace}");
+    assert_eq!(stdout(&out), "", "the late answer printed: {}", stdout(&out));
+}
+
+// -- A cancelled call never runs (finding 1, 0014) ---------------------------
+
+/// When a cancel reaches the worker, in which order it met the call.
+#[derive(Debug, Clone, Copy)]
+enum CancelWhen {
+    /// The cancel is on the wire before the call: the worker must not clear it
+    /// when it takes the call.
+    Before,
+    /// The call and the cancel went out together, the call first: the program
+    /// is stopped while it runs, before it can write anything.
+    With,
+}
+
+/// One raw call on the wire (the audit's probe shape): a handshake, then a
+/// cancel and a call for id 1 in the named order. The called program sleeps
+/// two seconds and writes its marker, so a run that happened is seen both in
+/// the file and in the reply's kind. Returns the reply's outcome kind.
+fn raw_cancelled_call(temp: &Temp, port: u16, marker: &str, when: CancelWhen) -> String {
+    let mut sock = TcpStream::connect(("127.0.0.1", port)).expect("the peer accepts");
+    sock.set_read_timeout(Some(std::time::Duration::from_secs(30)))
+        .expect("a read timeout");
+    let mut reader = BufReader::new(sock.try_clone().expect("a second handle"));
+    let hello = Obj::new()
+        .str("type", "hello")
+        .int("v", 1)
+        .str("peer", "t")
+        .str("token", TOKEN)
+        .build();
+    sock.write_all(format!("{}\n", json::write(&hello)).as_bytes())
+        .expect("the hello goes out");
+    let mut reply = String::new();
+    reader.read_line(&mut reply).expect("the handshake replies");
+    let call = Obj::new()
+        .str("type", "call")
+        .int("id", 1)
+        .str("node", "probe")
+        .set(
+            "argv",
+            Value::Arr(vec![
+                Value::Str("/bin/sh".into()),
+                Value::Str("-c".into()),
+                Value::Str(format!("sleep 2; printf ran > {}", marker)),
+            ]),
+        )
+        .set("cwd", Value::Str(temp.dir.to_string_lossy().to_string()))
+        .set("env", Value::Arr(Vec::new()))
+        .str("input", "{}")
+        .int("timeout", 20000)
+        .build();
+    let cancel = Obj::new().str("type", "cancel").int("id", 1).build();
+    let cancel_line = format!("{}\n", json::write(&cancel));
+    let call_line = format!("{}\n", json::write(&call));
+    match when {
+        CancelWhen::Before => {
+            sock.write_all(cancel_line.as_bytes()).expect("the cancel goes out");
+            sock.write_all(call_line.as_bytes()).expect("the call goes out");
+        }
+        CancelWhen::With => {
+            let mut both = call_line;
+            both.push_str(&cancel_line);
+            sock.write_all(both.as_bytes()).expect("the lines go out");
+        }
+    }
+    let mut done = String::new();
+    reader.read_line(&mut done).expect("the call replies");
+    let done = json::parse(done.trim()).expect("the reply is JSON");
+    done.get("out")
+        .and_then(|o| o.get("kind"))
+        .and_then(Value::as_str)
+        .unwrap_or("no kind")
+        .to_string()
+}
+
+/// A cancel is a decision about a call id, never cleared (0014 finding 1): a
+/// cancel that reaches the worker before (or with) its call stops that call
+/// from running, whatever order the wire gave the two.
+#[test]
+fn a_cancelled_peer_call_never_runs() {
+    let temp = Temp::new("cancel-race");
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &[]);
+    for (marker, when) in [("ran-before.txt", CancelWhen::Before), ("ran-with.txt", CancelWhen::With)] {
+        let kind = raw_cancelled_call(&temp, port, marker, when);
+        assert_ne!(kind, "answer", "{:?}: the cancelled call answered: {kind}", when);
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        assert!(!temp.path(marker).exists(), "{:?}: the cancelled call wrote its marker", when);
     }
 }
 
