@@ -1,0 +1,246 @@
+#!/usr/bin/env node
+// The peer layer's demo (decision 0013, docs/P2P.md): four engines, one run.
+//
+//   west    a whole network (classify.network.json) is one neuron
+//   east    a whole network (review.network.json) is one neuron, and that
+//           graph is itself spread: its `wrap` node runs on `helper`, so from
+//           outside `review` is still a single neuron
+//   helper  a plain worker for that one node of the east graph
+//   driver  `run --peers`, the only engine that holds the outer network
+//
+// The launcher writes the files into a fresh directory, starts the engines on
+// free ports (each peer prints the port it bound), runs the outer network and
+// prints the answer, the trace it wrote, and where the run lives. Nothing is
+// written into the repository.
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const repo = resolve(here, '../..');
+const TOKEN = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+
+function fail(why) {
+  console.error(`p2p demo: ${why}`);
+  process.exit(1);
+}
+
+function engine() {
+  for (const c of [
+    process.env.NEURON_ENGINE,
+    join(repo, 'rust-engine/target/release/neuron-engine'),
+    join(repo, 'rust-engine/target/debug/neuron-engine'),
+  ]) {
+    if (c && existsSync(c)) return c;
+  }
+  fail('no engine found: `cargo build --release --manifest-path rust-engine/Cargo.toml`, or set NEURON_ENGINE');
+}
+
+// -- the files the run is made of -------------------------------------------
+
+const CLASSIFY = {
+  version: 0,
+  name: 'classify',
+  neurons: [
+    {
+      id: 'label',
+      description: 'tags the request',
+      run: ['/bin/sh', '-c', 'read line; printf \'{"topic":"billing","request":%s}\' "$line"'],
+    },
+    {
+      id: 'score',
+      description: 'adds a score',
+      run: ['/bin/sh', '-c', 'read line; printf \'{"scored":%s,"score":7}\' "$line"'],
+    },
+  ],
+  links: [{ from: 'label', to: 'score' }],
+  entry: 'label',
+  exit: 'score',
+};
+
+const REVIEW = {
+  version: 0,
+  name: 'review',
+  neurons: [
+    {
+      id: 'wrap',
+      description: 'the reviewer, on its own engine',
+      run: ['/bin/sh', '-c', 'read line; printf \'{"wrapped":%s}\' "$line"'],
+    },
+    {
+      id: 'verdict',
+      description: 'the final call',
+      run: ['/bin/sh', '-c', 'read line; printf \'{"verdict":"approve","of":%s}\' "$line"'],
+    },
+  ],
+  links: [{ from: 'wrap', to: 'verdict' }],
+  entry: 'wrap',
+  exit: 'verdict',
+};
+
+const OUTER = {
+  version: 0,
+  name: 'p2p-demo',
+  neurons: [
+    { id: 'intake', description: 'the request comes in', source: true },
+    {
+      id: 'classify',
+      description: 'a whole graph, on the west engine',
+      network: 'classify.network.json',
+      timeout: 20000,
+    },
+    {
+      id: 'review',
+      description: 'a whole graph on the east engine, which is itself spread',
+      network: 'review.network.json',
+      timeout: 20000,
+    },
+  ],
+  links: [
+    { from: 'intake', to: 'classify' },
+    { from: 'classify', to: 'review' },
+  ],
+};
+
+function peersFile(self, name, port, placement) {
+  return {
+    version: 0,
+    self,
+    peers: [{ name, address: `127.0.0.1:${port}`, token: TOKEN }],
+    placement,
+  };
+}
+
+// -- the engines -------------------------------------------------------------
+
+/// Start a peer on port 0 and wait for the port it printed: the readiness line
+/// is `peer <name>: listening on 127.0.0.1:<port>`.
+function startPeer(name, args) {
+  const child = spawn(engine(), ['peer', ...args, '--token', TOKEN, '--name', name], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let seen = '';
+  return new Promise((ok, bad) => {
+    const timer = setTimeout(() => bad(new Error(`${name} never listened`)), 5000);
+    child.stderr.on('data', (d) => {
+      for (const line of String(d).split('\n').filter(Boolean)) console.log(`  [${name}] ${line}`);
+      seen += String(d);
+      const m = seen.match(/listening on [^:\s]+:(\d+)/);
+      if (m && timer) {
+        clearTimeout(timer);
+        ok({ name, port: Number(m[1]), child });
+      }
+    });
+    child.stdout.on('data', (d) => process.stdout.write(`  [${name}] ${d}`));
+    child.on('exit', (code) => bad(new Error(`${name} exited (${code}) before it listened`)));
+  });
+}
+
+function runToExit(args, cwd) {
+  return new Promise((ok) => {
+    const child = spawn(engine(), args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (d) => (out += d));
+    child.stderr.on('data', (d) => (err += d));
+    child.on('exit', (code) => ok({ code, out, err }));
+  });
+}
+
+// -- the demo ----------------------------------------------------------------
+
+const runDir = join(tmpdir(), `agent-neuron-p2p-${process.pid}-${Date.now()}`);
+mkdirSync(runDir, { recursive: true });
+const write = (name, value) => {
+  const path = join(runDir, name);
+  writeFileSync(path, typeof value === 'string' ? value : JSON.stringify(value, null, 2) + '\n');
+  return path;
+};
+
+write('classify.network.json', CLASSIFY);
+write('review.network.json', REVIEW);
+write('outer.network.json', OUTER);
+write('inputs.jsonl', JSON.stringify({ at: 0, source: 'intake', payload: { id: 7, text: 'the invoice is wrong' } }) + '\n');
+
+console.log(`p2p demo: ${runDir}`);
+console.log('starting engines:');
+
+const started = [];
+const stopAll = () => {
+  for (const p of started) {
+    try {
+      p.child.kill('SIGTERM');
+    } catch {
+      // already gone
+    }
+  }
+};
+process.on('exit', stopAll);
+
+try {
+  // helper first: the east graph's `wrap` node lives there.
+  const helper = await startPeer('helper', ['--listen', '127.0.0.1:0']);
+  started.push(helper);
+  const reviewPeers = write('peers.review.json', peersFile('east', 'helper', helper.port, { wrap: 'helper' }));
+
+  const east = await startPeer('east', [
+    '--listen',
+    '127.0.0.1:0',
+    '--network',
+    join(runDir, 'review.network.json'),
+    '--peers',
+    reviewPeers,
+  ]);
+  started.push(east);
+
+  const west = await startPeer('west', ['--listen', '127.0.0.1:0', '--network', join(runDir, 'classify.network.json')]);
+  started.push(west);
+
+  // The outer network places one node on each graph engine: three peers hold
+  // three different things, and the driver holds only the file.
+  const outerPeers = write('peers.outer.json', {
+    version: 0,
+    self: 'driver',
+    peers: [
+      { name: 'west', address: `127.0.0.1:${west.port}`, token: TOKEN },
+      { name: 'east', address: `127.0.0.1:${east.port}`, token: TOKEN },
+    ],
+    placement: { classify: 'west', review: 'east' },
+  });
+
+  console.log('running the outer network:');
+  const trace = join(runDir, 'trace.json');
+  const run = await runToExit(
+    ['run', 'outer.network.json', '--inputs', 'inputs.jsonl', '--peers', outerPeers, '--trace', trace],
+    runDir,
+  );
+  if (run.err.trim()) console.log(`  [driver] ${run.err.trim().split('\n').join('\n  [driver] ')}`);
+  if (run.code !== 0) fail(`the run exited ${run.code}`);
+
+  const answer = run.out.trim();
+  if (!answer.includes('"verdict":"approve"') || !answer.includes('"wrapped"')) {
+    fail(`the answer is not the composed one: ${answer}`);
+  }
+
+  const doc = JSON.parse(readFileSync(trace, 'utf8'));
+  const kinds = {};
+  for (const ev of doc.events) kinds[ev.type] = (kinds[ev.type] ?? 0) + 1;
+
+  console.log('');
+  console.log('engines');
+  console.log('  west    graph classify  (label -> score), one neuron to the outer run');
+  console.log('  east    graph review    (wrap -> verdict), one neuron to the outer run');
+  console.log('  helper  the east graph\'s wrap node: the east run is itself peer-to-peer');
+  console.log('  driver  run --peers, holding only outer.network.json');
+  console.log('');
+  console.log(`answer    ${answer}`);
+  console.log(`trace     ${trace}`);
+  console.log(`events    ${doc.events.length} (${Object.entries(kinds).map(([k, n]) => `${k} ${n}`).join(', ')})`);
+  console.log(`files     ${runDir}`);
+} catch (e) {
+  fail(e.message);
+} finally {
+  stopAll();
+}
