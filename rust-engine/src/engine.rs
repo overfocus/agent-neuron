@@ -809,9 +809,9 @@ impl Engine {
                         self.refused = Some(format!("the peers file places '{}', which this network does not declare", path));
                         return Ok(());
                     }
-                    Some(n) if !matches!(n.kind, Kind::Run(_) | Kind::Network(_)) => {
+                    Some(n) if !matches!(n.kind, Kind::Run(_) | Kind::Serve(_) | Kind::Network(_)) => {
                         self.refused = Some(format!(
-                            "the peers file places '{}', and this engine carries only `run` neurons and whole networks to a peer",
+                            "the peers file places '{}', and this engine carries only `run` and `serve` neurons, and whole networks, to a peer",
                             path
                         ));
                         return Ok(());
@@ -1199,6 +1199,23 @@ impl Engine {
         matches!(self.deadline, Some(d) if self.now >= d)
     }
 
+    /// A serve start the worker could not even take (decision 0013, P1): a
+    /// start failure with the wire's own word, for a generation the engine
+    /// still waits on; a late word about a generation already replaced is
+    /// dropped, as its lines are (3.2's generation checks).
+    fn host_serve_start_failed(&mut self, server: usize, gen: usize, why: String) {
+        let valid = self
+            .serves
+            .get(&server)
+            .and_then(|s| s.cur.as_ref())
+            .map(|p| p.gen == gen && !p.ready)
+            .unwrap_or(false);
+        if !valid {
+            return;
+        }
+        self.start_failed(server, gen, why);
+    }
+
     /// The end of a real run (SPEC 3.2's shutdown, Appendix C): stdin closed
     /// everywhere, then SIGTERM to what still lives after 2 s and SIGKILL 2 s
     /// later, silently; the run returns after the processes are gone. The
@@ -1302,6 +1319,7 @@ impl Engine {
             host::Ev::L0Done { l0, out, started } => self.host_l0_done(l0, out, started),
             host::Ev::L1Line { server, gen, line } => self.consume_line(server, gen, line),
             host::Ev::L1Down { server, gen, exited } => self.host_l1_down(server, gen, exited),
+            host::Ev::ServeStartFailed { server, gen, why } => self.host_serve_start_failed(server, gen, why),
             host::Ev::HttpDone { idx, out } => self.host_http_done(idx, out),
             host::Ev::Desk => self.drain_desk(),
         }
@@ -3298,6 +3316,19 @@ impl Engine {
         self.serves.get_mut(&node).and_then(|s| s.cur.as_mut())
     }
 
+    /// One line into a serve process's stdin (3.2): a local process's writer
+    /// thread, a hosted one's wire queue — neither ever blocks the decision
+    /// thread, and a process that cannot take the line loses it the same way.
+    fn l1_write(&mut self, node: usize, gen: usize, line: String) {
+        if self.nodes[node].peer.is_some() {
+            if let Some(peers) = self.peers.as_mut() {
+                peers.serve_send(node, gen, line);
+            }
+        } else {
+            self.host().l1_send(node, gen, line);
+        }
+    }
+
     fn slot_index_of(&self, work: usize) -> Option<usize> {
         let node = self.works[work].node;
         let s = self.serves.get(&node)?;
@@ -3369,7 +3400,7 @@ impl Engine {
             }
             let gen = l1.1;
             let line = json::write(&Value::Obj(fields));
-            self.host().l1_send(node, gen, line);
+            self.l1_write(node, gen, line);
             self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
             return;
         }
@@ -3795,13 +3826,36 @@ impl Engine {
             let cmd = self.nodes[node].cmd.clone();
             let env = self.nodes[node].env.clone();
             let cwd = self.nodes[node].cwd.clone();
-            let hello = json::write(&Obj::new().int("v", 1).str("type", "hello").str("neuron", display).build());
-            let spawn = self.host().l1_begin(node, gen, &hello, &cmd, cwd.as_deref(), &env);
+            let hello = json::write(&Obj::new().int("v", 1).str("type", "hello").str("neuron", &display).build());
+            // The serve starts where the placement put it (decision 0013, P1):
+            // one `serve_start` on the wire, the peer spawns and owns the
+            // process for its life, and its lines and death come back through
+            // the same queue a local process's do. What fails before a process
+            // could exist arrives as a start failure with the wire's word.
+            let spawn: Result<Option<i32>, String> = if let Some(peer) = self.nodes[node].peer {
+                let req = crate::peers::ServeReq {
+                    node: display.clone(),
+                    hello: hello.clone(),
+                    argv: cmd.clone(),
+                    cwd: cwd.clone(),
+                    env: env.clone(),
+                    timeout: self.nodes[node].timeout,
+                };
+                let post = self.host().post_handle();
+                match self.peers.as_mut() {
+                    Some(peers) => peers.serve_start(post, node, gen, peer, req).map(|_| None),
+                    None => Err("no peers table for a placed neuron".into()),
+                }
+            } else {
+                self.host().l1_begin(node, gen, &hello, &cmd, cwd.as_deref(), &env).map(Some)
+            };
             match spawn {
                 Ok(gid) => {
-                    if let Some(s) = self.serves.get_mut(&node) {
-                        if let Some(p) = s.cur.as_mut() {
-                            p.gid = Some(gid);
+                    if let Some(g) = gid {
+                        if let Some(s) = self.serves.get_mut(&node) {
+                            if let Some(p) = s.cur.as_mut() {
+                                p.gid = Some(g);
+                            }
                         }
                     }
                 }
@@ -4017,12 +4071,15 @@ impl Engine {
         if ready {
             self.process_down(server, !exited, false);
         } else {
-            let reason = if exited {
-                "the process ended before it was ready"
+            let reason = if self.nodes[server].peer.is_some() {
+                // The wire died, or the worker did: no ready crossed, and the
+                // process's fate was never the driver's to see.
+                "the peer's serve closed its wire before it was ready".to_string()
+            } else if exited {
+                "the process ended before it was ready".to_string()
             } else {
-                "stdout closed before it was ready"
-            }
-            .to_string();
+                "stdout closed before it was ready".to_string()
+            };
             self.start_failed(server, gen, reason);
         }
     }

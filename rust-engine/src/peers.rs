@@ -77,6 +77,10 @@ pub struct Peers {
     /// Neuron id -> index into `list`.
     pub placement: HashMap<String, usize>,
     live: HashMap<usize, Call>,
+    /// The run's hosted serves, by the engine's (node, process generation):
+    /// one connection per generation (decision 0013, P1). Nothing of the
+    /// engine's ids crosses the wire — the connection is the serve's identity.
+    serves: HashMap<(usize, usize), ServeConn>,
 }
 
 /// One call in flight: the socket a cancel shuts down, and whether the thread
@@ -101,6 +105,34 @@ pub struct CallReq {
     /// What the driver expects the peer to be: `false` a program worker,
     /// `true` a peer that is one neuron. The handshake must agree.
     pub graph: bool,
+}
+
+/// What one serve start carries (decision 0013, P1): the program's argv as
+/// the engine read it from the file, the `hello` line the engine would have
+/// written itself, and where the process runs. The node's timeout rides
+/// along: the engine arms its own start deadline, and the wire's reads wait
+/// past it only so the peer's own word can arrive in time for a restart to
+/// be scheduled.
+pub struct ServeReq {
+    /// The neuron's id, for the peer's own logs.
+    pub node: String,
+    /// The `hello` line of 3.2.
+    pub hello: String,
+    pub argv: Vec<String>,
+    pub cwd: Option<std::path::PathBuf>,
+    pub env: Vec<String>,
+    pub timeout: u64,
+}
+
+/// One hosted serve (decision 0013, P1): the connection the driver keeps for
+/// the process's life, the lines the engine still wants written — a queue, so
+/// no decision thread ever waits on the socket (finding 9's shape, hosted for
+/// a serve) — and the stderr head the peer's `down` message carried (a
+/// crash's message, 6.1).
+struct ServeConn {
+    sock: Arc<Mutex<Option<TcpStream>>>,
+    tx: std::sync::mpsc::Sender<String>,
+    stderr: Arc<Mutex<String>>,
 }
 
 /// A peer that is one neuron (decision 0013): a network file behind one
@@ -416,6 +448,7 @@ impl Peers {
             list: peers,
             placement,
             live: HashMap::new(),
+            serves: HashMap::new(),
         })
     }
 
@@ -516,12 +549,97 @@ impl Peers {
         self.live.remove(&l0);
     }
 
-    /// Every call still in flight stops now (a run that ends, politely or not).
+    /// Every call still in flight stops now (a run that ends, politely or
+    /// not); every hosted serve's connection dies with it, and the peer
+    /// stops the process stdin-first (3.2).
     pub fn abort_all(&mut self) {
         let all: Vec<usize> = self.live.keys().copied().collect();
         for l0 in all {
             self.abort(l0);
         }
+        let serves: Vec<(usize, usize)> = self.serves.keys().copied().collect();
+        for (node, gen) in serves {
+            self.serve_abort(node, gen);
+        }
+    }
+
+    /// Dispatch a serve start (decision 0013, P1): one connection kept for
+    /// the process's life; the peer spawns and owns the process, and its
+    /// lines and death relay back through the same queue a local serve's
+    /// arrive on. A connection that cannot begin is a start failure carrying
+    /// the wire's own word; the start deadline the engine armed still ends
+    /// the wait if the peer says nothing at all (finding 5, 0014).
+    pub fn serve_start(&mut self, post: host::Post, node: usize, gen: usize, peer: usize, req: ServeReq) -> Result<(), String> {
+        let p = self.list.get(peer).ok_or("the placement names no peer")?.clone();
+        let (lines_tx, lines_rx) = std::sync::mpsc::channel::<String>();
+        let (sock_tx, sock_rx) = std::sync::mpsc::channel::<TcpStream>();
+        let conn = ServeConn {
+            sock: Arc::new(Mutex::new(None)),
+            tx: lines_tx,
+            stderr: Arc::new(Mutex::new(String::new())),
+        };
+        let (sock, stderr) = (conn.sock.clone(), conn.stderr.clone());
+        self.serves.insert((node, gen), conn);
+        // The lines the engine writes for the process go out from a writer of
+        // its own: the decision thread only ever queues one, and a wire that
+        // cannot take the line loses it, as a closed stdin does.
+        host::spawn_thread("peer-serve-write", move || {
+            let Ok(mut stream) = sock_rx.recv() else { return };
+            for text in lines_rx {
+                let line = Obj::new().str("type", "line").str("text", text).build();
+                let _ = stream.set_write_timeout(Some(Duration::from_millis(CANCEL_WRITE_MS)));
+                if write_line(&mut stream, &line).is_err() {
+                    break;
+                }
+            }
+        });
+        let local = self.local.clone();
+        host::spawn_thread("peer-serve", move || {
+            serve_dispatch(
+                &p,
+                &local,
+                ServeDispatchInit {
+                    node,
+                    gen,
+                    req,
+                    writer: sock_tx,
+                    sock,
+                    stderr,
+                },
+                post,
+            )
+        });
+        Ok(())
+    }
+
+    /// One line into the hosted process's stdin (the engine's `l1_send`, over
+    /// the wire): queued, never a blocking step.
+    pub fn serve_send(&mut self, node: usize, gen: usize, line: String) {
+        if let Some(conn) = self.serves.get(&(node, gen)) {
+            let _ = conn.tx.send(line);
+        }
+    }
+
+    /// The hosted serve's connection is dropped (the process is down, or a
+    /// hang the engine decided to stop): the peer sees the EOF and stops the
+    /// program stdin-first, then term and kill (3.2, 6.3).
+    pub fn serve_abort(&mut self, node: usize, gen: usize) {
+        if let Some(conn) = self.serves.remove(&(node, gen)) {
+            if let Ok(mut slot) = conn.sock.lock() {
+                if let Some(s) = slot.take() {
+                    let _ = s.shutdown(std::net::Shutdown::Both);
+                }
+            }
+        }
+    }
+
+    /// The stderr head the peer's `down` message carried (6.1's crash
+    /// message). A serve the peer never reported on has said nothing.
+    pub fn serve_stderr(&self, node: usize, gen: usize) -> String {
+        self.serves
+            .get(&(node, gen))
+            .map(|c| c.stderr.lock().map(|h| h.clone()).unwrap_or_default())
+            .unwrap_or_default()
     }
 }
 
@@ -646,18 +764,212 @@ fn connect(p: &Peer) -> Option<TcpStream> {
     None
 }
 
+/// One hosted serve's wire state, as the dispatch thread holds it: the
+/// engine-side identity (node, generation), the start the wire carries, the
+/// writer that takes the socket once the start is confirmed, and the handles
+/// the teardown and the crash's head read.
+struct ServeDispatchInit {
+    node: usize,
+    gen: usize,
+    req: ServeReq,
+    writer: std::sync::mpsc::Sender<TcpStream>,
+    sock: Arc<Mutex<Option<TcpStream>>>,
+    stderr: Arc<Mutex<String>>,
+}
+
+/// The driver's thread for one hosted serve (decision 0013, P1): connect,
+/// handshake — the mode must be `serve`, as a call dispatch's must be its own
+/// — one `serve_start`, then the relay from the peer until its `down`. A
+/// failure before the process could have been spawned is a start failure
+/// carrying the wire's own word (the Appendix C refusal a local spawn gives);
+/// a wire that dies after it is a down with no exit, which the engine reads
+/// the way it reads a stdout that closed.
+fn serve_dispatch(p: &Peer, local: &str, init: ServeDispatchInit, post: host::Post) {
+    let ServeDispatchInit {
+        node,
+        gen,
+        req,
+        writer,
+        sock,
+        stderr,
+    } = init;
+    let start_failed = |why: String| {
+        post.post(host::Ev::ServeStartFailed {
+            server: node,
+            gen,
+            why: format!("peer {}: {}", p.name, why),
+        });
+    };
+    let Some(mut stream) = connect(p) else {
+        return start_failed(format!("cannot reach {}:{}", p.host, p.port));
+    };
+    let watcher = match stream.try_clone() {
+        Ok(s) => s,
+        Err(e) => return start_failed(format!("cannot use the connection ({})", e)),
+    };
+    if let Ok(mut slot) = sock.lock() {
+        *slot = Some(watcher);
+    }
+    // The start's own window: past the node's timeout with the connect
+    // margin, so the engine's armed deadline answers first and this read
+    // carries only the peer's own word.
+    let read_timeout = req.timeout.saturating_add(BACKSTOP_MS).saturating_add(CONNECT_MS);
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(read_timeout)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(CONNECT_MS)));
+    let mut reader = BufReader::new(match stream.try_clone() {
+        Ok(s) => s,
+        Err(e) => return start_failed(format!("cannot use the connection ({})", e)),
+    });
+    let hello = Obj::new()
+        .str("type", "hello")
+        .int("v", 1)
+        .str("peer", local.to_string())
+        .str("token", p.token.clone())
+        .build();
+    if let Err(e) = write_line(&mut stream, &hello) {
+        return start_failed(e);
+    }
+    let reply = match read_line(&mut reader, HELLO_CAP) {
+        Ok(text) => match json::parse(&text) {
+            Ok(v) => v,
+            Err(e) => return start_failed(format!("the handshake is not JSON ({})", e)),
+        },
+        Err(e) => return start_failed(e),
+    };
+    if reply.get("ok").and_then(Value::as_bool) != Some(true) {
+        let why = reply.get("error").and_then(Value::as_str).unwrap_or("the handshake was refused");
+        return start_failed(why.to_string());
+    }
+    let mode = reply.get("mode").and_then(Value::as_str).unwrap_or("program");
+    if mode != "serve" {
+        return start_failed(format!(
+            "peer {} speaks as a {} peer, and this serve needs a serve peer",
+            p.name, mode
+        ));
+    }
+    let start_line = Obj::new()
+        .str("type", "serve_start")
+        .str("node", req.node.clone())
+        .set("argv", Value::Arr(req.argv.iter().map(|a| Value::Str(a.clone())).collect()))
+        .set_if("cwd", req.cwd.as_ref().map(|c| Value::Str(c.to_string_lossy().to_string())))
+        .set("env", Value::Arr(req.env.iter().map(|a| Value::Str(a.clone())).collect()))
+        .str("hello", req.hello.clone())
+        .build();
+    if let Err(e) = write_line(&mut stream, &start_line) {
+        return start_failed(e);
+    }
+    let spawned = match read_line(&mut reader, WIRE_CAP) {
+        Ok(text) => match json::parse(&text) {
+            Ok(v) => v,
+            Err(e) => return start_failed(format!("the serve start is not JSON ({})", e)),
+        },
+        Err(e) => return start_failed(e),
+    };
+    if spawned.get("ok").and_then(Value::as_bool) != Some(true) {
+        let why = spawned
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("the serve start was refused");
+        return start_failed(why.to_string());
+    }
+    // From here this thread only reads: the socket goes to the writer, and
+    // the process's lines relay as they were read. The ids stay on this side
+    // of the wire: node and generation name the events, never a message.
+    let _ = reader.get_ref().set_read_timeout(None);
+    if writer.send(stream).is_err() {
+        return;
+    }
+    loop {
+        let text = match read_line(&mut reader, WIRE_CAP) {
+            Ok(t) => t,
+            Err(_) => {
+                post.post(host::Ev::L1Down {
+                    server: node,
+                    gen,
+                    exited: false,
+                });
+                return;
+            }
+        };
+        let Ok(msg) = json::parse(&text) else {
+            post.post(host::Ev::L1Down {
+                server: node,
+                gen,
+                exited: false,
+            });
+            return;
+        };
+        match msg.get("type").and_then(Value::as_str).unwrap_or("") {
+            "ready" | "line" => {
+                post.post(host::Ev::L1Line {
+                    server: node,
+                    gen,
+                    line: relayed_line(&msg),
+                });
+            }
+            "down" => {
+                if let Ok(mut head) = stderr.lock() {
+                    *head = msg.get("stderr").and_then(Value::as_str).unwrap_or("").to_string();
+                }
+                post.post(host::Ev::L1Down {
+                    server: node,
+                    gen,
+                    exited: msg.get("exited").and_then(Value::as_bool).unwrap_or(true),
+                });
+                return;
+            }
+            // A message this wire does not exchange: the connection is not
+            // what it was, and the engine hears a wire that closed.
+            _ => {
+                post.post(host::Ev::L1Down {
+                    server: node,
+                    gen,
+                    exited: false,
+                });
+                return;
+            }
+        }
+    }
+}
+
+/// A relayed line back into the host's shape: the worker sends a raw line's
+/// text (or marks it over the line cap), and the engine reads it exactly as
+/// it would have read the program's stdout — one parse, the same rule the
+/// local reader has (a JSON object with a string `type` is a protocol
+/// object; anything else is other text).
+fn relayed_line(v: &Value) -> crate::host::Line {
+    if v.get("overlong").and_then(Value::as_bool).unwrap_or(false) {
+        return crate::host::Line::Overlong;
+    }
+    let text = v.get("text").and_then(Value::as_str).unwrap_or("").to_string();
+    match json::parse(&text) {
+        Ok(parsed) if parsed.is_obj() && parsed.get("type").and_then(Value::as_str).is_some() => crate::host::Line::Obj(parsed),
+        _ => crate::host::Line::Text(text),
+    }
+}
+
 /// The peer side: `neuron-engine peer --listen <host:port> --token <hex>
 /// [--name <name>]`. One connection at a time; each connection carries one
-/// handshake and then calls until the driver closes it. The listening line on
-/// stderr is the readiness signal a host script waits for.
+/// handshake and then calls until the driver closes it. With `--serve` the
+/// worker is a serve host (decision 0013, P1): each connection carries one
+/// handshake, one serve start, and one hosted serve process for its whole
+/// life. The listening line on stderr is the readiness signal a host script
+/// waits for, and the mode it names is the one the handshakes speak.
 pub fn main(args: &[String]) {
     let mut listen: Option<String> = None;
     let mut token: Option<String> = None;
     let mut name = "peer".to_string();
     let mut network: Option<String> = None;
     let mut peers: Option<String> = None;
+    let mut serve_host = false;
     let mut i = 0;
     while i < args.len() {
+        // `--serve` takes no value; the rest are name/value pairs.
+        if args[i].as_str() == "--serve" {
+            serve_host = true;
+            i += 1;
+            continue;
+        }
         if i + 1 >= args.len() {
             usage();
         }
@@ -673,6 +985,12 @@ pub fn main(args: &[String]) {
     }
     let (Some(listen), Some(token)) = (listen, token) else { usage() };
     if !token_ok(&token) || !id_ok(&name) {
+        usage();
+    }
+    // One job per worker: the hello's mode says exactly one thing, so a
+    // worker asked to host both a network and somebody's serves refuses its
+    // own invocation.
+    if serve_host && network.is_some() {
         usage();
     }
     // A peer without `--network` runs programs; with it, the peer *is* one
@@ -697,7 +1015,13 @@ pub fn main(args: &[String]) {
         }
     };
     let bound = listener.local_addr().map(|a| a.to_string()).unwrap_or_else(|_| listen.clone());
-    let mode = if graph.is_some() { "graph" } else { "program" };
+    let mode: &'static str = if serve_host {
+        "serve"
+    } else if graph.is_some() {
+        "graph"
+    } else {
+        "program"
+    };
     eprintln!("peer {}: listening on {} ({})", name, bound, mode);
     for stream in listener.incoming() {
         match stream {
@@ -707,7 +1031,13 @@ pub fn main(args: &[String]) {
                 let token = token.clone();
                 let name = name.clone();
                 let graph = graph.clone();
-                host::spawn_thread("peer-conn", move || serve(s, &token, &name, graph));
+                host::spawn_thread("peer-conn", move || {
+                    if mode == "serve" {
+                        serve_host_conn(s, &token, &name);
+                    } else {
+                        serve(s, &token, &name, graph);
+                    }
+                });
             }
             // A probe that connected and left is not an error worth ending the
             // peer's service for (a test's readiness poll, a port scan).
@@ -717,48 +1047,59 @@ pub fn main(args: &[String]) {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: neuron-engine peer --listen <host:port> --token <hex> [--name <name>]");
+    eprintln!("usage: neuron-engine peer --listen <host:port> --token <hex> [--name <name>] [--serve]");
     eprintln!("       neuron-engine peer --listen <host:port> --token <hex> --network <file> [--peers <json>]");
     std::process::exit(2);
 }
 
-/// One connection: the handshake, then calls until the driver closes it.
-fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Arc<Mutex<Hosted>>>) {
+/// The handshake of one connection: the hello's shape and version, then the
+/// token, then the ok answered with the mode this worker speaks. `None` is a
+/// refused connection; the reason already went back on the wire.
+fn handshake(stream: TcpStream, token: &str, name: &str, mode: &str) -> Option<(BufReader<TcpStream>, TcpStream)> {
     let _ = stream.set_read_timeout(Some(Duration::from_millis(CONNECT_MS)));
     let _ = stream.set_write_timeout(Some(Duration::from_millis(CONNECT_MS)));
     let mut reader = BufReader::new(match stream.try_clone() {
         Ok(s) => s,
-        Err(_) => return,
+        Err(_) => return None,
     });
     let mut writer = stream;
-    let Ok(line) = read_line(&mut reader, HELLO_CAP) else { return };
+    let Ok(line) = read_line(&mut reader, HELLO_CAP) else { return None };
     let Ok(hello) = json::parse(&line) else {
         refuse(&mut writer, "the hello is not JSON");
-        return;
+        return None;
     };
     if hello.get("type").and_then(Value::as_str) != Some("hello") {
         refuse(&mut writer, "the first line is not a hello");
-        return;
+        return None;
     }
     if hello.get("v").and_then(Value::as_u64) != Some(1) {
         refuse(&mut writer, "this peer speaks wire version 1");
-        return;
+        return None;
     }
     let got = hello.get("token").and_then(Value::as_str).unwrap_or("");
     if !token_eq(got, token) {
         refuse(&mut writer, "the token does not match");
-        return;
+        return None;
     }
     let ok = Obj::new()
         .str("type", "hello")
         .int("v", 1)
         .str("peer", name.to_string())
-        .str("mode", if graph.is_some() { "graph" } else { "program" })
+        .str("mode", mode.to_string())
         .set("ok", Value::Bool(true))
         .build();
     if write_line(&mut writer, &ok).is_err() {
-        return;
+        return None;
     }
+    Some((reader, writer))
+}
+
+/// One connection: the handshake, then calls until the driver closes it.
+fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Arc<Mutex<Hosted>>>) {
+    let mode = if graph.is_some() { "graph" } else { "program" };
+    let Some((reader, mut writer)) = handshake(stream, token, name, mode) else {
+        return;
+    };
     // A call runs for its own timeout; the socket's read timeout is the
     // handshake's and must not cut a long call short.
     let _ = reader.get_ref().set_read_timeout(None);
@@ -856,6 +1197,167 @@ enum Msg {
 /// A call's id on the wire (the driver sends one on every call and cancel).
 fn wire_call_id(v: &Value) -> i64 {
     v.get("id").and_then(Value::as_i64).unwrap_or(0)
+}
+
+/// One connection of a serve host (decision 0013, P1): the driver sends
+/// `serve_start` once, the worker spawns the program here — the same spawn a
+/// local serve gets (3.2) — and relays the process's lines and its death
+/// back, while the driver's lines go into its stdin. One connection is one
+/// serve process for its whole life; the driver reconnects to restart.
+fn serve_host_conn(stream: TcpStream, token: &str, name: &str) {
+    let Some((mut reader, mut writer)) = handshake(stream, token, name, "serve") else {
+        return;
+    };
+    let mut line = String::new();
+    match BufRead::read_line(&mut reader, &mut line) {
+        Ok(0) | Err(_) => return,
+        Ok(_) => {}
+    }
+    let Ok(start) = json::parse(line.trim()) else {
+        return;
+    };
+    if start.get("type").and_then(Value::as_str) != Some("serve_start") {
+        return;
+    }
+    let argv: Vec<String> = start
+        .get("argv")
+        .and_then(Value::as_arr)
+        .map(|a| a.iter().filter_map(|s| s.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+    let env: Vec<String> = start
+        .get("env")
+        .and_then(Value::as_arr)
+        .map(|a| a.iter().filter_map(|s| s.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+    let cwd = start.get("cwd").and_then(Value::as_str).map(std::path::PathBuf::from);
+    let hello = start.get("hello").and_then(Value::as_str).unwrap_or("").to_string();
+    let node = start.get("node").and_then(Value::as_str).unwrap_or("serve").to_string();
+    // The spawn is the local one: its own process group, stdin for the
+    // engine's lines, stdout re-read as protocol lines, stderr kept for a
+    // crash's head (6.1).
+    let l1host = Arc::new(Mutex::new(host::Host::new()));
+    let gid = match l1host
+        .lock()
+        .expect("the serve's host")
+        .l1_begin(0, 1, &hello, &argv, cwd.as_deref(), &env)
+    {
+        Ok(gid) => gid,
+        Err(why) => {
+            // A start that never began: the reply says so, the driver's
+            // engine refuses or restarts for the reason it carries (3.2,
+            // Appendix C), and this worker's stderr keeps the cause too (a
+            // log line that cannot be written is dropped, never a panic).
+            let reply = Obj::new()
+                .str("type", "serve_start")
+                .set("ok", Value::Bool(false))
+                .str("error", why.clone())
+                .build();
+            let _ = write_line(&mut writer, &reply);
+            let _ = writeln!(std::io::stderr(), "peer {}: serve {:?} did not start: {}", name, node, why);
+            return;
+        }
+    };
+    let ok = Obj::new().str("type", "serve_start").set("ok", Value::Bool(true)).build();
+    if write_line(&mut writer, &ok).is_err() {
+        stop_serve(&l1host, gid);
+        return;
+    }
+    // The relay out: the process's lines and its death go back as they were
+    // read — the first line as `ready` (its raw text; the engine validates it
+    // exactly as it reads a program's stdout directly), the rest as `line`,
+    // and the exit as `down` with the stderr head it left (6.1). Nothing is
+    // re-classified here: 3.2's reading of a line is the engine's, not the
+    // wire's.
+    let eof = Arc::new(AtomicBool::new(false));
+    let (relay_eof, relay_host) = (eof.clone(), l1host.clone());
+    let mut relay_writer = match writer.try_clone() {
+        Ok(w) => w,
+        Err(_) => {
+            stop_serve(&l1host, gid);
+            return;
+        }
+    };
+    host::spawn_thread("peer-serve-relay", move || {
+        let mut first = true;
+        loop {
+            if relay_eof.load(Ordering::SeqCst) {
+                return;
+            }
+            let tick = host::clock_ms().saturating_add(50);
+            let Some(msg) = relay_host.lock().expect("the serve's host").pump(Some(tick)) else {
+                continue;
+            };
+            let kind = if first { "ready" } else { "line" };
+            let wire = match msg.ev {
+                host::Ev::L1Line { line, .. } => match line {
+                    host::Line::Obj(v) => Some(Obj::new().str("type", kind).str("text", json::write(&v)).build()),
+                    host::Line::Text(t) => Some(Obj::new().str("type", kind).str("text", t).build()),
+                    host::Line::Overlong => Some(Obj::new().str("type", kind).set("overlong", Value::Bool(true)).build()),
+                },
+                host::Ev::L1Down { exited, .. } => {
+                    let head = relay_host.lock().expect("the serve's host").l1_stderr_head(0, 1);
+                    let done = Obj::new()
+                        .str("type", "down")
+                        .set("exited", Value::Bool(exited))
+                        .str("stderr", head)
+                        .build();
+                    let _ = write_line(&mut relay_writer, &done);
+                    return;
+                }
+                _ => None,
+            };
+            if let Some(w) = wire {
+                first = false;
+                // The wire is gone: the driver's own read fails next and its
+                // engine hears the death it needs.
+                if write_line(&mut relay_writer, &w).is_err() {
+                    return;
+                }
+            }
+        }
+    });
+    // The driver's lines into the process's stdin, one at a time. The wire's
+    // EOF is the shutdown of 3.2 (the run ended, or cut this serve): stdin
+    // closed first, then term and kill for whatever stayed (6.3).
+    loop {
+        let mut line = String::new();
+        match BufRead::read_line(&mut reader, &mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let Ok(msg) = json::parse(line.trim()) else {
+            continue;
+        };
+        if msg.get("type").and_then(Value::as_str) != Some("line") {
+            break; // the connection stops carrying what this serve reads
+        }
+        if let Some(text) = msg.get("text").and_then(Value::as_str) {
+            l1host.lock().expect("the serve's host").l1_send(0, 1, text.to_string());
+        }
+    }
+    eof.store(true, Ordering::SeqCst);
+    stop_serve(&l1host, gid);
+}
+
+/// The end of a hosted serve whose connection is gone: stdin closed (the
+/// shutdown of 3.2), then SIGTERM, and SIGKILL one grace later for whatever
+/// stayed — the same end a run gives its own serve processes (6.3).
+fn stop_serve(l1host: &Mutex<host::Host>, gid: i32) {
+    l1host.lock().expect("the serve's host").l1_close(0, 1);
+    let mut deadline = host::clock_ms().saturating_add(host::GRACE_MS);
+    while host::clock_ms() < deadline && host::group_alive(gid) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if host::group_alive(gid) {
+        host::term_group(gid);
+    }
+    deadline = host::clock_ms().saturating_add(host::GRACE_MS);
+    while host::clock_ms() < deadline && host::group_alive(gid) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if host::group_alive(gid) {
+        host::kill_group(gid);
+    }
 }
 
 /// Whether this call's cancel is already in, or the wire is gone. The set is
