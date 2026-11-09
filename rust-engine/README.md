@@ -100,7 +100,7 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 105: mcp 19, real 28, check 16, desk 17, http 11, peers 12, unit 2
+cargo test                                          # 106: mcp 19, real 28, check 16, desk 17, http 11, peers 13, unit 2
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 224, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
@@ -436,11 +436,11 @@ note surface, `http` (`http://` only, `https` refused at plant), the desk for
 `human` neurons (0008/0010), composed neurons with sealing and 10.5 pools,
 budgets, effects, observers and the live stream, and the ground (0012).
 
-**Measured on this tree:** `cargo test` 105 (unit 2, check 16, desk 17, http 11,
-mcp 19, peers 12, real 28); `cargo fmt --check` and `clippy --all-targets -- -D
+**Measured on this tree:** `cargo test` 106 (unit 2, check 16, desk 17, http 11,
+mcp 19, peers 13, real 28); `cargo fmt --check` and `clippy --all-targets -- -D
 warnings` clean; `conform spec/fixtures` 224/0/0 on five consecutive identical
 runs; `conform py/probes` 10/0/0. Sizes: 13,502 lines of `src` in 15 files,
-4,642 of tests in 6 (`engine.rs` 4602, `desk.rs` 1524, `mcp.rs` 1448, `net.rs`
+4,772 of tests in 6 (`engine.rs` 4602, `desk.rs` 1524, `mcp.rs` 1448, `net.rs`
 1298, `host.rs` 957, `peers.rs` 929).
 
 **Known gaps, stated plainly.**
@@ -470,10 +470,13 @@ runs; `conform py/probes` 10/0/0. Sizes: 13,502 lines of `src` in 15 files,
    (or declared shares), a cancel handle a hosted graph's own engine reads, and
    the graph boundary's `replaces` and composed `cost`. Gate: every 6.1 code
    exercised across the wire; conformance untouched.
-2. **P2, cross-peer links**: `answer.to` resolved at the driver, `cut` routed,
-   peer-numbered ids and the merged-trace rule — the step that makes a driver run
-   itself placeable as one neuron in another network. Gate: a two-peer network
-   whose merged trace equals the single-engine trace.
+2. **P2 — placement is a path** — *built 2026-11-09*: under A the driver routes
+every signal, so cross-peer links and cut routing were already true (the demo's
+`classify` on west forwards to `review` on east); what was missing is that a
+*hosted graph* could not place a node of its own. A placement key is now the
+node's path in the tree (`audit`, `review/wrap`), so a graph places a graph of
+its own, three engines deep. Still B's, not this step's: peer-numbered ids and a
+merged trace, which only matter when no single engine holds the run.
 3. **P3, the ground over the wire**: deposits as a folded list, gossip, seeds
    reading the merged trail. Gate: a two-peer colony drawing the same numbers as
    one engine.

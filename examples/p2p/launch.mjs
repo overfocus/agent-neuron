@@ -60,6 +60,26 @@ const CLASSIFY = {
   exit: 'score',
 };
 
+const AUDIT = {
+  version: 0,
+  name: 'audit',
+  neurons: [
+    {
+      id: 'stamp',
+      description: 'in',
+      run: ['/bin/sh', '-c', 'read line; printf \'{"audited":%s}\' "$line"'],
+    },
+    {
+      id: 'sign',
+      description: 'the final call',
+      run: ['/bin/sh', '-c', 'read line; printf \'{"signed":%s}\' "$line"'],
+    },
+  ],
+  links: [{ from: 'stamp', to: 'sign' }],
+  entry: 'stamp',
+  exit: 'sign',
+};
+
 const REVIEW = {
   version: 0,
   name: 'review',
@@ -70,14 +90,15 @@ const REVIEW = {
       run: ['/bin/sh', '-c', 'read line; printf \'{"wrapped":%s}\' "$line"'],
     },
     {
-      id: 'verdict',
-      description: 'the final call',
-      run: ['/bin/sh', '-c', 'read line; printf \'{"verdict":"approve","of":%s}\' "$line"'],
+      id: 'audit',
+      description: 'a whole network, on a third engine',
+      network: 'audit.network.json',
+      timeout: 20000,
     },
   ],
-  links: [{ from: 'wrap', to: 'verdict' }],
+  links: [{ from: 'wrap', to: 'audit' }],
   entry: 'wrap',
-  exit: 'verdict',
+  exit: 'audit',
 };
 
 const OUTER = {
@@ -122,10 +143,15 @@ function startPeer(name, args) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let seen = '';
+  let pending = '';
   return new Promise((ok, bad) => {
     const timer = setTimeout(() => bad(new Error(`${name} never listened`)), 5000);
     child.stderr.on('data', (d) => {
-      for (const line of String(d).split('\n').filter(Boolean)) console.log(`  [${name}] ${line}`);
+      // Print whole lines only: a chunk can split a line in two.
+      pending += String(d);
+      const lines = pending.split('\n');
+      pending = lines.pop() ?? '';
+      for (const line of lines.filter(Boolean)) console.log(`  [${name}] ${line}`);
       seen += String(d);
       const m = seen.match(/listening on [^:\s]+:(\d+)/);
       if (m && timer) {
@@ -160,6 +186,7 @@ const write = (name, value) => {
 };
 
 write('classify.network.json', CLASSIFY);
+write('audit.network.json', AUDIT);
 write('review.network.json', REVIEW);
 write('outer.network.json', OUTER);
 write('inputs.jsonl', JSON.stringify({ at: 0, source: 'intake', payload: { id: 7, text: 'the invoice is wrong' } }) + '\n');
@@ -180,10 +207,21 @@ const stopAll = () => {
 process.on('exit', stopAll);
 
 try {
-  // helper first: the east graph's `wrap` node lives there.
+  // helper first: the east graph's `wrap` node lives there. north hosts the
+  // graph that `review` places inside itself.
   const helper = await startPeer('helper', ['--listen', '127.0.0.1:0']);
   started.push(helper);
-  const reviewPeers = write('peers.review.json', peersFile('east', 'helper', helper.port, { wrap: 'helper' }));
+  const north = await startPeer('north', ['--listen', '127.0.0.1:0', '--network', join(runDir, 'audit.network.json')]);
+  started.push(north);
+  const eastPeers = write('peers.east.json', {
+    version: 0,
+    self: 'east',
+    peers: [
+      { name: 'helper', address: `127.0.0.1:${helper.port}`, token: TOKEN },
+      { name: 'north', address: `127.0.0.1:${north.port}`, token: TOKEN },
+    ],
+    placement: { wrap: 'helper', audit: 'north' },
+  });
 
   const east = await startPeer('east', [
     '--listen',
@@ -191,7 +229,7 @@ try {
     '--network',
     join(runDir, 'review.network.json'),
     '--peers',
-    reviewPeers,
+    eastPeers,
   ]);
   started.push(east);
 
@@ -220,7 +258,7 @@ try {
   if (run.code !== 0) fail(`the run exited ${run.code}`);
 
   const answer = run.out.trim();
-  if (!answer.includes('"verdict":"approve"') || !answer.includes('"wrapped"')) {
+  if (!answer.includes('"signed"') || !answer.includes('"audited"') || !answer.includes('"wrapped"')) {
     fail(`the answer is not the composed one: ${answer}`);
   }
 
@@ -231,8 +269,9 @@ try {
   console.log('');
   console.log('engines');
   console.log('  west    graph classify  (label -> score), one neuron to the outer run');
-  console.log('  east    graph review    (wrap -> verdict), one neuron to the outer run');
-  console.log('  helper  the east graph\'s wrap node: the east run is itself peer-to-peer');
+  console.log('  east    graph review    (wrap -> audit), one neuron to the outer run');
+  console.log("  helper  review's wrap node: the east run is itself peer-to-peer");
+  console.log('  north   graph audit     (stamp -> sign), placed by the graph on east');
   console.log('  driver  run --peers, holding only outer.network.json');
   console.log('');
   console.log(`answer    ${answer}`);

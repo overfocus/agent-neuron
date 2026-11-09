@@ -80,6 +80,45 @@ const INNER_P2P: &str = r#"{
 }
 "#;
 
+/// P2: a placed graph places a graph of its own. `review` runs on one engine,
+/// and inside it `audit` — a whole network — runs on another.
+const NEST_AUDIT: &str = r#"{
+  "version": 0,
+  "name": "audit",
+  "neurons": [
+    {"id": "stamp", "description": "in", "run": ["/bin/sh", "-c", "read line; printf '{\"audited\":%s}' \"$line\""]},
+    {"id": "sign", "description": "out", "run": ["/bin/sh", "-c", "read line; printf '{\"signed\":%s}' \"$line\""]}
+  ],
+  "links": [{"from": "stamp", "to": "sign"}],
+  "entry": "stamp",
+  "exit": "sign"
+}
+"#;
+
+const NEST_REVIEW: &str = r#"{
+  "version": 0,
+  "name": "review",
+  "neurons": [
+    {"id": "wrap", "description": "tags", "run": ["/bin/sh", "-c", "read line; printf '{\"wrapped\":%s}' \"$line\""]},
+    {"id": "audit", "description": "a whole network, run elsewhere", "network": "audit.network.json"}
+  ],
+  "links": [{"from": "wrap", "to": "audit"}],
+  "entry": "wrap",
+  "exit": "audit"
+}
+"#;
+
+const NEST_OUTER: &str = r#"{
+  "version": 0,
+  "name": "nest-outer",
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "review", "description": "a graph on one engine", "network": "review.network.json", "timeout": 20000}
+  ],
+  "links": [{"from": "src", "to": "review"}]
+}
+"#;
+
 /// The outer network: one node, a whole network.
 const OUTER: &str = r#"{
   "version": 0,
@@ -187,6 +226,25 @@ fn start_worker(port: u16, token: &str, name: &str, env: &[(&str, &str)], extra:
 
 fn peers_text(port: u16, token: &str, placement: &str) -> String {
     peers_text_named("a", "b", port, token, placement)
+}
+
+/// A peers file with as many peers as a test needs (the same token for all).
+fn peers_file(local: &str, peers: &[(&str, u16)], placement: &str) -> String {
+    let list: Vec<String> = peers
+        .iter()
+        .map(|(name, port)| {
+            format!(
+                "{{\"name\": \"{}\", \"address\": \"127.0.0.1:{}\", \"token\": \"{}\"}}",
+                name, port, TOKEN
+            )
+        })
+        .collect();
+    format!(
+        "{{\"version\": 0, \"self\": \"{}\", \"peers\": [{}], \"placement\": {}}}",
+        local,
+        list.join(", "),
+        placement
+    )
 }
 
 fn peers_text_named(local: &str, name: &str, port: u16, token: &str, placement: &str) -> String {
@@ -339,7 +397,7 @@ fn a_placement_of_an_unknown_neuron_refuses_the_run() {
     );
     assert!(!out.status.success(), "a bad placement must refuse the run");
     assert!(
-        stderr(&out).contains("places 'nope', which the network does not declare"),
+        stderr(&out).contains("places 'nope', which this network does not declare"),
         "the refusal reads: {}",
         stderr(&out)
     );
@@ -684,6 +742,78 @@ fn an_effect_call_on_a_dead_peer_is_unknown() {
     assert!(trace.contains("\"code\":\"exit\""), "the trace reads: {trace}");
     assert!(!trace.contains("\"type\":\"error\""), "an effect is never an error: {trace}");
     assert_eq!(stdout(&out), "", "an unknown outcome answers nothing");
+}
+
+/// P2: placement is a path into the tree, so a composed node inside a hosted
+/// graph can be placed too — a graph that places a graph, three engines deep.
+/// From outside it is one neuron; inside, it is two hops across two machines.
+#[test]
+fn a_placed_graph_can_place_a_graph_of_its_own() {
+    let temp = Temp::new("nested-graph");
+    let audit = temp.write("audit.network.json", NEST_AUDIT);
+    let review = temp.write("review.network.json", NEST_REVIEW);
+    let outer = temp.write("outer.network.json", NEST_OUTER);
+    let inputs = temp.write("inputs.jsonl", INPUTS);
+
+    let local = run(&temp, &outer, &inputs, &temp.path("local.json"), &[], &[]);
+    assert!(local.status.success(), "the local run failed: {}", stderr(&local));
+
+    // helper runs review's `wrap`; north hosts the whole `audit` network; east
+    // hosts `review` and places both of its nodes.
+    let port_h = free_port();
+    let _helper = start_worker(port_h, TOKEN, "helper", &[], &[]);
+    let port_n = free_port();
+    let _north = start_worker(port_n, TOKEN, "north", &[], &["--network", audit.to_str().expect("a path")]);
+    let east_peers = temp.write(
+        "east.peers.json",
+        &peers_file(
+            "east",
+            &[("helper", port_h), ("north", port_n)],
+            "{\"wrap\": \"helper\", \"audit\": \"north\"}",
+        ),
+    );
+    let port_e = free_port();
+    let _east = start_worker(
+        port_e,
+        TOKEN,
+        "east",
+        &[],
+        &[
+            "--network",
+            review.to_str().expect("a path"),
+            "--peers",
+            east_peers.to_str().expect("a path"),
+        ],
+    );
+    let peers = temp.write("peers.json", &peers_file("driver", &[("east", port_e)], "{\"review\": \"east\"}"));
+    let remote = run(
+        &temp,
+        &outer,
+        &inputs,
+        &temp.path("remote.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(remote.status.success(), "the nested run failed: {}", stderr(&remote));
+
+    assert_eq!(stdout(&local), stdout(&remote), "the answers differ");
+    assert!(
+        stdout(&remote).contains("\"signed\":{\"audited\":{\"wrapped\":{\"n\":1}}}"),
+        "the graph did not nest: {}",
+        stdout(&remote)
+    );
+    let a = events(&temp.path("local.json"));
+    let b = events(&temp.path("remote.json"));
+    assert_eq!(a.len(), b.len(), "the event counts differ: {:?} vs {:?}", a, b);
+    for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+        assert!(
+            x.deep_eq(y),
+            "event {} differs:\n  local: {}\n  peer:  {}",
+            i,
+            json::write(x),
+            json::write(y)
+        );
+    }
 }
 
 /// The peers file itself: closed, and its refusals name the field.

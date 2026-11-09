@@ -766,20 +766,23 @@ impl Engine {
     /// of decision 0008 is opened here, one page for the run, on 127.0.0.1
     /// only, and the run's stderr carries its address.
     pub fn plant(&mut self, outer: &Network, files: &HashMap<String, NetFile>, base: Option<&PathBuf>) -> Result<(), String> {
+        self.plant_net(outer, files, 0, None, "", base.map(PathBuf::from).unwrap_or_default())?;
+        // Placement, checked against the tree this engine planted (P2): a key
+        // is a node path (`audit` at the top, `review/wrap` inside a composed
+        // one), and only `run` neurons and whole networks travel. A composed
+        // node's inside is not planted here, so a path into a placed one is a
+        // mistake — that tree lives on the peer.
         if let Some(peers) = &self.peers {
-            // P0's placement rule: the outer file's `run` neurons only. A
-            // composed neuron is planted wholly on the machine that plants its
-            // file (its instance is the unit of placement), and a source,
-            // http, human or serve neuron has no level 0 call to carry yet.
-            for id in peers.placement.keys() {
-                match outer.node(id) {
+            for path in peers.placement.keys() {
+                match self.nodes.iter().find(|n| n.prog == *path) {
                     None => {
-                        self.refused = Some(format!("the peers file places '{id}', which the network does not declare"));
+                        self.refused = Some(format!("the peers file places '{}', which this network does not declare", path));
                         return Ok(());
                     }
                     Some(n) if !matches!(n.kind, Kind::Run(_) | Kind::Network(_)) => {
                         self.refused = Some(format!(
-                            "the peers file places '{id}', and this engine carries only `run` neurons and whole networks to a peer"
+                            "the peers file places '{}', and this engine carries only `run` neurons and whole networks to a peer",
+                            path
                         ));
                         return Ok(());
                     }
@@ -787,7 +790,6 @@ impl Engine {
                 }
             }
         }
-        self.plant_net(outer, files, 0, None, "", base.map(PathBuf::from).unwrap_or_default())?;
         let bad: Option<String> = self.nodes.iter().find_map(|n| match &n.kind {
             Kind::Http(url) => {
                 if !self.is_real() {
@@ -868,13 +870,11 @@ impl Engine {
         for n in net.nodes.iter() {
             let node = self.nodes.len();
             local.insert(n.id.clone(), node);
-            // A placed neuron (decision 0013): only the outer file's, and only
-            // what `plant` let through.
-            let peer = if inst == 0 {
-                self.peers.as_ref().and_then(|p| p.placement.get(&n.id).copied())
-            } else {
-                None
-            };
+            // A placed neuron (decision 0013, P2): the key is the node's path
+            // in the tree (`audit`, `review/wrap`), so a composed node inside a
+            // hosted graph can be placed too — nesting all the way down.
+            let prog = format!("{}{}", prefix, n.id);
+            let peer = self.peers.as_ref().and_then(|p| p.placement.get(&prog).copied());
             if let Kind::Network(_) = &n.kind {
                 // Each `network` entry is its own instance (2.6), numbered
                 // before this file's other composed nodes plant. A placed one
@@ -915,7 +915,7 @@ impl Engine {
                 effect: n.opts.effect,
                 cost: n.opts.cost.clone(),
                 out: Vec::new(),
-                prog: format!("{}{}", prefix, n.id),
+                prog,
                 cmd,
                 cwd,
                 env,
