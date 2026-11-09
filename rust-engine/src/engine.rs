@@ -2309,6 +2309,7 @@ impl Engine {
                         env: env.clone(),
                         input: input.clone(),
                         timeout: self.nodes[node].timeout,
+                        graph: false,
                     };
                     let post = self.host().post_handle();
                     match self.peers.as_mut() {
@@ -4310,6 +4311,7 @@ impl Engine {
                     env: Vec::new(),
                     input: json::write(&payload),
                     timeout: self.nodes[node].timeout,
+                    graph: true,
                 };
                 let post = self.host().post_handle();
                 let started = match self.peers.as_mut() {

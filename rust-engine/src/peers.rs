@@ -90,9 +90,13 @@ pub struct CallReq {
     pub argv: Vec<String>,
     pub cwd: Option<std::path::PathBuf>,
     pub env: Vec<String>,
-    /// The one JSON value the engine writes to a program's stdin.
+    /// The one JSON value the engine writes to a program's stdin (or the
+    /// payload a hosted graph is injected with).
     pub input: String,
     pub timeout: u64,
+    /// What the driver expects the peer to be: `false` a program worker,
+    /// `true` a peer that is one neuron. The handshake must agree.
+    pub graph: bool,
 }
 
 /// A peer that is one neuron (decision 0013): a network file run per call,
@@ -368,6 +372,17 @@ fn dispatch(p: &Peer, local: &str, req: &CallReq, call: &Call) -> L0Out {
     if reply.get("ok").and_then(Value::as_bool) != Some(true) {
         let why = reply.get("error").and_then(Value::as_str).unwrap_or("the handshake was refused");
         return fail(why.to_string());
+    }
+    // A peer that hosts a graph and one that runs programs speak the same wire
+    // but not the same call: say which is which at the handshake, not by a
+    // failure the graph would have to report as its own.
+    let mode = reply.get("mode").and_then(Value::as_str).unwrap_or("program");
+    let want = if req.graph { "graph" } else { "program" };
+    if mode != want {
+        return fail(format!(
+            "peer {} speaks as a {} peer, and this call needs a {} peer",
+            p.name, mode, want
+        ));
     }
     let call_line = Obj::new()
         .str("type", "call")

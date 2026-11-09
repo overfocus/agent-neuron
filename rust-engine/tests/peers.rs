@@ -520,6 +520,37 @@ fn a_graph_hosted_by_a_peer_can_itself_span_peers() {
     );
 }
 
+/// A `network` node and a program worker do not compose: the handshake says so
+/// before a call is made, and the outer trace carries the boundary's message.
+#[test]
+fn a_graph_node_needs_a_graph_peer() {
+    let temp = Temp::new("mode");
+    let inner = temp.write("inner.network.json", INNER);
+    let _ = inner;
+    let outer = temp.write("outer.network.json", OUTER);
+    let inputs = temp.write("inputs.jsonl", INPUTS);
+    let port = free_port();
+    // A worker that runs programs, and an outer node that is a whole network.
+    let _peer = start_worker(port, TOKEN, "b", &[], &[]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"graph\": \"b\"}"));
+    let out = run(
+        &temp,
+        &outer,
+        &inputs,
+        &temp.path("trace.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(out.status.success(), "the run itself completes: {}", stderr(&out));
+    assert_eq!(stdout(&out), "", "a mismatched peer answers nothing");
+    let trace = std::fs::read_to_string(temp.path("trace.json")).expect("the trace");
+    assert!(
+        trace.contains("speaks as a program peer, and this call needs a graph peer"),
+        "the trace reads: {trace}"
+    );
+    assert!(trace.contains("\"code\":\"inner\""), "the trace reads: {trace}");
+}
+
 /// The peers file itself: closed, and its refusals name the field.
 #[test]
 fn the_peers_file_is_closed_and_checked() {

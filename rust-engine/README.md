@@ -100,7 +100,7 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 102: mcp 19, real 28, check 16, desk 17, http 11, peers 9, unit 2
+cargo test                                          # 103: mcp 19, real 28, check 16, desk 17, http 11, peers 10, unit 2
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 224, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
@@ -413,7 +413,7 @@ the machines that execute some of the network's `run` neurons, and
   replicate, budgets are the driver's, and quiescence is single-machine. The rest
   is docs/P2P.md's P1-P4.
 
-Gates at P0/P0.5: `cargo test` 102 (peers 9, real 28 — one of the real tests is
+Gates at P0/P0.5: `cargo test` 103 (peers 10, real 28 — one of the real tests is
 the composed-neuron failure this work fixed: a host event that empties a composed
 call's inside now runs 2.6 step 3's check, where the real host used to wait for
 the composed call's timeout), `cargo fmt --check` and
@@ -547,8 +547,8 @@ Updated after M3 (`wc -l` of the same files, plus the new ones): `mcp.rs`
 files of M2 and the probe unit test), 14432 all told.
 
 At P0.5 (`wc -l` of the tree after the ground and the peer layer): sources
-13404, tests 4476, 17880 all told. The peer layer is `src/peers.rs` 833 and
-`tests/peers.rs` 554; the engine it plugs into is `engine.rs` 4600 (the composed
+13421, tests 4507, 17928 all told. The peer layer is `src/peers.rs` 848 and
+`tests/peers.rs` 585; the engine it plugs into is `engine.rs` 4603 (the composed
 outcome path, the placed-instance guard, the host-event check), `run.rs` 201,
 `main.rs` 202, `lib.rs` 16 (the ground's earlier growth included: `net.rs` 1298,
 `trace.rs` 249).
