@@ -100,7 +100,7 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 98: mcp 19, real 27, check 16, desk 17, http 11, peers 6, unit 2
+cargo test                                          # 102: mcp 19, real 28, check 16, desk 17, http 11, peers 9, unit 2
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 224, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
@@ -109,6 +109,8 @@ target/debug/neuron-engine run spec/examples/alerts-budget.network.json --inputs
 target/debug/neuron-engine check <file>
 neuron-engine mcp                                   # the M3 server on stdin/stdout
 neuron-engine peer --listen 127.0.0.1:7301 --token <hex> [--name b]   # a peer (P0, decision 0013)
+neuron-engine peer --listen 127.0.0.1:7302 --token <hex> --network f.network.json [--peers g.json]  # a peer that is one neuron (P0.5)
+cd .. && npm run demo:p2p                            # three peers + a driver, the nested graph demo
 ```
 
 Results when M1 closed, re-run the commands above to check: `spec/fixtures`
@@ -395,16 +397,32 @@ the machines that execute some of the network's `run` neurons, and
   asks the peer to stop, and keeps the run open through the 2 s grace, as a
   group's kill does; a peer that cannot be reached fails the call `exit 127`,
   as a missing executable does.
-- **P0 carries `run` neurons only.** `serve`, `http`, `human` and composed
-  neurons are not placed, the ground does not replicate, budgets are the
-  driver's, and quiescence is single-machine. The rest is docs/P2P.md's P1-P4.
+- **A network as one neuron (P0.5).** `--network <file>` makes the peer one
+  neuron whose inside is a graph: the call's payload enters the file's `entry`,
+  the file's `exit` answers, an inner failure is the composed `inner` error with
+  its cause left on the worker's stderr (sealing, 2.6). Placement may name a
+  `network` node; the driver then plants no instance for it. The file is instance
+  0 of the peer's per-call engine, so its own `--peers` placement works with
+  plain neuron ids: a graph hosted by a peer can itself be spread over peers,
+  and from outside it is still one neuron. What it does not carry yet: the exit
+  reply's `replaces`, the composed `cost` capping the inner budget, and a
+  `cancel` message (the socket's shutdown plus the worker's deadline is the
+  backstop).
+- **What is not placed.** `serve`, `http` and `human` neurons, and a composed
+  node inside another network (an instance is placed whole). The ground does not
+  replicate, budgets are the driver's, and quiescence is single-machine. The rest
+  is docs/P2P.md's P1-P4.
 
-Gates at P0: `cargo test` 98 (peers 6), `cargo fmt --check` and
+Gates at P0/P0.5: `cargo test` 102 (peers 9, real 28 — one of the real tests is
+the composed-neuron failure this work fixed: a host event that empties a composed
+call's inside now runs 2.6 step 3's check, where the real host used to wait for
+the composed call's timeout), `cargo fmt --check` and
 `clippy --all-targets -- -D warnings` clean, `conform spec/fixtures` 224/0/0 on
 five consecutive identical runs and `conform py/probes` 10/0/0, unchanged. The
-peers suite proves the claim end to end: one loopback peer runs a `run` neuron,
-and the peer run's trace is the local run's event for event, the wall-clock `t`
-zeroed.
+peers suite proves both claims end to end: a peer's call is the local call event
+for event (wall-clock `t` zeroed, ids renormalised by first appearance), a
+peer-hosted graph is the local composed neuron answer for answer and event for
+event, and a graph spread over two engines answers as a wholly local run does.
 
 ## Design in one page
 
@@ -528,11 +546,12 @@ Updated after M3 (`wc -l` of the same files, plus the new ones): `mcp.rs`
 `mcp.rs` (new) 927. Sources 11152, tests 3280 (with the two desk/http test
 files of M2 and the probe unit test), 14432 all told.
 
-At P0 (`wc -l` of the tree after the ground and the peer seam): sources 13067,
-tests 4206, 17273 all told. P0 added `src/peers.rs` 624 and `tests/peers.rs`
-325; the files it touched: `engine.rs` 4476, `run.rs` 201, `main.rs` 202,
-`lib.rs` 16 (the ground's earlier growth included: `net.rs` 1298, `trace.rs`
-249).
+At P0.5 (`wc -l` of the tree after the ground and the peer layer): sources
+13404, tests 4476, 17880 all told. The peer layer is `src/peers.rs` 833 and
+`tests/peers.rs` 554; the engine it plugs into is `engine.rs` 4600 (the composed
+outcome path, the placed-instance guard, the host-event check), `run.rs` 201,
+`main.rs` 202, `lib.rs` 16 (the ground's earlier growth included: `net.rs` 1298,
+`trace.rs` 249).
 
 For scale: the TypeScript reference engine (`src/engine/`) is 1353 by
 `wc -l` (decision 0005's table). This crate is larger for the same honest

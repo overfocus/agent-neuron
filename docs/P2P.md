@@ -1,11 +1,12 @@
 # P2P: one graph, several referees
 
-**Status: planning note (2026-11-09), P0 built.** The destination and the
-placement rule below are accepted — [decision 0013](decisions/0013-p2p.md) is the
-decision of record — and P0 (one call on a peer, `run --peers`) is built and
-gated. This note reads the Rust engine's own seams, names the three things "P2P"
-could mean here, picks one, and puts a build order down with the contract cost of
-each step.
+**Status: planning note (2026-11-09), P0 built, P0.5 built.** The destination
+and the placement rule below are accepted — [decision 0013](decisions/0013-p2p.md)
+is the decision of record. P0 (one call on a peer, `run --peers`) and P0.5 (a
+whole network as one neuron on a peer, `peer --network`) are built and gated.
+This note reads the Rust engine's own seams, names the three things "P2P" could
+mean here, picks one, and puts a build order down with the contract cost of each
+step.
 
 ## What "P2P" could mean, and which one this is
 
@@ -135,6 +136,7 @@ Each step states what it proves and which existing gate it must not move.
 | Step | Scope | Proves | Gate |
 |---|---|---|---|
 | **P0** *(built 2026-11-09)* | `--peers <file>` flag; the peers file names addresses, tokens and neuron ids; a `peers` module; one loopback peer that runs a single `run` neuron | the seam: a call dispatched over TCP settles through the host queue and lands in the trace as a local one | `tests/peers.rs` (6 tests, all green); `cargo test` 98; `conform` 224/0/0 on five identical runs and `py/probes` 10/0/0, unchanged; a peer run's trace equals the local run's event for event, the wall-clock `t` zeroed |
+| **P0.5** *(built 2026-11-09)* | a peer hosts a whole network as one neuron: `peer --network <file>` runs the file per call, injected at its `entry`, answered by its `exit`; placement may name a `network` node, and the driver plants no instance for it | the composition claim: a network is one neuron to another network, and a graph hosted by a peer can itself be spread (`peer --network f --peers g`) | `tests/peers.rs` (9 tests): a peer graph equals a local composed neuron event for event, a failing graph is the same `inner` error (sealed), a graph spread over two engines answers as a local one |
 | **P1** | the full call lifecycle: cancel, timeout, crash, a peer-hosted `serve` with slots and restarts, `effect` on a dead peer is `unknown`, budget reserve/commit against the trace owner | A is complete: one referee, many hosts | peers tests beside `real.rs` (serialized, `RUST_TEST_THREADS = 1`); every 6.1 code exercised across the wire |
 | **P2** | links that leave a peer: `answer.to` resolved at the driver, `cut` routed, per-peer trace segments with the `peer-numbered` header scheme and a merge reader | B's routing half; the trace question answered in code | a two-peer network in `tests/peers.rs` whose merged trace equals the single-engine trace of the same graph |
 | **P3** | the ground over the wire: deposits as a folded list, `deposit` gossip, `select` draws read the merged trail | the colony layer on shared state; the P2P answer to 0012's open half | a two-peer colony fixture-shaped test: the same seeded draws as one engine when the deposits are unioned |
@@ -157,9 +159,11 @@ before P5.
 
 No discovery (peers are named in the peers file; the file is the house rules),
 no membership gossip, no consensus, no TLS, no DHT, no moving a live `serve`
-between peers (a restart is local), no composed neuron split across peers (a
-composed instance is atomic: sealing plus its shared inner processes make it the
-natural unit of placement).
+between peers (a restart is local), no composed *node* split across peers: a
+composed instance is placed whole, and its inside is one engine's. The inside can
+still be peer-to-peer in the other sense — a peer started with `--network <f>
+--peers <g>` runs `f` as instance 0, so `f`'s own nodes may be placed (P0.5) —
+but a `network` node *within* an outer network is one peer's.
 
 ## Decisions wanted
 
