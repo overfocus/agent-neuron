@@ -6,7 +6,11 @@ use crate::json::{self, Value};
 use crate::net::{NetFile, Network};
 use crate::trace;
 use std::collections::HashMap;
+use std::io::Write as _;
 use std::path::Path;
+
+/// The `--inputs` value that asks for a live run: standard input.
+pub const LIVE: &str = "-";
 
 /// The live-stream sink of a run (9.1): each event, in order; never holds the
 /// run up. `Send`: an MCP job runs the engine in its own thread, so the sink
@@ -19,6 +23,9 @@ pub type StreamSink = Box<dyn FnMut(&Value) + Send>;
 pub struct RunResult {
     pub answers: Vec<String>,
     pub events: Vec<Value>,
+    /// How many events the run reported: `events.len()`, except on a live
+    /// run, which keeps none.
+    pub event_count: u64,
     pub network: Network,
     pub files: HashMap<String, NetFile>,
 }
@@ -68,7 +75,15 @@ pub fn read_inputs(path: &str) -> Result<Vec<fixture::Input>, String> {
 /// no outgoing links, in the order they happened (4.4), a text payload as its
 /// text and the rest as its JSON — the events, and the network's tree.
 pub fn run_with_stream(file: &str, opts: &RunOpts, sink: Option<StreamSink>) -> Result<RunResult, String> {
-    let inputs = read_inputs(&opts.inputs)?;
+    // `--inputs -` is a live run (decision 0020): the injections are read
+    // from standard input as they arrive, and none is known in advance.
+    let live = opts.inputs == LIVE;
+    let inputs = if live { Vec::new() } else { read_inputs(&opts.inputs)? };
+    if live && sink.is_none() {
+        return Err(
+            "cannot run: a live run (--inputs -) needs --stream, and the stream did not open: its events are kept nowhere else".into(),
+        );
+    }
     // Confinement (decision 0018) fails closed: a run the engine cannot
     // confine is refused before anything else is read or started. A placed
     // program runs on another machine, and the wire does not carry `may` yet.
@@ -138,16 +153,78 @@ pub fn run_with_stream(file: &str, opts: &RunOpts, sink: Option<StreamSink>) -> 
         eng.stop_after_refusal();
         return Err(format!("the engine refused the run: {}", why));
     }
+    if live {
+        // After the serve programs are up: nothing but the run's own loop
+        // reads the queue from here on.
+        let post = eng.go_live(Box::new(|answer: &str| {
+            let mut out = std::io::stdout();
+            let _ = writeln!(out, "{}", answer);
+            let _ = out.flush();
+        }));
+        crate::host::spawn_thread("live-inputs", move || read_live_inputs(post));
+    }
     let outcome = eng.run();
     if let Some(why) = &outcome.refused {
         return Err(format!("the engine refused the run: {}", why));
     }
     Ok(RunResult {
         answers: outcome.printed_answers(),
+        event_count: outcome.event_count,
         events: outcome.events,
         network: outer,
         files,
     })
+}
+
+/// The live producer (decision 0020): one injection per line of standard
+/// input, `{source, payload, replaces?, budget?}`, each posted as it is read
+/// and injected when the engine takes it. A line that is not an injection is
+/// refused to the producer on stderr and the run goes on. `at` is refused: it
+/// counts from the start of the run, which a live producer cannot know. When
+/// standard input closes, no injection is still to come.
+fn read_live_inputs(post: crate::host::Post) {
+    use std::io::BufRead as _;
+    let refuse = |n: usize, why: String| {
+        let _ = writeln!(std::io::stderr(), "refused an injection (line {}): {}", n, why);
+    };
+    for (i, line) in std::io::stdin().lock().lines().enumerate() {
+        let Ok(line) = line else { break };
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let v = match crate::json::parse(line) {
+            Ok(v) => v,
+            Err(e) => {
+                refuse(i + 1, format!("not JSON ({})", e));
+                continue;
+            }
+        };
+        if v.has("at") {
+            refuse(
+                i + 1,
+                "`at` counts from the start of a run and belongs to a file of inputs; a live injection is injected when it is read".into(),
+            );
+            continue;
+        }
+        // The shape of an entry of an inputs file, with the instant the
+        // engine itself supplies: the moment it takes the injection.
+        let v = match v {
+            Value::Obj(mut members) => {
+                members.push(("at".to_string(), Value::Int(0)));
+                Value::Obj(members)
+            }
+            other => other,
+        };
+        let mut errs = Vec::new();
+        let input = fixture::inputs_of(&v, i, &mut errs);
+        if !errs.is_empty() {
+            refuse(i + 1, errs.join("; "));
+            continue;
+        }
+        post.post(crate::host::Ev::Inject(Box::new(input)));
+    }
+    post.post(crate::host::Ev::InputsClosed);
 }
 
 /// The answers on stdout, one per line (already the printed form).

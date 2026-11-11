@@ -17,7 +17,7 @@ use std::path::Path;
 
 fn usage() -> ! {
     eprintln!("usage: neuron-engine conform <dir> [--only <text>]");
-    eprintln!("       neuron-engine run <file> --inputs <jsonl> [--trace <out.json>] [--stream <path>] [--ping <ms>] [--grants <json>] [--peers <json>] [--confine <json>]");
+    eprintln!("       neuron-engine run <file> --inputs <jsonl | -> [--trace <out.json>] [--stream <path>] [--ping <ms>] [--grants <json>] [--peers <json>] [--confine <json>]");
     eprintln!("       neuron-engine check <file>");
     eprintln!("       neuron-engine mcp");
     eprintln!("       neuron-engine peer --listen <host:port> --token <hex> [--name <name>]");
@@ -141,6 +141,16 @@ fn run(args: &[String]) {
     };
     let trace_out = get("trace");
     let stream_path = get("stream");
+    // A live run (decision 0020) does not end at a time anyone knows: its
+    // events go to the stream as they happen and are kept nowhere, so there
+    // is no trace to write at the end.
+    let live = inputs == run::LIVE;
+    if live && (stream_path.is_none() || trace_out.is_some()) {
+        eprintln!(
+            "a live run (--inputs -) takes --stream <path> and not --trace: its events are written as they happen and kept nowhere else"
+        );
+        std::process::exit(1);
+    }
     // A signal that ends the CLI kills every running group first (Appendix C,
     // decision 0001); a run's own end has the engine's shutdown after it.
     host::install_signal_teardown();
@@ -152,10 +162,14 @@ fn run(args: &[String]) {
         match trace::Stream::open(path) {
             Ok(mut s) => {
                 let keep = written.clone();
+                let keep_lines = trace_out.is_some();
                 sink = Some(Box::new(move |ev: &json::Value| {
-                    let line = json::write(ev);
-                    if let Ok(mut w) = keep.lock() {
-                        w.push(line.clone());
+                    // Kept only for the trace's self-check; a run with no
+                    // trace keeps none (a live run would grow without end).
+                    if keep_lines {
+                        if let Ok(mut w) = keep.lock() {
+                            w.push(json::write(ev));
+                        }
                     }
                     s.emit(ev);
                 }));
@@ -193,7 +207,7 @@ fn run(args: &[String]) {
             } else {
                 result.network.name
             };
-            eprintln!("ran {}: {} events", demo, result.events.len());
+            eprintln!("ran {}: {} events", demo, result.event_count);
         }
         Err(why) => {
             eprintln!("{}", why);

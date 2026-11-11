@@ -453,6 +453,9 @@ pub struct RunOutcome {
     /// prints these; the trace cuts long payloads). Read them through
     /// `printed_answers`; `PVal` is the engine's own shape.
     pub(crate) answers: Vec<(String, PVal)>,
+    /// How many events the run reported. A live run keeps none of them
+    /// (decision 0020), so `events` is empty there and this is the count.
+    pub event_count: u64,
     /// The run reached its deadline (a caller's `timeout_ms`) with work still
     /// open: the loop broke there, the teardown followed, and these are the
     /// facts of the run up to the deadline. Only the real host sets it.
@@ -496,13 +499,7 @@ impl RunOutcome {
     /// The answers as the run prints them (4.4): a text payload as its text,
     /// the rest as their JSON value.
     pub fn printed_answers(&self) -> Vec<String> {
-        self.answers
-            .iter()
-            .map(|(_, payload)| match payload {
-                PVal::Text(text) => text.clone(),
-                other => json::write(&other.as_full()),
-            })
-            .collect()
+        self.answers.iter().map(|(_, payload)| printed(payload)).collect()
     }
 
     fn empty() -> RunOutcome {
@@ -512,10 +509,23 @@ impl RunOutcome {
             harness: None,
             injected_traces: Vec::new(),
             answers: Vec::new(),
+            event_count: 0,
             timed_out: false,
         }
     }
 }
+
+/// An answer as the run prints it (4.4): a text payload as its text, the
+/// rest as its JSON value.
+fn printed(payload: &PVal) -> String {
+    match payload {
+        PVal::Text(text) => text.clone(),
+        other => json::write(&other.as_full()),
+    }
+}
+
+/// Where a live run's answers go, one at a time, as they happen.
+pub type AnswerSink = Box<dyn FnMut(&str) + Send>;
 
 pub struct Engine {
     inputs: Vec<Input>,
@@ -563,6 +573,15 @@ pub struct Engine {
     /// nothing is reported before the engine's clock starts.
     reporting: bool,
     answers: Vec<(String, PVal)>,
+    /// A live run (decision 0020): a producer outside may still inject, so
+    /// the run is not over (6.2 rule 6) however quiet it is. Cleared when the
+    /// producer says it is done.
+    live_inputs: bool,
+    /// A live run keeps no events and no answers: each event goes to the
+    /// stream and each answer to this sink as it happens, so a run that does
+    /// not end does not grow by what it has reported.
+    answer_sink: Option<AnswerSink>,
+    event_count: u64,
     /// The desk (decision 0008, Appendix D): some on a run whose network has
     /// `human` neurons; `None` when it has none, or on the scripted host.
     desk: Option<crate::desk::Desk>,
@@ -643,6 +662,9 @@ impl Engine {
             stream: None,
             reporting: false,
             answers: Vec::new(),
+            live_inputs: false,
+            answer_sink: None,
+            event_count: 0,
             desk: None,
             https: Vec::new(),
             deadline: None,
@@ -688,6 +710,18 @@ impl Engine {
     /// The peers (decision 0013): the machines that execute some of this
     /// run's neurons, and the wire to them. Set before the plant; absent is a
     /// run whose every call is local.
+    /// A live run (decision 0020): the producer injects while the run is
+    /// under way, through the handle this returns (`Ev::Inject`, then
+    /// `Ev::InputsClosed` when it is done). The run keeps no events and no
+    /// answers: the stream has the first, `answers` gets the second as each
+    /// happens. Call it after the serve programs have started, so nothing
+    /// that pumps the queue before the run sees an injection.
+    pub fn go_live(&mut self, answers: AnswerSink) -> host::Post {
+        self.live_inputs = true;
+        self.answer_sink = Some(answers);
+        self.host().post_handle()
+    }
+
     pub fn set_peers(&mut self, peers: crate::peers::Peers) {
         self.peers = Some(peers);
     }
@@ -764,7 +798,10 @@ impl Engine {
             stream(&ev);
         }
         self.observer_sees(&ev);
-        self.events.push(ev);
+        self.event_count += 1;
+        if self.answer_sink.is_none() {
+            self.events.push(ev);
+        }
     }
 
     // -- The observer (SPEC 9) ----------------------------------------------
@@ -1168,6 +1205,9 @@ impl Engine {
                         timed_out = true;
                         break;
                     }
+                    // Quiet, with a live producer that may still inject:
+                    // the run waits for it.
+                    Step::Idle if self.live_inputs => continue,
                     Step::Idle => break,
                 }
             }
@@ -1186,6 +1226,7 @@ impl Engine {
             harness: self.harness.take(),
             injected_traces: std::mem::take(&mut self.injected_roots),
             answers: std::mem::take(&mut self.answers),
+            event_count: self.event_count,
             timed_out,
         }
     }
@@ -1320,7 +1361,8 @@ impl Engine {
     /// level 0 group, a cancelled level 1 call's slot, a kill grace). A
     /// restart delay, an idle ping or a pong deadline is not work.
     fn run_over(&self) -> bool {
-        self.injections == 0
+        !self.live_inputs
+            && self.injections == 0
             && self.obs_pending == 0
             && self.works.iter().all(|w| w.done)
             && self.groups.values().all(|list| list.is_empty())
@@ -1363,6 +1405,8 @@ impl Engine {
             host::Ev::ServeStartFailed { server, gen, why } => self.host_serve_start_failed(server, gen, why),
             host::Ev::HttpDone { idx, out } => self.host_http_done(idx, out),
             host::Ev::Desk => self.drain_desk(),
+            host::Ev::Inject(inp) => self.live_inject(*inp),
+            host::Ev::InputsClosed => self.live_inputs = false,
         }
         true
     }
@@ -1403,6 +1447,33 @@ impl Engine {
         let Some(src) = self.find_source(&inp.source) else {
             self.harness_failure(format!("the injection names unknown source '{}'", inp.source));
         };
+        self.inject(src, inp);
+    }
+
+    /// A live producer's injection (SPEC 4.1, decision 0020), taken from the
+    /// host's queue: a root signal now. One the engine refuses is refused to
+    /// the producer — a line on the run's stderr — and the run goes on: a
+    /// producer's bad line does not end a run that others depend on.
+    fn live_inject(&mut self, inp: Input) {
+        let refusal = match self.find_source(&inp.source) {
+            None => Some(format!("it names '{}', which is not a source of this network", inp.source)),
+            Some(_) if inp.replaces.as_ref().is_some_and(|k| k.len() > 256) => {
+                Some("its replaces key is longer than 256 bytes".to_string())
+            }
+            Some(_) => inp.budget.as_ref().and_then(|units| self.injection_budget_ok(units).err()),
+        };
+        if let Some(why) = refusal {
+            use std::io::Write as _;
+            let _ = writeln!(std::io::stderr(), "refused an injection: {}", why);
+            return;
+        }
+        let src = self.find_source(&inp.source).expect("checked above");
+        self.inject(src, inp);
+    }
+
+    /// One injection at the source `src` (SPEC 4.1): a root signal, its
+    /// trace, and the trace's pool.
+    fn inject(&mut self, src: usize, inp: Input) {
         // The trace and its pool: the budget's ceilings, lowered by the
         // injection's `budget` (10.2).
         let to: Vec<usize> = self.nodes[src].out.clone();
@@ -2944,7 +3015,10 @@ impl Engine {
                 // links (SPEC 4.4); the whole payload, the trace cuts long
                 // ones (TRACE.md).
                 if self.nodes[node].out.is_empty() {
-                    self.answers.push((self.disp(node), payload.clone()));
+                    match &mut self.answer_sink {
+                        Some(sink) => sink(&printed(&payload)),
+                        None => self.answers.push((self.disp(node), payload.clone())),
+                    }
                 }
                 self.emit(rec.inst, ev);
                 // The ground's deposit (4.5): the engine reads the reply's

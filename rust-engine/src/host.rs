@@ -91,6 +91,11 @@ pub enum Ev {
     /// A tick from a side surface (the desk accepted an answer): the engine
     /// reads it when it takes the event.
     Desk,
+    /// A live producer's injection (SPEC 4.1, decision 0020): injected when
+    /// the engine takes it, at the stamp it was read with.
+    Inject(Box<crate::fixture::Input>),
+    /// The live producer is done: no injection is still to come (6.2 rule 6).
+    InputsClosed,
 }
 
 pub struct HostMsg {

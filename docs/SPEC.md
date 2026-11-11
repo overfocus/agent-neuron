@@ -597,6 +597,15 @@ trace's budget (10.2). Only the
 producer knows what makes one input stale, so the key is its job; nothing else
 reads a payload to compute one.
 
+**A live producer** ([decision 0020](decisions/0020-one-loop-fed-from-outside.md)). A producer need
+not know its injections in advance. An engine MAY take injections while a run is under way; each is
+then injected at the instant the engine takes it, and the rules above are unchanged. While such a
+producer may still inject, an injection is still to come, so the run is not over (6.2 rule 6); it
+is over when the producer has said it is done and nothing is left. An injection the engine refuses
+(an unknown source, a key over 256 bytes, a budget it may not carry) is refused to that producer
+and to nothing else: the run goes on. A moment counted from the start of the run (the `at` of a
+file of inputs, section 0) belongs to injections known in advance, and a live one carries none.
+
 ### 4.2 Delivery
 
 A signal is delivered to each neuron in `to`, in order; each delivery is
@@ -1387,6 +1396,9 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
 - **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` only for a scripted observer;
   `reserve` and `commit` with a budget.
 - **Effects** (section 11): all of it. `unknown` is a separate event type; the `forwarded` mark is on the `answer` event.
+- **A live producer** (4.1): not taken by this engine, nor by the Python one. The Rust engine takes one on
+  standard input (`run --inputs -`, `rust-engine/README.md`), writing its events to the stream as they happen
+  and keeping none.
 - **A neuron named by its own file** (2.10): read when the network file is (`readNetwork`), so the engine itself
   never sees the `neuron` kind. The Python and Rust engines do the same in their loaders.
 - **`may`** (2.4): checked, the fold included. This engine does not confine (2.9): a program runs with the rights
