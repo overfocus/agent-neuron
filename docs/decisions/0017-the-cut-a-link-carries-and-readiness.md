@@ -99,5 +99,17 @@ composed neuron and to the outermost network alike, by the fold rule of 0016 poi
 
 ## Where it stands
 
-Written and accepted 2026-11-11. No contract commit has started; both answers are wanted before
-0016's S4.
+Written and accepted 2026-11-11. **Both contract commits are written** on
+`feat/0017-cut-and-ready` (2026-11-11).
+
+- **The cut** is SPEC 5.4's new paragraphs. No engine changed: each holds every neuron's work in one
+  place, which the text says applies the rule by holding it. What the commit adds is the pin that was
+  missing. No fixture covered a newer signal sent elsewhere than the older one, so an engine that made
+  work stale only along the links the newer signal took passed all 245. `staleness/
+  a-newer-signal-sent-elsewhere-cuts-the-older-work` covers it, written from the text before any
+  engine ran it; all three pass, and a mutant of exactly that bug in `test/conformance.test.ts` is
+  caught by that fixture and no other.
+- **Readiness** is SPEC 3.2's rewritten opening. No engine and no fixture changed.
+
+The wire between peers carries neither yet. Under one referee (P2P.md's shape A) the driver holds
+every neuron's work, so no cut crosses a socket; that is S4's and after.

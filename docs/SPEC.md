@@ -701,6 +701,21 @@ with key *K* from sender *S* makes every older signal of the same (*S*, *K*)
 Finished work is unaffected, and so is what it forwarded: staleness does not
 travel down a chain. Each hop replaces on its own sender's key.
 
+**A key reaches every outgoing link of its sender** ([decision 0017](decisions/0017-the-cut-a-link-carries-and-readiness.md)).
+The older signal may have gone where the newer one does not: a level 1 reply may name some of its
+links (3.2), and the ground forwards along one (4.5). The older work is stale all the same. So a
+signal with a key is delivered to the neurons in its `to`, and every other neuron its sender has an
+outgoing link to receives a **cut**: the sender and the key, and nothing else. A neuron treats a cut
+as the arrival of a newer input of that (sender, key) with no input in it: its older work for the
+pair is made stale by the rules above, and nothing is held, queued or run. A cut for a pair it has
+no work for does nothing. A cut is not a signal and not an event: the `drop` it causes is the record
+(6.2 rule 2 places it), and it is delivered at the instant its signal is emitted.
+
+An engine that holds the work of every neuron in one place applies this by holding it, and sends
+nothing. Where the sender and a target are held apart, the cut is what crosses between them. If it
+cannot be delivered, the work there is not made stale: it ends as it would have, and its answer is
+forwarded. That is the one case in which this section is best effort, and it is never an error.
+
 **Any replaced input cuts a running threshold call.** The call is stale when any
 input it was built from is stale, not only the one that crossed. One drop is
 reported, for the crossing input (which may itself not have been replaced),
@@ -973,7 +988,7 @@ after 10; `b` is quiet after 5. Expected (this is `spec/fixtures/routing/chain-f
 {"type":"quiet","t":15,"id":"#4","from":"b","to":["a"],"trace":"#1","replyTo":"#3","hops":3}
 ```
 
-The fixtures cover routing, threshold, staleness (issue 17 included), `maxHops`, composed
+The fixtures cover routing, threshold, staleness (issue 17 included, and a newer signal sent elsewhere than the older one), `maxHops`, composed
 neurons and sealing, every row of the 6.1 table that an engine can reach, the 6.2 order, the
 end of a run, level 1 (handshake, queueing, cancel, ping, restart), observers and
 the version 0.1 budget (`budget/`: reserve, commit, refusal, the pool of a trace, a composed cap, `finished`),
@@ -1497,7 +1512,7 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 5.2 | Threshold: groups by (neuron, trace), distinct senders, `within` | local | The receiver's own inputs; the sender is on the signal. |
 | 5.3 | `maxHops` | local | `hops` is on the signal. |
 | 5.4 | Staleness, when the newer signal reaches the same target | local | The target sees the newer (sender, key) input and cuts its own older work. |
-| 5.4 | Staleness, when the newer signal does not reach a target that holds older work (a reply's `to` named a subset, or the ground drew another link) | link | The sender must tell that target; no input arrives there to do it. |
+| 5.4 | Staleness, when the newer signal does not reach a target that holds older work (a reply's `to` named a subset, or the ground drew another link) | link | The sender tells that target with a cut: a key reaches every outgoing link of its sender (5.4, decision 0017). |
 | 5.4 | A stale answer is discarded; an effect call is not cut; a running threshold call is cut by any of its inputs | local | The receiver's own work. |
 | 6.1 | Every failure row but the three below | local | Wrapper and program. |
 | 6.1 | `budget` | global | The pool (G1). |
@@ -1546,8 +1561,8 @@ Everything marked global above is one of these.
 | G7 | The desk: one page for every `human` neuron of a run | Appendix D (informative) |
 | G8 | Observers: a reader of the whole stream | 9, 9.1, 11.4 |
 
-And one thing a link must carry that it does not carry today: the cut of 5.4 to a target the newer
-signal never reaches.
+And one thing a link must carry besides the signal: the cut of 5.4, to a target the newer signal
+never reaches.
 
 Decision 0016 answers G1 to G3 and leaves G4 to a record of its own. G5 to G8 and the link cut were
-found by writing this map.
+found by writing this map; decision 0017 answers the cut and G6 and parks G5, G7 and G8.
