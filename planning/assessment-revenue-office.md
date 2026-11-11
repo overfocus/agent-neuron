@@ -35,13 +35,13 @@ mechanisms an office needs are already specified on the site as data:
   before anything merges. "Never push or ship without Kevin's go" is already the
   house rule; the desk makes it a mechanism.
 
-So the gap is not machinery — it is that nothing schedules the senses, the briefs
-and the hands between Kevin's decisions. That is the network's job, and every
+So the gap is not machinery — it is that nothing schedules the senses, the
+briefs and the hands between Kevin's decisions. That is the network's job, and every
 mechanism the SPEC has (detectors, corroboration thresholds, staleness, budgets,
-effects, human holds, durable asks, learned strength) has an org analog. The prior
-Firecrawl assessment's best fits (Monitor as the trigger, provider data as
-corroboration) shrink into two neurons of this roster: the scout's monitors and the
-scout's search/scrape.
+effects, human holds, durable asks, learned strength) has an org analog. The office
+needs no outside data vendor: its inputs are the gauges and channels the practice
+already owns — GA4, the enquiry ledger, the Google Business Profile, the
+newsletter — and acquisition experiments are proposed inside the network itself.
 
 ## The roster (roles for the neurons)
 
@@ -70,11 +70,13 @@ skeleton.
   events by channel and campaign once per cycle. Emits the digest. A newer window
   replaces an older one (staleness lives here). Ids and counts only — the site's
   own no-PII rule is the neuron's rule.
-- **Scout** (Wave 2; sensory + model): owns the watch list — Firecrawl Monitor
-  tasks for the service pages and any competitor pages, plus search/scrape for
-  candidate business types (the `/for` registry grows data-only) and fresh facts
-  with sources and checked dates, matching the registry's fact discipline. Emits
-  findings with links. Its credit spend is budgeted (Wave 3).
+- **Acquirer** (Wave 2; model): the office's growth strategist — turns each
+  digest into at most one customer-acquisition experiment proposal (a new
+  business type for the page factory to draft, a GBP or newsletter move, a
+  partner push), grounded only in the gauges and channels the office already
+  reads, each carrying the metric it claims, for the desk's approval before any
+  brief routes. No outside data vendor and no outside senses: if an experiment
+  needs a fact, the page factory's own sourced-facts discipline covers it.
 - **Channel writer** (Wave 1; model): turns a brief into per-channel post drafts
   that follow the utm rules verbatim — links are built with the site's social
   tool, never hand-assembled. Drafts only; it has no keys.
@@ -111,8 +113,8 @@ skeleton.
 - **Dispatcher** — the desk peer itself. Routes asks and holds, carries the
   durable open asks (0015: a held question survives a crash and re-arms), and
   holds no opinions. Also home of the **budget warden** function (0006): per-cycle
-  action caps (posts per channel per week), Firecrawl credits per day, and a
-  standing rule that no effect fires between cycles except the desk's own answers.
+  action caps (posts per channel per week), and a standing rule that no effect
+  fires between cycles except the desk's own answers.
 - **Ledger** — the journal every ask/effect/answer and lead lands in; the weekly
   revenue note is its summary of desk answers, with the GA4 lead values always
   labelled a proxy, never revenue.
@@ -134,16 +136,17 @@ marketing manager optimizes the first; learning is validated on the second.
 ## Waves and gates
 
 - **W1 — the office, invented data.** Roster skeleton in the demos' harness shape:
-  gauge fixtures, recorded effects, monitors off, two graph peers plus the desk
-  peer, daily-cycle run shape. Gate: headless run asserts the outcome (a seeded
+  gauge fixtures, recorded effects, no outside senses, two graph peers plus the
+  desk peer, daily-cycle run shape. Gate: headless run asserts the outcome (a seeded
   day produces exactly one brief, its asks, and a recorded post per the utm
   rules); the engine's `check` accepts the network file; two runs on one seed
   are identical.
 - **W2 — the senses go live.** Gauge clerk pulls GA4 (read-only) once per cycle;
-  scout's monitors and search go live within its credit budget; attributor runs
-  on the last shipped site change. Gate: a real digest lands at the desk; the
-  trace shows the digest's numbers agreeing with the GA4 console one morning;
-  no effect neuron holds a live key yet.
+  the acquirer proposes its first acquisition experiments from real gauges;
+  attributor runs on the last shipped site change. Gate: a real digest lands at
+  the desk; the trace shows the digest's numbers agreeing with the GA4 console
+  one morning; one accepted experiment arrives at the desk with the metric it
+  claims; no effect neuron holds a live key yet.
 - **W3 — the hands go live.** Social operator publishes its first approved post
   per channel (GBP first); page-factory drafts arrive at the desk as site
   worktrees through the site's real flow (worktree → checks → verify → Kevin's
@@ -151,9 +154,9 @@ marketing manager optimizes the first; learning is validated on the second.
   Gate: every live post traceable ask → approval → campaign link → GA4 first-touch;
   a drafted type page ships only through the site's own gates; the ledger's first
   weekly revenue note exists.
-- **Non-goals (until separately decided)**: no paid ads or spend beyond credits;
-  no cold outreach to listed businesses — inbound only, matching the site's own
-  "an assistant drafts, a person replies" rule; the office touches only the
+- **Non-goals (until separately decided)**: no paid ads (organic only through
+  W3); no cold outreach to listed businesses — inbound only, matching the site's
+  own "an assistant drafts, a person replies" rule; the office touches only the
   portfolio site, never a client's; no engine or SPEC change (inputs are wrapper
   neurons, effects exist, humans exist, budgets exist, durable asks exist);
   no separate brain above the office — the cycle is the fixed shape, and the
@@ -249,3 +252,13 @@ pending decision takes the answer its recommendation names:
 
 The roster, the revenue definition, the wave gates and the non-goals stand as
 written; no deviation at acceptance.
+
+**Amended (Kevin, 2026-11-10, mid-build steer): the office carries no Firecrawl
+and no outside data vendor at all.** Decision 3's second half (the scout's
+monitors, inside a daily credit budget) is dropped; the roster's scout becomes
+the acquirer (see the roster above), and the network itself proposes the ways to
+acquire customers for the website offer — experiments grounded in the gauges and
+channels the practice already owns (GA4, the enquiry ledger, the Google Business
+Profile, the newsletter), each approved at the desk with the metric it claims
+before any brief routes. W1 in the office repo is unaffected: no outside sense
+was ever built. The W2 gate's second live sense is the acquirer, not a monitor.
