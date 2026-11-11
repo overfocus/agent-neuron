@@ -336,17 +336,6 @@ fn refused(tag: &str, bad_opts: &str, extra_file: Option<(&str, &str)>, extra: &
 }
 
 #[test]
-fn a_named_host_is_refused_until_the_proxy_exists() {
-    refused(
-        "host",
-        "\"may\": {\"connect\": [\"api.example.test:443\"]}",
-        None,
-        &[],
-        "'bad' may connect 'api.example.test:443': a confined run cannot hold a named host",
-    );
-}
-
-#[test]
 fn a_listen_address_the_sandbox_cannot_tell_apart_is_refused() {
     refused(
         "addr",
@@ -387,4 +376,129 @@ fn a_confine_file_with_an_unknown_field_is_refused() {
     assert_eq!(out.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&out.stderr).contains("unknown field 'allow'"));
     assert!(!temp.path("marked.txt").exists());
+}
+
+// -- The proxy (S2b): a named host -------------------------------------------
+//
+// `neuron.localhost` is a name the engine does not take for loopback (only
+// `localhost` and `127.0.0.1` are held by the sandbox itself), so it travels
+// the proxy's road as any named host does, and the system resolves it to this
+// machine with no network.
+
+/// An HTTP server of the test's own on a free loopback port. It answers `ok`
+/// to a request for a path, and 404 to one whose target is anything else, as
+/// a strict server does: the proxy must hand it the path, not the whole URL.
+fn http_server() -> u16 {
+    use std::io::Read as _;
+    let l = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = l.local_addr().expect("addr").port();
+    std::thread::spawn(move || {
+        for c in l.incoming().flatten() {
+            std::thread::spawn(move || {
+                let mut c = c;
+                let mut buf = [0u8; 2048];
+                let n = c.read(&mut buf).unwrap_or(0);
+                let line = String::from_utf8_lossy(&buf[..n]).lines().next().unwrap_or("").to_string();
+                let reply: &[u8] = if line.split(' ').nth(1).is_some_and(|t| t.starts_with('/')) {
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                } else {
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                };
+                let _ = c.write_all(reply);
+            });
+        }
+    });
+    port
+}
+
+/// A script that fetches `url` with curl (extra flags first) and says what it
+/// got, or curl's own exit code: 7 is a connection it could not make, 22 an
+/// HTTP refusal, 56 a tunnel the proxy would not open. A curl that could not
+/// even start says something else, so no test passes for that reason.
+fn fetch(flags: &str, url: &str) -> String {
+    format!(
+        "got=$(/usr/bin/curl -q -s -f -m 5 {} {} 2>/dev/null) && echo \"\\\"got:$got\\\"\" || echo \"\\\"curl:$?\\\"\"",
+        flags, url
+    )
+}
+
+#[test]
+fn a_named_host_is_reached_through_the_proxy_both_ways_a_program_asks() {
+    let temp = Temp::new("proxy");
+    let port = http_server();
+    let may = format!("\"may\": {{\"connect\": [\"neuron.localhost:{}\"]}}", port);
+    let url = format!("http://neuron.localhost:{}/", port);
+    // A plain request with an absolute target, then a tunnel (CONNECT).
+    for flags in ["", "-p"] {
+        let r = run(&temp, &network(&[("a", "run", &fetch(flags, &url), &may)]), Some(&[]), &[]);
+        assert_eq!(r.stdout().trim(), "got:ok", "flags '{}': {}", flags, r.stderr());
+    }
+}
+
+#[test]
+fn a_host_the_may_does_not_list_is_refused_by_the_proxy() {
+    let temp = Temp::new("proxy-unlisted");
+    let (listed, unlisted) = (http_server(), http_server());
+    let may = format!("\"may\": {{\"connect\": [\"neuron.localhost:{}\"]}}", listed);
+    for flags in ["", "-p"] {
+        let script = fetch(flags, &format!("http://neuron.localhost:{}/", unlisted));
+        let r = run(&temp, &network(&[("a", "run", &script, &may)]), Some(&[]), &[]);
+        // 22: the proxy answered, and its answer was a refusal.
+        assert_eq!(r.stdout().trim(), "curl:22", "flags '{}': {}", flags, r.stderr());
+        assert!(
+            r.stderr()
+                .contains(&format!("confine: 'a' was refused a connection to neuron.localhost:{}", unlisted)),
+            "{}",
+            r.stderr()
+        );
+    }
+}
+
+#[test]
+fn a_program_that_ignores_the_proxy_reaches_no_named_host() {
+    let temp = Temp::new("proxy-ignored");
+    let port = http_server();
+    let may = format!("\"may\": {{\"connect\": [\"neuron.localhost:{}\"]}}", port);
+    let url = format!("http://neuron.localhost:{}/", port);
+    // curl told to use no proxy, and a tool that knows nothing of proxies.
+    let direct = run(
+        &temp,
+        &network(&[("a", "run", &fetch("--noproxy '*'", &url), &may)]),
+        Some(&[]),
+        &[],
+    );
+    assert_eq!(direct.stdout().trim(), "curl:7", "{}", direct.stderr());
+    // The same curl, left to use the proxy, gets through: the refusal above is the sandbox's.
+    let via = run(&temp, &network(&[("a", "run", &fetch("", &url), &may)]), Some(&[]), &[]);
+    assert_eq!(via.stdout().trim(), "got:ok", "{}", via.stderr());
+    let nc = format!(
+        "/usr/bin/nc -z -w 2 127.0.0.1 {} >/dev/null 2>&1 && echo '\"connected\"' || echo '\"refused\"'",
+        port
+    );
+    let raw = run(&temp, &network(&[("a", "run", &nc, &may)]), Some(&[]), &[]);
+    assert_eq!(raw.stdout().trim(), "refused", "{}", raw.stderr());
+}
+
+/// Each neuron has a proxy of its own, and a sandbox that reaches no other:
+/// `a` hands `b` the address of its proxy, and `b`, which may connect nowhere,
+/// cannot use it.
+#[test]
+fn a_neuron_cannot_use_another_neurons_proxy() {
+    let temp = Temp::new("proxy-other");
+    let port = http_server();
+    let a = "echo \"\\\"$http_proxy\\\"\"";
+    let b = format!(
+        "p=$(/usr/bin/sed 's/\"//g'); got=$(/usr/bin/curl -q -s -f -m 5 -x \"$p\" http://neuron.localhost:{}/ 2>/dev/null) && echo \"\\\"got:$got\\\"\" || echo \"\\\"curl:$?\\\"\"",
+        port
+    );
+    let net = format!(
+        "{{\"version\": 0, \"neurons\": [{{\"id\": \"src\", \"source\": true}}, {{\"id\": \"a\", \"run\": [\"/bin/sh\", \"-c\", {}], \"may\": {{\"connect\": [\"neuron.localhost:{}\"]}}}}, {{\"id\": \"b\", \"run\": [\"/bin/sh\", \"-c\", {}]}}], \"links\": [{{\"from\": \"src\", \"to\": \"a\"}}, {{\"from\": \"a\", \"to\": \"b\"}}]}}",
+        json_str(a),
+        port,
+        json_str(&b)
+    );
+    let r = run(&temp, &net, Some(&[]), &[]);
+    // 7: `b` could not connect to the proxy at all. The proxy never saw it.
+    assert_eq!(r.stdout().trim(), "curl:7", "{}", r.stderr());
+    assert!(!r.stderr().contains("was refused a connection"), "{}", r.stderr());
 }
