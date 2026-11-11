@@ -1,0 +1,36 @@
+{
+  "version": 0,
+  "name": "a-composed-neuron-covers-its-neurons-as-narrowed",
+  "description": "The fold of 2.7 reads a neuron as narrowed (2.10): the file of `e` may connect to two hosts, the entry that names it keeps one, and a composed neuron that declares that one covers its inside.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json",
+      "may": {
+        "connect": [
+          "api.example.test:443"
+        ]
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    },
+    {
+      "from": "diag",
+      "to": "b"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "A neuron's file describes one program (2.10). A network file named as one is refused by check: a neuron whose inside is other neurons is named by `network`.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

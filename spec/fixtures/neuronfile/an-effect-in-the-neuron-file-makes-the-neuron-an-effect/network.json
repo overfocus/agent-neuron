@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "an-effect-in-the-neuron-file-makes-the-neuron-an-effect",
+  "description": "`effect` is the neuron's own (2.10): declared in its file, it makes the neuron an effect in every network that names it, and a failure of a started call is unknown, as effect/a-non-zero-exit-and-junk-are-unknown-too has it inline.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "neuron": "notify.neuron.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    }
+  ]
+}

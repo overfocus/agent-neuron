@@ -2,7 +2,7 @@
 
 Status: draft. Version 0.1 is version 0 plus budgets and the `finished` event
 (section 10), effects with the `unknown` outcome (section 11), the live trace stream (9.1), the `may`
-declaration (2.4) and what confining a program to it means (2.9); a network file's `version` stays `0`, because the new fields are
+declaration (2.4), what confining a program to it means (2.9) and a neuron described in a file of its own (2.10); a network file's `version` stays `0`, because the new fields are
 additions. The spec may change in any way until it is called 1; a change
 is one commit to this file, `spec/network.schema.json` and the fixtures
 together. MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Each section
@@ -133,7 +133,8 @@ Rules you will hit:
 
 - **Neuron**: an entry in a network file, with an `id` and one **kind**
   (`source`, `run`, `serve`, `http`, `human`, `network`). Kind means this and
-  nothing else.
+  nothing else. An entry may instead name the neuron's own file (`neuron`, 2.10);
+  the neuron then has the kind its file gives it.
 - **Program**: what a `run`, `serve`, `http` or `human` neuron wraps.
 - **Source**: a neuron with no program. A **producer** outside the network
   **injects** payloads into it.
@@ -188,7 +189,8 @@ it was written; it may become a URL later.
 
 `id` (required, `^[A-Za-z][A-Za-z0-9_-]{0,63}$`, unique in the file),
 `description` (string; SHOULD be set, it reaches the trace), `at` (optional), exactly one kind
-field (2.3), and the options its kind allows (2.4).
+field (2.3), and the options its kind allows (2.4). An entry whose kind field is `neuron` takes the kind
+and the rest from the neuron's own file (2.10).
 
 `at` is `[x, y, z]`, three numbers from -1000000 to 1000000 in any unit the author
 picks: where a drawing of the network puts the neuron. It is a **descriptive
@@ -208,6 +210,7 @@ an option and does not count against 2.8's budget of options.
 | `http` | `http://` or `https://` URL | an endpoint | 3.3 |
 | `human` | `true` | a person | 3.4 |
 | `network` | path | another network file | 2.6 |
+| `neuron` | path | what the neuron's own file names | 2.10: the neuron is the one its file describes, with that file's kind |
 
 A command is a non-empty array of literal strings: argument 0 is the
 executable (looked up on `PATH` unless it contains `/`), the rest are passed
@@ -322,13 +325,16 @@ file's `budget` lacks, an empty `budget` or `cost`, or a non-source neuron with 
 has a `budget` (10.1) (errors); a `network` file that contains a neuron with `effect` (11.5) (error); a `cost` above the file's ceiling in some unit (the neuron can never run),
 or a `network` neuron whose file has neurons costing a unit its `cost` does not name (those calls are always
 refused, 10.5) (warnings); an executable that cannot be found (warning); a `network` neuron whose `may` does not cover what the
-neurons of its file declare (2.4) (error).
+neurons of its file declare (2.4) (error); for an entry that names a neuron's file (2.10): a file that is
+missing or invalid, an option on the wrong side (one that is the network's in the file, or one that is the
+neuron's own on the entry), and a `timeout`, `env` or `may` on the entry that is wider than the file's (errors).
 
 ### 2.8 Field budget (informative)
 
 10 top-level fields (`budget` is the ninth, `ground` the tenth — [decision
 0012](decisions/0012-the-ground.md)); per neuron `id`, `description`, `at`, one kind field, at most 9
-options; 2 per link. A new field must answer one question: does it say how
+options; 2 per link. The kinds are seven: `neuron` is the seventh, admitted by
+[decision 0019](decisions/0019-the-neuron-file.md) and costing no option. A new field must answer one question: does it say how
 neurons connect, or how one decides? Deciders are programs. A second, closed
 class of field is descriptive (for people and tools, acted on by no engine):
 `description` and `at` are the only two, and another needs its own decision record
@@ -393,6 +399,52 @@ program that stays inside its `may` reports what an unconfined run does.
 
 **Conformance does not reach it.** Fixtures start no process (8.1), so no fixture pins this
 section; an engine that confines tests it on real processes, for each platform it claims.
+
+### 2.10 A neuron in a file of its own (normative)
+
+An entry may name the neuron's own file instead of writing the neuron inline:
+`{ "id": "notify", "neuron": "kit/notify.neuron.json" }`, the path relative to the declaring file. The
+reasons are in [decision 0019](decisions/0019-the-neuron-file.md).
+
+**It is not a boundary.** The engine reads the file, applies the entry on top, and the neuron is from
+then on the one neuron it would be written inline: no sealing, no trace of its own, no instance. A run
+MUST report exactly what a run of the same network with that neuron written inline reports, the trace
+header included: the neuron appears with the kind its file gives it, and nothing reported says it was
+named by a file.
+
+**The neuron file** is one UTF-8 JSON object with a closed schema of its own
+([spec/neuron.schema.json](../spec/neuron.schema.json)): `version` (`0`), `description`, exactly one of
+`run`, `serve`, `http` and `human`, and the options that are the neuron's own (below). It has no `id`,
+and it is never a `source`, a `network` or another `neuron`: a neuron whose inside is other neurons is
+named by `network` (2.6). A command's relative paths and the neuron's `cwd` are relative to **the neuron
+file's directory**; its working directory defaults to that directory, and the paths of its `may` are read
+from there (2.9).
+
+**What is the neuron's, and what is the network's.** A fact that holds wherever the program runs is the
+neuron's and is written in its file. A fact that holds only in this network is the network's and is
+written on the entry.
+
+| | In the neuron file | On the entry that names it |
+|---|---|---|
+| the kind and its command or URL; `cwd`; `effect` | yes | never |
+| `may`, `env`, `timeout` | yes | to narrow only |
+| `description` | yes | yes; the entry's is the neuron's when both have one |
+| `id`, `at`, `threshold`, `within`, `maxHops`, `cost` | never | yes |
+
+Each option is allowed only where it is on an inline neuron of the file's kind (2.4). An option on the
+wrong side is an error (2.7).
+
+**Narrowing.** The entry may restate three of the neuron's options, each only to ask for less:
+`timeout` at most the file's (its default of 30000 when the file sets none); `env` a subset of the
+file's names; `may`, on a `run` or `serve` neuron, for each member a subset of the file's entries,
+compared as written. An option the entry leaves out stands as the file wrote it; one the entry states
+replaces the file's. An entry that asks for more is an error (2.7), and the engine refuses to start.
+
+The fold of 2.4 reads the neuron as narrowed: a composed neuron's `may` covers what its neurons may
+touch after their own entries have narrowed them. A `network` neuron's own `may` is not narrowed by the
+file that uses it: the fold forbids going below its inside.
+
+A neuron written inline remains valid, and means what it meant.
 
 ## 3. The neuron contract (normative)
 
@@ -926,8 +978,10 @@ neurons and sealing, every row of the 6.1 table that an engine can reach, the 6.
 end of a run, level 1 (handshake, queueing, cancel, ping, restart), observers and
 the version 0.1 budget (`budget/`: reserve, commit, refusal, the pool of a trace, a composed cap, `finished`),
 effects (`effect/`: a call staleness does not cut, an answer recorded and not forwarded, `unknown` after a crash, a hang or a timeout, cost committed) and
-the live stream (`stream/`) and `may` (`may/`: the shape, the kinds it is allowed on, a composed neuron that
-covers its inside and two that do not).
+the live stream (`stream/`), `may` (`may/`: the shape, the kinds it is allowed on, a composed neuron that
+covers its inside and two that do not) and a neuron named by its own file (`neuronfile/`: the same events as
+the inline neuron, the network's options on the entry, the file's own options applied, a narrowed `timeout`
+that fires, the fold reading the narrowed `may`, and each refusal).
 
 ### 8.5 The observer rule
 
@@ -1246,8 +1300,10 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
 - Distribution: the engine will ship as a binary inside the npm and pip
   packages (the esbuild and ruff pattern).
 - `may`, later ([decision 0016](decisions/0016-the-self-describing-neuron.md)): wildcards and bracketed addresses; a
-  `may` on a source that carries a program; a neuron described by a file of its own, which the file that uses it
-  may narrow.
+  `may` on a source that carries a program.
+- The neuron file, later ([decision 0019](decisions/0019-the-neuron-file.md)): a neuron's file on another
+  machine; an entry that adds `effect` to a neuron that does not claim it; versioning a neuron file apart from
+  the network format; parameters (a neuron file is literals, so two uses that differ in an argument are two files).
 - Confinement, later ([decision 0018](decisions/0018-confining-a-program-to-its-may.md)): confinement as the
   default; a program placed on another machine; a named host for a program that does not speak HTTP; a path
   that reaches a program through a variable named in `env`.
@@ -1307,6 +1363,8 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
 - **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` only for a scripted observer;
   `reserve` and `commit` with a budget.
 - **Effects** (section 11): all of it. `unknown` is a separate event type; the `forwarded` mark is on the `answer` event.
+- **A neuron named by its own file** (2.10): read when the network file is (`readNetwork`), so the engine itself
+  never sees the `neuron` kind. The Python and Rust engines do the same in their loaders.
 - **`may`** (2.4): checked, the fold included. This engine does not confine (2.9): a program runs with the rights
   of whoever started it, whatever its `may` says. The Python engine starts no process. The Rust engine confines
   on macOS when a run asks (`run --confine`, `rust-engine/README.md`): files by path, loopback ports directly, a
@@ -1419,6 +1477,7 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 2.6 | Step 3: the inside has nothing running, queued or held for the call | global (inside) | The end of a call's inner work, G2 below, one level down. |
 | 2.6 | Step 6: `cost` and the inner `budget` bound the inside (10.5) | local | The boundary owns the inner trace's pool. |
 | 2.4 | `may`: the shape, and a composed neuron covering its inside | static | |
+| 2.10 | A neuron named by its own file; narrowing | static | Read once, before anything runs; afterwards it is an ordinary neuron. |
 | 2.9 | Confinement: the baseline, paths, connections, a proxy per neuron | local | The wrapper starts the program, and holds it. |
 | 2.9 | A confined run is refused whole when one program cannot be held | global | One neuron's `may` decides for the network, as G6. |
 | 3.1 | Level 0: input, output, failures, cancel, stderr | local | Wrapper and program only. |

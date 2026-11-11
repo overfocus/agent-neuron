@@ -1,0 +1,7 @@
+{
+  "version": 0,
+  "run": [
+    "neuron-a"
+  ],
+  "threshold": 2
+}

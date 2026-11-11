@@ -192,6 +192,40 @@ describe('network schema v0', () => {
     expect(broken((n) => (n.neurons[5].may = { connect: ['spare.example.test:443'] }))).toEqual([]); // more than the inside needs is allowed
   });
 
+  it('reads a neuron named by its own file, and lets the entry that names it only narrow it (decision 0019)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'neuron-file-'));
+    /** The errors of a network whose neuron `a` is `entry` naming a file holding `own`. */
+    const named = (own: Record<string, any> | string, entry: Record<string, any> = {}) => {
+      writeFileSync(join(dir, 'a.neuron.json'), typeof own === 'string' ? own : JSON.stringify({ version: 0, ...own }));
+      const net = { version: 0, neurons: [{ id: 's', source: true }, { id: 'a', neuron: 'a.neuron.json', ...entry }], links: [{ from: 's', to: 'a' }] };
+      writeFileSync(join(dir, 'net.json'), JSON.stringify(net));
+      return checkFile(join(dir, 'net.json'));
+    };
+    const own = { run: ['true'], timeout: 100, env: ['A_KEY', 'B_KEY'], may: { connect: ['api.example.test:443'], read: ['data', 'more'] }, effect: true };
+    expect(named(own)).toEqual([]);
+    expect(named(own, { threshold: 2, within: 50, maxHops: 4, at: [1, 2, 3], description: 'mine' })).toEqual([]); // the network's
+    expect(named(own, { timeout: 100, env: ['A_KEY'], may: { read: ['data'] } })).toEqual([]); // narrowed, or the same
+    expect(named(own, { timeout: 101 }).join()).toContain('timeout 101 is wider');
+    expect(named({ run: ['true'] }, { timeout: 30001 }).join()).toContain('wider than the neuron\'s own (30000'); // the default
+    expect(named(own, { env: ['C_KEY'] }).join()).toContain('env "C_KEY" is wider');
+    expect(named(own, { may: { write: ['out'] } }).join()).toContain('may write "out" is wider');
+    expect(named(own, { may: { read: ['data', 'elsewhere'] } }).join()).toContain('may read "elsewhere" is wider');
+    for (const key of ['cwd', 'effect', 'run']) expect(named(own, { [key]: own[key as 'run'] ?? '.' }).join(), key).toMatch(/unknown field|more than one kind|missing/);
+    for (const [key, value] of [['id', 'a'], ['threshold', 2], ['maxHops', 3], ['cost', { credits: 1 }], ['at', [1, 2, 3]]] as const) {
+      expect(named({ ...own, [key]: value }).join(), key).toContain(`unknown field "${key}"`);
+    }
+    expect(named({ human: true, timeout: 86400000 })).toEqual([]);
+    expect(named({ http: 'http://localhost:1/' }, { may: {} }).join()).toContain('is not a run or serve neuron');
+    expect(named({ human: true, env: ['A_KEY'] }).join()).toContain('unknown field "env"');
+    expect(named({ run: ['true'], serve: ['true'] }).join()).toContain('a.neuron.json');
+    expect(named('{ not json').join()).toContain('not valid JSON');
+    writeFileSync(join(dir, 'net.json'), JSON.stringify({ version: 0, neurons: [{ id: 'a', neuron: 'absent.neuron.json' }] }));
+    expect(checkFile(join(dir, 'net.json')).join()).toContain('file not found: absent.neuron.json');
+    // the spec's own schema for the file is closed and versioned
+    const neuronSchema = JSON.parse(readFileSync(new URL('../spec/neuron.schema.json', import.meta.url), 'utf8')) as Record<string, any>;
+    expect(neuronSchema.oneOf.every((k: { additionalProperties: boolean; required: string[] }) => k.additionalProperties === false && k.required.includes('version'))).toBe(true);
+  });
+
   it('finds a composed network file that is missing, or lacks entry or exit', () => {
     expect(broken((n) => (n.neurons[5].network = 'gone.network.json')).join()).toContain('file not found');
     expect(broken(() => {}, (s) => delete s.entry).join()).toContain('needs "entry"');

@@ -1,0 +1,36 @@
+{
+  "version": 0,
+  "name": "refuses-a-fold-that-misses-what-a-neuron-file-declares",
+  "description": "The fold of 2.7 reads what a neuron's file declares (2.10): the file of `e` may connect to two hosts, nothing narrows it, and the composed neuron declares only one, so check refuses and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json",
+      "may": {
+        "connect": [
+          "api.example.test:443"
+        ]
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    },
+    {
+      "from": "diag",
+      "to": "b"
+    }
+  ]
+}

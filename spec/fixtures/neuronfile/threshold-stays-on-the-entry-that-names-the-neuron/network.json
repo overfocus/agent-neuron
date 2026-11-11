@@ -1,0 +1,47 @@
+{
+  "version": 0,
+  "name": "threshold-stays-on-the-entry-that-names-the-neuron",
+  "description": "`threshold` and `within` are the network's (2.10): they sit on the entry that names the neuron's file, and the neuron acts as threshold/two-distinct-senders-act does.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "d1",
+      "run": [
+        "neuron-d1"
+      ]
+    },
+    {
+      "id": "d2",
+      "run": [
+        "neuron-d2"
+      ]
+    },
+    {
+      "id": "h",
+      "neuron": "h.neuron.json",
+      "threshold": 2,
+      "within": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "d1"
+    },
+    {
+      "from": "s",
+      "to": "d2"
+    },
+    {
+      "from": "d1",
+      "to": "h"
+    },
+    {
+      "from": "d2",
+      "to": "h"
+    }
+  ]
+}

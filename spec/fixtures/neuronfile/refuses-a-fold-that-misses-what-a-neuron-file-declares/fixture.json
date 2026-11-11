@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "The fold of 2.7 reads what a neuron's file declares (2.10): the file of `e` may connect to two hosts, nothing narrows it, and the composed neuron declares only one, so check refuses and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

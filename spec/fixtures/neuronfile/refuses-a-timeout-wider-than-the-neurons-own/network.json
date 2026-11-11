@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "refuses-a-timeout-wider-than-the-neurons-own",
+  "description": "The entry that names a neuron's file may only narrow it (2.10): the file says 100 ms and the entry 200, so check refuses and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json",
+      "timeout": 200
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

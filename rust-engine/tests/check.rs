@@ -549,6 +549,63 @@ fn check_places_the_fold_error_on_the_composed_neuron() {
     }
 }
 
+/// A neuron named by its own file (SPEC 2.10, decision 0019): the fixtures
+/// that run check clean, and each refusal's own message.
+#[test]
+fn check_reads_a_neuron_file_and_refuses_what_widens_it() {
+    for fixture in [
+        "neuronfile/a-neuron-named-by-its-file-is-the-inline-neuron",
+        "neuronfile/threshold-stays-on-the-entry-that-names-the-neuron",
+        "neuronfile/a-narrowed-timeout-is-the-one-that-fires",
+        "neuronfile/an-effect-in-the-neuron-file-makes-the-neuron-an-effect",
+        "neuronfile/a-composed-neuron-covers-its-neurons-as-narrowed",
+    ] {
+        let path = fixture_network(fixture);
+        let diags = check::tree(path.to_string_lossy().as_ref());
+        assert!(err_lines(&diags).is_empty(), "{}: {}", fixture, err_lines(&diags).join("\n"));
+    }
+    for (fixture, want) in [
+        (
+            "neuronfile/refuses-a-timeout-wider-than-the-neurons-own",
+            "timeout 200 (over 100) is wider than the neuron's own",
+        ),
+        (
+            "neuronfile/refuses-a-may-wider-than-the-neurons-own",
+            "may connect 'other.example.test:443' is wider than the neuron's own",
+        ),
+        (
+            "neuronfile/refuses-an-env-wider-than-the-neurons-own",
+            "env 'B_KEY' is wider than the neuron's own",
+        ),
+        (
+            "neuronfile/refuses-a-neuron-file-that-sets-a-threshold",
+            "'threshold' is not the neuron's own (2.10)",
+        ),
+        (
+            "neuronfile/refuses-an-entry-that-sets-what-is-the-neurons-own",
+            "'effect' is the neuron's own: it is written in the neuron's file (2.10)",
+        ),
+        (
+            "neuronfile/refuses-a-neuron-file-that-is-missing",
+            "the neuron file 'a.neuron.json' is missing",
+        ),
+        (
+            "neuronfile/refuses-a-neuron-file-that-is-a-network",
+            "has exactly one of run, serve, http and human",
+        ),
+        (
+            "neuronfile/refuses-a-fold-that-misses-what-a-neuron-file-declares",
+            "the may of 'diag' does not cover its inside: 'e' may connect 'other.example.test:443' (2.7)",
+        ),
+    ] {
+        let path = fixture_network(fixture);
+        let diags = check::tree(path.to_string_lossy().as_ref());
+        let errs = err_lines(&diags);
+        assert_eq!(errs.len(), 1, "{}: {}", fixture, errs.join("\n"));
+        assert!(errs[0].contains(want), "{}: {}", fixture, errs[0]);
+    }
+}
+
 #[test]
 fn check_takes_at_on_every_neuron() {
     let path = fixture_network("descriptive/at-changes-nothing");

@@ -239,5 +239,9 @@ reading to be overridden:
   no bracketed address, and not on `http`, `human` or `source`. Each can be loosened later without
   breaking a file that checks today.
 
+**S2 is built**: [decision 0018](0018-confining-a-program-to-its-may.md), `run --confine` on macOS and
+SPEC 2.9. **S3 is built**: [decision 0019](0019-the-neuron-file.md), the `neuron` kind and SPEC 2.10,
+with the narrowing refusal S1 deferred. S4 is next, after 0017's cut and readiness fold.
+
 One finding for S2: a program that takes a path from a variable named in `env` (the notify example's
 `SENT_LOG`) cannot have that path in a literal `may`. No example file carries a `may` yet for that reason.

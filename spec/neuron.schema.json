@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-neuron:schema:neuron:0",
+  "title": "agent-neuron neuron file, version 0 (specification 0.1)",
+  "description": "A neuron described in a file of its own (SPEC 2.10, decision 0019): what is true of the program wherever it runs. Closed. It has no id, position, threshold, hop limit or cost: those are the network's, and sit on the entry that names this file. Relative paths are relative to this file's directory.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "run"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string"
+        },
+        "version": {
+          "const": 0
+        },
+        "description": {
+          "type": "string"
+        },
+        "run": {
+          "$ref": "#/$defs/command"
+        },
+        "timeout": {
+          "$ref": "#/$defs/ms"
+        },
+        "effect": {
+          "const": true
+        },
+        "env": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          }
+        },
+        "cwd": {
+          "$ref": "#/$defs/literal"
+        },
+        "may": {
+          "$ref": "#/$defs/may"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "serve"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string"
+        },
+        "version": {
+          "const": 0
+        },
+        "description": {
+          "type": "string"
+        },
+        "serve": {
+          "$ref": "#/$defs/command"
+        },
+        "timeout": {
+          "$ref": "#/$defs/ms"
+        },
+        "effect": {
+          "const": true
+        },
+        "env": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          }
+        },
+        "cwd": {
+          "$ref": "#/$defs/literal"
+        },
+        "may": {
+          "$ref": "#/$defs/may"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "http"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string"
+        },
+        "version": {
+          "const": 0
+        },
+        "description": {
+          "type": "string"
+        },
+        "http": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/literal"
+            },
+            {
+              "pattern": "^https?://"
+            }
+          ]
+        },
+        "timeout": {
+          "$ref": "#/$defs/ms"
+        },
+        "effect": {
+          "const": true
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "human"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string"
+        },
+        "version": {
+          "const": 0
+        },
+        "description": {
+          "type": "string"
+        },
+        "human": {
+          "const": true
+        },
+        "timeout": {
+          "$ref": "#/$defs/humanMs"
+        },
+        "effect": {
+          "const": true
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "literal": {
+      "description": "A literal string. Catches the common interpolation syntaxes (${...}, {{...}}); it cannot prove a string is not an expression, so the rule in the spec is the real check.",
+      "type": "string",
+      "not": {
+        "pattern": "\\$\\{|\\{\\{"
+      }
+    },
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/literal"
+      }
+    },
+    "ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3600000
+    },
+    "humanMs": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 86400000,
+      "description": "A human neuron's timeout: up to a day (decision 0008); every other kind is capped at an hour."
+    },
+    "hostPort": {
+      "description": "A host or address and a port, `host:port`: lower-case letters, digits, dots and hyphens, then a port from 1 to 65535. No wildcard.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/literal"
+        },
+        {
+          "pattern": "^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$"
+        }
+      ]
+    },
+    "path": {
+      "description": "A path, as written: a literal, not empty.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/literal"
+        },
+        {
+          "minLength": 1
+        }
+      ]
+    },
+    "may": {
+      "description": "What the program is allowed to touch (SPEC 2.4). Absent, or a member absent, grants nothing.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "connect": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/hostPort"
+          }
+        },
+        "listen": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/hostPort"
+          }
+        },
+        "read": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/path"
+          }
+        },
+        "write": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/path"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "the-neurons-own-timeout-stands-when-not-narrowed",
+  "description": "An option the entry leaves out stands as the neuron's file wrote it (2.10): the file's `timeout` of 100 ms is the neuron's, as failures/l0-timeout has it inline.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

@@ -66,7 +66,7 @@ fn visit(path: &Path, composed: bool, out: &mut Vec<Diag>, seen: &mut HashSet<Pa
     };
     let scan = Scan::new(&text);
     let mut found: Vec<Diag> = Vec::new();
-    let net = net::check_text(&text, composed, &mut found);
+    let net = net::check_text(&text, Some(&dir_of(path)), composed, &mut found);
     for d in &mut found {
         if d.file.is_none() {
             d.file = Some(name.clone());
@@ -99,7 +99,7 @@ fn visit(path: &Path, composed: bool, out: &mut Vec<Diag>, seen: &mut HashSet<Pa
         // reports those, and is not folded.
         if let Ok(inner_text) = std::fs::read_to_string(&inner_path) {
             let mut inner_diags = Vec::new();
-            let inner_net = net::check_text(&inner_text, true, &mut inner_diags);
+            let inner_net = net::check_text(&inner_text, Some(&dir_of(&inner_path)), true, &mut inner_diags);
             if !inner_diags.iter().any(|d| d.error) {
                 if let Some(why) = net::may_fold_error(n, &inner_net) {
                     let span = neuron_spans.get(i).copied().unwrap_or(NONE_SPAN);
@@ -244,7 +244,7 @@ fn units_of_files(path: &Path, seen: &mut HashSet<PathBuf>) -> Option<Vec<String
     }
     let text = std::fs::read_to_string(path).ok()?;
     let mut diags = Vec::new();
-    let net = net::check_text(&text, true, &mut diags);
+    let net = net::check_text(&text, Some(&dir_of(path)), true, &mut diags);
     if diags.iter().any(|d| d.error) {
         return None;
     }

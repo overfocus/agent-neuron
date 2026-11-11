@@ -142,4 +142,25 @@ file's directory, narrowing of `timeout`, `env` and `may` only, and the using en
 
 ## Where it stands
 
-Written and accepted 2026-11-11. The build is next, on `feat/s3-neuron-file`.
+Written and accepted 2026-11-11. **Built** on `feat/s3-neuron-file` (2026-11-11), the contract and
+the three engines in one commit: SPEC 2.10 (and 2.2, 2.3, 2.7, 2.8), `spec/neuron.schema.json`, the
+`neuron` branch of the network schema, and 14 fixtures in `spec/fixtures/neuronfile/`. Each engine
+resolves a neuron's file in its loader, so nothing after the loader sees the kind. All three pass
+the 14, and each of the eight refusals was checked to fire on its own rule in each engine.
+
+The confinement gate is met by two real-process tests in `rust-engine/tests/confine.rs`: a neuron
+named by file runs in its file's directory with its `may` read from there, and a `may` the entry
+narrowed to nothing is the one the sandbox holds.
+
+Three things the build settled, each **accepted (Kevin, 2026-11-11)**:
+
+- **An option is allowed in a neuron file only where it is on an inline neuron of that kind**: a
+  `human` neuron's file cannot carry `env`, and an entry cannot narrow the `may` of an `http` neuron.
+- **A neuron's working directory is written whole once its file is read**, so an engine's message
+  about a missing working directory names a full path where an inline neuron's names the path as
+  written. `check` finds a missing one before a run.
+- **A failed entry is reported at the entry**, naming the file: an error inside a neuron file has
+  the line and column of the `neuron` key that names it, not a position inside the file.
+
+Not done: a demo and its row in DEMOS.md; `describe_network` shows the neuron as its real kind and
+does not say it came from a file; the journal's tree digest on `feat/durable-state` (named above).

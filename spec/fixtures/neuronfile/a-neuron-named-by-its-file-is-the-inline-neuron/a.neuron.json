@@ -1,0 +1,19 @@
+{
+  "version": 0,
+  "description": "Adds one.",
+  "run": [
+    "neuron-a"
+  ],
+  "timeout": 5000,
+  "env": [
+    "A_KEY"
+  ],
+  "may": {
+    "connect": [
+      "api.example.test:443"
+    ],
+    "read": [
+      "data"
+    ]
+  }
+}

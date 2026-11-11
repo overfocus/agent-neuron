@@ -1,0 +1,30 @@
+{
+  "version": 0,
+  "name": "a-neuron-named-by-its-file-is-the-inline-neuron",
+  "description": "SPEC 8.4's worked fixture with both programs named by a file of their own (2.10, decision 0019). A neuron named by its file is the neuron it would be written inline, not a boundary: the events are those of routing/chain-forward-with-cause.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json"
+    },
+    {
+      "id": "b",
+      "description": "The entry's description wins.",
+      "neuron": "kit/b.neuron.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

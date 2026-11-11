@@ -1,0 +1,7 @@
+{
+  "version": 0,
+  "run": [
+    "neuron-notify"
+  ],
+  "effect": true
+}

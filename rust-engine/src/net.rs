@@ -19,7 +19,7 @@
 use crate::fixture::Units;
 use crate::json::{parse, Value};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub const MAX_I: i64 = 9_007_199_254_740_991; // 2^53 - 1
 
@@ -468,7 +468,7 @@ fn bare(message: String, out: &mut Vec<Diag>) {
 pub fn load(path: &str, used_as_composed: bool) -> Result<Network, Vec<String>> {
     let text = std::fs::read_to_string(path).map_err(|e| vec![format!("{}: cannot read ({})", path, e)])?;
     let mut diags = Vec::new();
-    let net = check_text(&text, used_as_composed, &mut diags);
+    let net = check_text(&text, Path::new(path).parent(), used_as_composed, &mut diags);
     let errs: Vec<String> = diags
         .iter()
         .filter(|d| d.error)
@@ -486,7 +486,7 @@ pub fn load(path: &str, used_as_composed: bool) -> Result<Network, Vec<String>> 
 /// deeper rules run whenever the text parsed — the tree the parser built is
 /// best effort, so a file with a broken construct is still checked for what
 /// it does hold; a degenerate one (no neurons, say) passes them vacuously.
-pub fn check_text(text: &str, used_as_composed: bool, diags: &mut Vec<Diag>) -> Network {
+pub fn check_text(text: &str, dir: Option<&Path>, used_as_composed: bool, diags: &mut Vec<Diag>) -> Network {
     let v = match parse(text) {
         Ok(v) => v,
         Err(e) => {
@@ -495,7 +495,7 @@ pub fn check_text(text: &str, used_as_composed: bool, diags: &mut Vec<Diag>) -> 
         }
     };
     let scan = Scan::new(text);
-    let net = from_json(&v, &scan, diags);
+    let net = from_json(&v, dir, &scan, diags);
     check_graph(&net, &scan, diags);
     check_cycles(&net, &scan, diags);
     check_budget(&net, &scan, diags);
@@ -612,7 +612,7 @@ pub fn anchor_point(scan: &Scan, probe: Span, key: &str) -> (Span, Span) {
     ((t, t), scan.value_span(t, key))
 }
 
-fn from_json(v: &Value, scan: &Scan, out: &mut Vec<Diag>) -> Network {
+fn from_json(v: &Value, dir: Option<&Path>, scan: &Scan, out: &mut Vec<Diag>) -> Network {
     if !v.is_obj() {
         bare("the network file is not a JSON object".to_string(), out);
         return empty_network();
@@ -664,7 +664,7 @@ fn from_json(v: &Value, scan: &Scan, out: &mut Vec<Diag>) -> Network {
         Some(Value::Arr(items)) if !items.is_empty() => {
             for (i, nv) in items.iter().enumerate() {
                 let span = neuron_spans.get(i).copied().unwrap_or(NONE_SPAN);
-                let node = neuron(nv, i, scan, span, out);
+                let node = neuron(nv, i, dir, scan, span, out);
                 if !node.id.is_empty() && !seen_ids.insert(node.id.clone()) {
                     push(span, scan, "id", &format!("the id '{}' is used twice", node.id), out);
                 }
@@ -893,10 +893,193 @@ fn link(lv: &Value, i: usize, scan: &Scan, span: Span, out: &mut Vec<Diag>) -> L
     Link { from, to }
 }
 
-fn neuron(nv: &Value, i: usize, scan: &Scan, span: Span, out: &mut Vec<Diag>) -> Node {
+/// The neuron an entry with `neuron` stands for (SPEC 2.10, decision 0019),
+/// as it would be written inline: the file's kind and own options, the
+/// entry's on top, the file's relative paths made the file's own. `None`
+/// when the entry or the file is wrong; the findings are in `out`, anchored
+/// to the entry, and name the file.
+///
+/// What is the neuron's sits in its file (the kind, `cwd`, `effect`, and
+/// `may`, `env`, `timeout`); what is the network's sits on the entry (`id`,
+/// `at`, `threshold`, `within`, `maxHops`, `cost`). The entry may restate
+/// `timeout`, `env` and `may` only to narrow them.
+fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out: &mut Vec<Diag>) -> Option<Value> {
+    let before = out.len();
+    let id = nv.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    let what = format!("neurons[{}] ({})", i, id);
+    for k in nv.keys() {
+        if matches!(k, "source" | "run" | "serve" | "http" | "human" | "network") {
+            push(span, scan, k, &format!("{}: a neuron has exactly one kind field", what), out);
+        } else if !matches!(
+            k,
+            "id" | "description" | "at" | "neuron" | "threshold" | "within" | "maxHops" | "cost" | "timeout" | "env" | "may"
+        ) {
+            push(
+                span,
+                scan,
+                k,
+                &format!("{}: '{}' is the neuron's own: it is written in the neuron's file (2.10)", what, k),
+                out,
+            );
+        }
+    }
+    let Some(rel) = nv.get("neuron").and_then(|v| v.as_str()).filter(|s| is_literal(s) && !s.is_empty()) else {
+        push(span, scan, "neuron", &format!("{}: neuron names a file", what), out);
+        return None;
+    };
+    let Some(dir) = dir else {
+        push(
+            span,
+            scan,
+            "neuron",
+            &format!("{}: the neuron file '{}' cannot be read from here", what, rel),
+            out,
+        );
+        return None;
+    };
+    let path = dir.join(rel);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        push(span, scan, "neuron", &format!("the neuron file '{}' is missing", rel), out);
+        return None;
+    };
+    let of = match parse(&text) {
+        Ok(v) if v.is_obj() => v,
+        _ => {
+            push(
+                span,
+                scan,
+                "neuron",
+                &format!("the neuron file '{}' is not a JSON object", rel),
+                out,
+            );
+            return None;
+        }
+    };
+    let kinds: Vec<&str> = ["run", "serve", "http", "human"].into_iter().filter(|k| of.has(k)).collect();
+    if kinds.len() != 1 {
+        push(
+            span,
+            scan,
+            "neuron",
+            &format!("the neuron file '{}' has exactly one of run, serve, http and human", rel),
+            out,
+        );
+        return None;
+    }
+    let program = matches!(kinds[0], "run" | "serve");
+    for k in of.keys() {
+        let own = matches!(k, "$schema" | "version" | "description" | "timeout" | "effect")
+            || k == kinds[0]
+            || (program && matches!(k, "env" | "cwd" | "may"));
+        if !own {
+            push(
+                span,
+                scan,
+                "neuron",
+                &format!("the neuron file '{}': '{}' is not the neuron's own (2.10)", rel, k),
+                out,
+            );
+        }
+    }
+    if of.get("version").and_then(|v| v.as_i64()) != Some(0) {
+        push(span, scan, "neuron", &format!("the neuron file '{}': version must be 0", rel), out);
+    }
+    // Narrowing: the entry may ask for less than the file gives, never more.
+    let wider = |thing: String| {
+        format!(
+            "{}: {} is wider than the neuron's own ('{}'): the entry that names a neuron may only narrow it (2.10)",
+            what, thing, rel
+        )
+    };
+    let limit = of.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30_000);
+    if let Some(t) = nv.get("timeout").and_then(|v| v.as_u64()) {
+        if t > limit {
+            push(span, scan, "timeout", &wider(format!("timeout {} (over {})", t, limit)), out);
+        }
+    }
+    for key in ["env", "may"] {
+        if nv.has(key) && !program {
+            push(
+                span,
+                scan,
+                key,
+                &format!(
+                    "{}: '{}' narrows a program's, and '{}' is not a run or serve neuron",
+                    what, key, rel
+                ),
+                out,
+            );
+        }
+    }
+    let strings = |v: Option<&Value>| -> Vec<String> {
+        v.and_then(|v| v.as_arr())
+            .map(|items| items.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default()
+    };
+    let theirs = strings(of.get("env"));
+    for name in strings(nv.get("env")) {
+        if !theirs.contains(&name) {
+            push(span, scan, "env", &wider(format!("env '{}'", name)), out);
+        }
+    }
+    if let Some(mine) = nv.get("may") {
+        for member in MAY_MEMBERS {
+            let listed = strings(of.get("may").and_then(|m| m.get(member)));
+            for v in strings(mine.get(member)) {
+                if !listed.contains(&v) {
+                    push(span, scan, "may", &wider(format!("may {} '{}'", member, v)), out);
+                }
+            }
+        }
+    }
+    if out.len() != before {
+        return None;
+    }
+    // The neuron, inline: the file's own, then the entry's on top.
+    let mut merged: Vec<(String, Value)> = Vec::new();
+    if let Value::Obj(entries) = &of {
+        merged.extend(
+            entries
+                .iter()
+                .filter(|(k, _)| !matches!(k.as_str(), "$schema" | "version"))
+                .cloned(),
+        );
+    }
+    if let Value::Obj(entries) = nv {
+        for (k, v) in entries.iter().filter(|(k, _)| k != "neuron") {
+            match merged.iter_mut().find(|(mk, _)| mk == k) {
+                Some(slot) => slot.1 = v.clone(),
+                None => merged.push((k.clone(), v.clone())),
+            }
+        }
+    }
+    if program {
+        // The file's relative paths are relative to the file's own directory,
+        // so the working directory is written whole.
+        let own = of.get("cwd").and_then(|v| v.as_str()).unwrap_or(".");
+        let base = path.parent().map(Path::to_path_buf).unwrap_or_default().join(own);
+        let whole = std::path::absolute(&base).unwrap_or(base).to_string_lossy().to_string();
+        merged.retain(|(k, _)| k != "cwd");
+        merged.push(("cwd".to_string(), Value::Str(whole)));
+    }
+    Some(Value::Obj(merged))
+}
+
+fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out: &mut Vec<Diag>) -> Node {
     if !nv.is_obj() {
         push(span, scan, "neurons", &format!("neurons[{}] is not an object", i), out);
         return empty_node(Kind::Source);
+    }
+    if nv.has("neuron") {
+        // Named by its own file (2.10): from here on it is the neuron the
+        // file describes, checked as any inline neuron is.
+        return match neuron_of_file(nv, i, dir, scan, span, out) {
+            Some(inline) => neuron(&inline, i, dir, scan, span, out),
+            None => Node {
+                id: nv.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                ..empty_node(Kind::Run(Vec::new()))
+            },
+        };
     }
     let id = match nv.get("id") {
         Some(Value::Str(s)) if is_id(s) => s.clone(),
