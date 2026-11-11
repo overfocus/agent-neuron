@@ -459,6 +459,16 @@ pub struct RunOutcome {
     pub timed_out: bool,
 }
 
+/// What one step of the real host did (`Engine::real_step`).
+enum Step {
+    /// A host event or a wake-up was processed.
+    Advanced,
+    /// The deadline is due, and nothing was processed.
+    DeadlineDue,
+    /// Nothing is due and nothing is running that could report.
+    Idle,
+}
+
 /// One call to a peer-hosted graph (finding 3, 0014), the shape the worker's
 /// connection reads as its `done` reply. The engine is planted once for the
 /// worker process and the call enters its own composed boundary, so the
@@ -1147,51 +1157,21 @@ impl Engine {
                 timed_out = true;
                 break;
             }
-            let next = self.next_wake();
             if self.is_real() {
-                // A host event due at or before the next wake-up goes first;
-                // its time is when the host read it, so work that ended in the
-                // same ms as its timeout (rule 7) is here by its stamp. A
-                // deadline caps every wait the loop makes: the engine's pump
-                // never blocks past it, and at the instant the run stops as
-                // timed out, with the teardown after the loop.
-                let cap = match (next, self.deadline) {
-                    (Some(t), Some(d)) => Some(t.min(d)),
-                    (t, d) => t.or(d),
-                };
-                if self.host_step(cap) {
-                    // A process outcome may have emptied a composed call's
-                    // inside: 2.6 step 3's quiet/inner error is due at this
-                    // instant, and only a wake-up used to check it (the real
-                    // host would wait for the composed call's timeout instead).
-                    self.wake_composed_calls();
-                    continue;
-                }
-                if self.deadline_due() {
-                    timed_out = true;
-                    break;
-                }
-                self.now = next.unwrap_or_else(|| self.now + 65_536);
-                let Some(w) = self.pop() else {
-                    // The heap is empty and nothing is due: only a process
-                    // outcome can close the run. The pump waits to the
-                    // deadline when one is set, and to nothing at all when
-                    // none is (a process's end is the only closer).
-                    if self.host_step(self.deadline) {
-                        self.wake_composed_calls();
-                        continue;
-                    }
-                    if self.deadline_due() {
+                // The one step of the real host (decision 0016, S4): the run
+                // and a hosted call take the same step and differ only in
+                // what ends them. Here the deadline is the run timing out,
+                // and nothing left to wait for is the run's end.
+                match self.real_step() {
+                    Step::Advanced => continue,
+                    Step::DeadlineDue => {
                         timed_out = true;
                         break;
                     }
-                    break;
-                };
-                self.fire(w);
-                self.wake_composed_calls();
-                continue;
+                    Step::Idle => break,
+                }
             }
-            let Some(next) = next else { break };
+            let Some(next) = self.next_wake() else { break };
             self.now = next;
             let Some(w) = self.pop() else { break };
             self.fire(w);
@@ -1208,6 +1188,49 @@ impl Engine {
             answers: std::mem::take(&mut self.answers),
             timed_out,
         }
+    }
+
+    /// One step of the engine on the real host, for whoever drives it: the
+    /// run's loop and a hosted call's loop are this step and nothing else in
+    /// common.
+    ///
+    /// A host event due at or before the next wake-up goes first; its time is
+    /// when the host read it, so work that ended in the same ms as its
+    /// timeout (6.2 rule 7) is here by its stamp. A deadline caps every wait:
+    /// the pump never blocks past it. A process outcome may have emptied a
+    /// composed call's inside, so 2.6 step 3's check follows every advance
+    /// (only a wake-up used to make it, and the real host would otherwise
+    /// wait for the composed call's timeout).
+    fn real_step(&mut self) -> Step {
+        let next = self.next_wake();
+        let cap = match (next, self.deadline) {
+            (Some(t), Some(d)) => Some(t.min(d)),
+            (t, d) => t.or(d),
+        };
+        if self.host_step(cap) {
+            self.wake_composed_calls();
+            return Step::Advanced;
+        }
+        if self.deadline_due() {
+            return Step::DeadlineDue;
+        }
+        self.now = next.unwrap_or_else(|| self.now + 65_536);
+        let Some(w) = self.pop() else {
+            // The heap is empty and nothing is due: only a process outcome
+            // can move things on. The pump waits to the deadline when one is
+            // set, and to nothing at all when none is.
+            if self.host_step(self.deadline) {
+                self.wake_composed_calls();
+                return Step::Advanced;
+            }
+            if self.deadline_due() {
+                return Step::DeadlineDue;
+            }
+            return Step::Idle;
+        };
+        self.fire(w);
+        self.wake_composed_calls();
+        Step::Advanced
     }
 
     /// Is the run's deadline due (set by a caller's `timeout_ms`)? Only the
@@ -4829,38 +4852,17 @@ impl Engine {
                 self.cut_work(work);
                 return GraphOut::TimedOut;
             }
-            let next = self.next_wake();
-            let cap = match (next, self.deadline) {
-                (Some(t), Some(d)) => Some(t.min(d)),
-                (t, d) => t.or(d),
-            };
-            if self.host_step(cap) {
-                self.wake_composed_calls();
-                continue;
-            }
-            if self.deadline_due() {
-                self.cut_work(work);
-                return GraphOut::TimedOut;
-            }
-            self.now = next.unwrap_or_else(|| self.now + 65_536);
-            let Some(w) = self.pop() else {
-                // The heap is empty and nothing is due: only a process
-                // outcome can close the call. The pump waits to the deadline
-                // when one is set, and a step at a time when none is.
-                if self.host_step(self.deadline) {
-                    self.wake_composed_calls();
-                    continue;
-                }
-                if self.deadline_due() {
+            // The same step the run takes (decision 0016, S4). Here the
+            // deadline is the worker's backstop, and nothing left to wait for
+            // is only this instant ending: the call is not done, so the loop
+            // goes round to its own checks.
+            match self.real_step() {
+                Step::Advanced | Step::Idle => continue,
+                Step::DeadlineDue => {
                     self.cut_work(work);
                     return GraphOut::TimedOut;
                 }
-                // The next event ends this instant; the loop's own checks
-                // are the deadlines that matter.
-                continue;
-            };
-            self.fire(w);
-            self.wake_composed_calls();
+            }
         }
         // The call is done of itself. The boundary's answer is the inside's
         // first exit reply (2.6 step 2) — its own entry in `answers` (the
