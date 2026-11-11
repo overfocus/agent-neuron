@@ -197,6 +197,18 @@ What building it found:
   tried anything, and every "refused" test passed. The tests now assert `curl`'s own exit code: 7
   for a connection the sandbox stopped, 22 for the proxy's refusal.
 
+**The contract commit is written** on `feat/s2-contract` (2026-11-11): SPEC 2.9 says what
+confinement means for any engine that offers it (it fails closed, the baseline, paths, connections,
+nothing reported), 2.4 and the quick start point at it, and Appendix C says which engine confines
+where. No fixture: conformance starts no process. Three things the SPEC text settles that this
+record left loose, each **accepted (Kevin, 2026-11-11)**:
+
+- **Confinement is optional for an engine** (MAY), and the rules bind one that offers it.
+- **A proxy is allowed, not required.** The rule is that nothing unlisted is reached; an engine with
+  a mechanism that holds a host directly needs no proxy.
+- **A run is confined whole or refused.** An engine may not confine some programs of a network and
+  not others.
+
 **The interpreters tried**, by hand on this machine (they need its interpreter tree, so they are not
 tests): `curl` 8.7.1, `node` 22.22.1 with `fetch`, and `python3` with `urllib` each reached a listed
 host and were refused an unlisted one. `node` honours the proxy only because the engine also sets

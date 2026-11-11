@@ -1,8 +1,8 @@
 # agent-neuron specification, version 0.1
 
 Status: draft. Version 0.1 is version 0 plus budgets and the `finished` event
-(section 10), effects with the `unknown` outcome (section 11), the live trace stream (9.1) and the `may`
-declaration (2.4); a network file's `version` stays `0`, because the new fields are
+(section 10), effects with the `unknown` outcome (section 11), the live trace stream (9.1), the `may`
+declaration (2.4) and what confining a program to it means (2.9); a network file's `version` stays `0`, because the new fields are
 additions. The spec may change in any way until it is called 1; a change
 is one commit to this file, `spec/network.schema.json` and the fixtures
 together. MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Each section
@@ -90,10 +90,13 @@ Rules you will hit:
   neuron's `env`. No `HOME`, no virtualenv variables, no API keys unless you
   list their names (`"env": ["OPENAI_API_KEY"]`). Use an absolute interpreter
   path, or name what the interpreter needs.
-- **What your program may touch is declared, not yet enforced.** A neuron's `may` names the hosts it
-  may connect to, the addresses it may listen on and the paths it may read and write; without one it
-  is declared to touch nothing (2.4). Engines check the declaration today and do not yet confine the
-  program, so write a `may` as the truth about your program, and do not read one as a jail.
+- **What your program may touch is declared, and held only when a run asks.** A neuron's `may` names
+  the hosts it may connect to, the addresses it may listen on and the paths it may read and write;
+  without one it is declared to touch nothing (2.4). An engine may run your program confined to that
+  (2.9), and then a program that reads its own script must say so (`"read": ["."]`), and one that
+  calls a named host must use the proxy it is told about in `HTTP_PROXY` and `HTTPS_PROXY`. Not every
+  engine confines, and none does unless asked, so write a `may` as the truth about your program and
+  do not read one as a jail.
 - **Logs go to stderr.** Level 1 stdout carries protocol lines only.
 - **Answer a `cancel`.** The engine keeps a cancelled call's slot until you reply for
   its `re`; send `quiet` (the reply is discarded). A neuron that never does is
@@ -249,10 +252,9 @@ members, each optional, each an array of unique literal strings:
   neurons of its file declare: for each member, every string a neuron of that file lists is listed
   by the `network` neuron too, compared as written. A composed neuron inside counts by its own
   `may`. `check` reports the first thing it lacks as an error (2.7). It MAY list more.
-- **An engine MUST check `may` and, in this version, need not enforce it.** The declaration and its
-  checks are fixed here; confining a program to its `may` is not yet in this text (Appendix B). An
-  engine that does not confine MUST NOT be described as doing so. `may` changes nothing an engine
-  reports: no event, no note, no field of the trace.
+- **An engine MUST check `may`, and MAY confine a program to it** (2.9). An engine that does not
+  confine, or a run that did not ask it to, MUST NOT be described as confined. `may` changes
+  nothing an engine reports: no event, no note, no field of the trace.
 
 ### 2.5 Links
 
@@ -338,6 +340,59 @@ and what a failure of it means, is likewise the engine's to apply, not something
 ([decision 0007](decisions/0007-effects-and-the-live-stream.md)). `may` is the ninth, admitted when the budget was
 reopened for it: what a program may touch is a limit of the same class, since a program cannot be trusted to
 confine itself ([decision 0016](decisions/0016-the-self-describing-neuron.md)).
+
+### 2.9 Confinement (normative)
+
+An engine MAY offer to **confine** a run: to start every `run` and `serve` program of the network
+tree so that it can touch what its neuron's `may` names (2.4), a fixed baseline, and nothing else.
+The reasons are in [decision 0018](decisions/0018-confining-a-program-to-its-may.md). An engine
+that offers it MUST follow this section. How a run asks is the engine's business (the Rust
+engine's is `run --confine <file>`); a run that does not ask is not confined, and whether
+confinement should be the default is not decided in this version.
+
+**It fails closed.** A confined run MUST be refused, before any process starts, when the engine
+cannot hold some program to its `may`: on a platform where it has no mechanism, for a `may` entry
+its mechanism cannot enforce, or for a program it would start somewhere it cannot confine. An
+engine MUST NOT run part of a network confined and the rest not.
+
+**The baseline.** Whatever its `may` says, a confined program has:
+
+- what the platform itself requires for a process to start;
+- its own stdin, stdout and stderr;
+- the right to start processes, and to signal the processes it started and no others;
+- the metadata of any path (that it exists, its size and dates), never its contents;
+- the trees the operator names as holding the machine's interpreters and tools. These are given to
+  the engine outside the network file: they differ from one machine to the next;
+- the platform's TLS configuration and trust roots;
+- its working directory as a directory and no deeper: it can learn where it is and see the names
+  beside it, and cannot read one of them or look inside a directory below.
+
+A process a confined program starts is confined as it is. Nothing else is in the baseline: not
+the files of the working directory, not a temporary directory, not a home directory. A neuron with
+no `may` has the baseline alone.
+
+**Paths.** A `read` or `write` entry is resolved against the neuron's working directory when
+relative. It grants the file it names, or, if it names a directory, the whole tree below it. It is
+resolved through symbolic links when the program starts; an entry whose last part does not exist
+yet is granted as written under its resolved parent, so a program may create the file it declares.
+`write` does not include `read`: a neuron that does both declares both.
+
+**Connections.** A confined program can open a connection only to a `host:port` its `connect`
+lists, and accept connections only on an `address:port` its `listen` lists. An engine MAY hold a
+named host through a proxy it runs for that neuron: the program can then reach that proxy and no
+other address, the proxy opens a way out only to what the neuron lists, and the program is told
+where it is in `HTTP_PROXY` and `HTTPS_PROXY` (and their lower-case forms). A program that does not
+use the proxy then reaches no named host, and that conforms: the rule is that nothing unlisted is
+reached, not that everything listed is reachable by every program. One neuron MUST NOT be able to
+use what another neuron's `may` grants.
+
+**Nothing is reported.** A confined program that tries what it may not is refused by the platform
+as it would be by any permission, and what follows is the program's own outcome (an `exit` error,
+say, 6.1). Confinement adds no event, note or field to the trace (2.4), and a confined run of a
+program that stays inside its `may` reports what an unconfined run does.
+
+**Conformance does not reach it.** Fixtures start no process (8.1), so no fixture pins this
+section; an engine that confines tests it on real processes, for each platform it claims.
 
 ## 3. The neuron contract (normative)
 
@@ -1190,9 +1245,12 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
   a composed neuron; byte-level fixtures and real-process fixtures; hot reload.
 - Distribution: the engine will ship as a binary inside the npm and pip
   packages (the esbuild and ruff pattern).
-- `may`, later ([decision 0016](decisions/0016-the-self-describing-neuron.md)): confining a program to what
-  it declares, and what an engine does where it cannot; wildcards and bracketed addresses; a `may` on a source
-  that carries a program; a neuron described by a file of its own, which the file that uses it may narrow.
+- `may`, later ([decision 0016](decisions/0016-the-self-describing-neuron.md)): wildcards and bracketed addresses; a
+  `may` on a source that carries a program; a neuron described by a file of its own, which the file that uses it
+  may narrow.
+- Confinement, later ([decision 0018](decisions/0018-confining-a-program-to-its-may.md)): confinement as the
+  default; a program placed on another machine; a named host for a program that does not speak HTTP; a path
+  that reaches a program through a variable named in `env`.
 - Effects, later: an engine-held `unknown` that blocks a key until reconciled, a retry policy, effects
   inside a composed file (11.5).
 - Budgets, later: usage claims in level 1 replies, an owed ledger, spend per source or per time
@@ -1249,8 +1307,11 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
 - **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` only for a scripted observer;
   `reserve` and `commit` with a budget.
 - **Effects** (section 11): all of it. `unknown` is a separate event type; the `forwarded` mark is on the `answer` event.
-- **`may`** (2.4): checked, the fold included; not enforced. A program runs with the rights of whoever started
-  the engine, whatever its `may` says.
+- **`may`** (2.4): checked, the fold included. This engine does not confine (2.9): a program runs with the rights
+  of whoever started it, whatever its `may` says. The Python engine starts no process. The Rust engine confines
+  on macOS when a run asks (`run --confine`, `rust-engine/README.md`): files by path, loopback ports directly, a
+  named host through a proxy of its own, `localhost` and `127.0.0.1` taken as one, and a listen address other
+  than those or `0.0.0.0` refused; on any other platform it refuses a run that asks.
 - **Budgets** (section 10): all of it. A call's `ms` is read from `performance.now()` in real runs, rounded to whole ms.
 - **Process start failure** (no such executable) is an `exit` error, `exit 127:`
   then the reason; the table in 6.1 has no row for it.
@@ -1357,7 +1418,9 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 2.6 | One shared inner network per instance; steps 1, 2, 4, 5, 7; sealing | local | The composed neuron's wrapper holds its inside. |
 | 2.6 | Step 3: the inside has nothing running, queued or held for the call | global (inside) | The end of a call's inner work, G2 below, one level down. |
 | 2.6 | Step 6: `cost` and the inner `budget` bound the inside (10.5) | local | The boundary owns the inner trace's pool. |
-| 2.4 | `may`: the shape, and a composed neuron covering its inside | static | Confining a program to it, once in the text, is local: the wrapper starts the program. |
+| 2.4 | `may`: the shape, and a composed neuron covering its inside | static | |
+| 2.9 | Confinement: the baseline, paths, connections, a proxy per neuron | local | The wrapper starts the program, and holds it. |
+| 2.9 | A confined run is refused whole when one program cannot be held | global | One neuron's `may` decides for the network, as G6. |
 | 3.1 | Level 0: input, output, failures, cancel, stderr | local | Wrapper and program only. |
 | 3.2 | Level 1: framing, messages, `re`, slots, cancel, `timeout`, ping, restart, junk | local | Wrapper and program only. |
 | 3.2 | "If it does not reach `ready` within `timeout`, the engine refuses to start" | global | One neuron's failure decides for the whole network (G6). |
