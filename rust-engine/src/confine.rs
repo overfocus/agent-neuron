@@ -8,8 +8,10 @@
 //
 // The mechanism is macOS's `sandbox-exec` and nothing else yet. Its limits are
 // the ones the probes of 0018 found: files are held by path, and connections
-// by port on `*` or `localhost` only, so a `connect` to a named host waits for
-// the engine's proxy (S2b) and is refused here.
+// by port on `*` or `localhost` only. So a `connect` to a named host goes
+// through the engine's own proxy (proxy.rs, S2b): the sandbox lets the program
+// reach that one loopback port, and the proxy lets it out only to what its
+// `may` lists.
 use crate::json::{self, Value};
 use crate::net::May;
 use std::path::{Path, PathBuf};
@@ -76,23 +78,33 @@ impl Confine {
     /// fails exactly as it does unconfined (the `exit 127` of SPEC 6.1), and
     /// nothing runs.
     pub fn wrap(&self, id: &str, cmd: &[String], cwd: &Path, may: Option<&May>) -> Result<Vec<String>, String> {
-        let profile = self.profile(id, cwd, may)?;
         let Some(program) = cmd.first().and_then(|name| find(name, cwd)) else {
             return Ok(cmd.to_vec());
         };
-        let mut out = vec![
-            SANDBOX_EXEC.to_string(),
-            "-p".to_string(),
-            profile,
-            program.to_string_lossy().to_string(),
-        ];
+        let (profile, proxy) = self.profile(id, cwd, may)?;
+        let mut out = vec![SANDBOX_EXEC.to_string(), "-p".to_string(), profile];
+        if let Some(port) = proxy {
+            // The program is told where its proxy is, in the variables a
+            // proxy-aware program reads (both cases: tools differ). One that
+            // ignores them reaches no named host at all. The host's spawn
+            // clears the environment, so they are set by `env`, which then
+            // becomes the program.
+            let url = format!("http://127.0.0.1:{}", port);
+            out.push("/usr/bin/env".to_string());
+            for name in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
+                out.push(format!("{}={}", name, url));
+            }
+            out.push("NODE_USE_ENV_PROXY=1".to_string());
+        }
+        out.push(program.to_string_lossy().to_string());
         out.extend(cmd.iter().skip(1).cloned());
         Ok(out)
     }
 
     /// The sandbox profile of one neuron: the baseline of 0018 point 4, then
-    /// what its `may` names.
-    fn profile(&self, id: &str, cwd: &Path, may: Option<&May>) -> Result<String, String> {
+    /// what its `may` names. With a named host in `connect`, the neuron's
+    /// proxy is started and its port returned beside the profile.
+    fn profile(&self, id: &str, cwd: &Path, may: Option<&May>) -> Result<(String, Option<u16>), String> {
         // The baseline: the system's own base profile, the right to start
         // processes and to signal the ones it started (a program that cannot
         // stop its own child leaves it running), metadata of any path (never
@@ -101,6 +113,9 @@ impl Confine {
         let mut p = String::from(
             "(version 1)(deny default)(import \"system.sb\")(allow process-exec)(allow process-fork)(allow signal (target same-sandbox))(allow file-read-metadata)",
         );
+        // The system's TLS configuration and trust roots: a client that
+        // cannot read them does not start, and they are public.
+        p.push_str("(allow file-read* (subpath \"/private/etc/ssl\"))");
         for tool in &self.tools {
             p.push_str(&format!("(allow file-read* (subpath {}))", quoted(tool)));
         }
@@ -119,15 +134,16 @@ impl Confine {
         for entry in &may.write {
             p.push_str(&format!("(allow file-write* (subpath {}))", quoted(&real(cwd, entry))));
         }
+        // A loopback entry is held by the sandbox itself; every other host
+        // is the proxy's to hold (0018 point 6).
+        let mut named: Vec<String> = Vec::new();
         for entry in &may.connect {
             let (host, port) = entry.rsplit_once(':').unwrap_or((entry, ""));
-            if !matches!(host, "localhost" | "127.0.0.1") {
-                return Err(format!(
-                    "'{}' may connect '{}': a confined run cannot hold a named host until the engine's proxy is built (decision 0018)",
-                    id, entry
-                ));
+            if matches!(host, "localhost" | "127.0.0.1") {
+                p.push_str(&format!("(allow network-outbound (remote tcp \"localhost:{}\"))", port));
+            } else {
+                named.push(entry.clone());
             }
-            p.push_str(&format!("(allow network-outbound (remote tcp \"localhost:{}\"))", port));
         }
         for entry in &may.listen {
             let (host, port) = entry.rsplit_once(':').unwrap_or((entry, ""));
@@ -147,7 +163,15 @@ impl Confine {
                 port = port
             ));
         }
-        Ok(p)
+        // The proxy is started last, once nothing else can refuse the plant.
+        let proxy = if named.is_empty() {
+            None
+        } else {
+            let port = crate::proxy::start(id, named)?;
+            p.push_str(&format!("(allow network-outbound (remote tcp \"localhost:{}\"))", port));
+            Some(port)
+        };
+        Ok((p, proxy))
     }
 }
 

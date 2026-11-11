@@ -425,32 +425,39 @@ for event (wall-clock `t` zeroed, ids renormalised by first appearance), a
 peer-hosted graph is the local composed neuron answer for answer and event for
 event, and a graph spread over two engines answers as a wholly local run does.
 
-## Confinement — `run --confine` (decision 0018, S2a)
+## Confinement — `run --confine` (decision 0018, S2a and S2b)
 
 `run <file> --confine <confine.json>` starts every `run` and `serve` program of the tree under
 macOS's `sandbox-exec`, with a profile built from its neuron's `may` (SPEC 2.4). Without the flag
-nothing is confined and a run is what it was. `src/confine.rs` is the whole of it: the engine swaps
-the command for the sandbox's at the plant, so the host, the process groups and the 6.1 failures
-are untouched.
+nothing is confined and a run is what it was. `src/confine.rs` builds the profile and `src/proxy.rs`
+is the proxy: the engine swaps the command for the sandbox's at the plant, so the host, the process
+groups and the 6.1 failures are untouched.
 
 - **The confine file** is a side file, as `--grants` and `--peers` are: `{"version": 0, "tools":
   [absolute paths]}`, closed. `tools` are the trees this machine keeps its interpreters in; every
   confined program may read them.
 - **The baseline** every confined program has: the system's base profile, starting processes and
-  signalling the ones it started, metadata of any path, the `tools` trees, and its working directory
-  as a directory and no deeper (it sees the names beside it, never their contents).
+  signalling the ones it started, metadata of any path, the `tools` trees, the system's TLS
+  configuration and trust roots, and its working directory as a directory and no deeper (it sees
+  the names beside it, never their contents).
 - **`read` and `write`** entries grant the file or the whole tree they name, relative to the
   neuron's working directory, resolved through symbolic links at the plant. `write` does not
   include `read`.
 - **`connect`** to `localhost:P` or `127.0.0.1:P`, and **`listen`** on those or `0.0.0.0:P`, are
-  held by port. The sandbox cannot tell one host from another, so a `connect` to a named host is
-  refused until the engine's proxy exists (S2b), and any other listen address is refused.
+  held by port. Any other listen address is refused: the sandbox cannot tell one from another.
+- **`connect` to a named host** goes through a proxy the engine runs, one loopback listener per
+  neuron. The sandbox lets the neuron reach its own proxy and no other port; the proxy opens a way
+  out only to a `host:port` the neuron's `may` lists (a `CONNECT` tunnel, so TLS passes through
+  unread, or a plain `http://` request sent on by its path), and writes one line on stderr for a
+  refusal. The program is given `HTTP_PROXY`, `HTTPS_PROXY` (both cases) and
+  `NODE_USE_ENV_PROXY=1`; one that ignores them, or does not speak HTTP, reaches no named host.
 - **It fails closed.** A platform other than macOS, a `may` entry the sandbox cannot hold, or
   `--peers` beside `--confine` refuses the run before any process starts.
 - A denied operation is the program's own failure (an `exit` error, say); nothing new is reported.
-- Covered by `tests/confine.rs` (17, macOS only): each member granting what it names and no more, a
+- Covered by `tests/confine.rs` (20, macOS only): each member granting what it names and no more, a
   neuron with no `may`, a child process, a `serve` neuron, the `tools`, a missing executable still
-  `exit 127`, and the four refusals. Its programs are inline `/bin/sh` scripts, so the tests name no
+  `exit 127`, the refusals, and the proxy (a listed host both ways a program asks, an unlisted one,
+  a program that ignores the proxy, another neuron's proxy). Its programs are inline `/bin/sh` scripts, so the tests name no
   path of the machine they run on.
 
 ## Where it stands, and the roadmap (2026-11-09)

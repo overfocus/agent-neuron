@@ -175,3 +175,32 @@ directory; its twin with no `may` could not open its own script and failed with 
 
 Not in S2a: the proxy (S2b), a demo and its row in DEMOS.md, the MCP route (`run_network` confines
 nothing and has no option to), and the SPEC text (the contract commit, after S2b).
+
+**S2b is built** on `feat/s2b-proxy` (2026-11-11): `src/proxy.rs`, one loopback listener per neuron
+whose `may.connect` names a host. The sandbox lets that neuron reach its own proxy's port and no
+other; the proxy opens a way out only to a `host:port` the neuron listed, and refuses the rest
+with one line on the run's stderr. A named host no longer refuses the run. `tests/confine.rs` is
+20 tests: a listed host reached by a plain request and by a tunnel, an unlisted one refused both
+ways, a program that ignores the proxy reaching nothing, and a neuron unable to use another
+neuron's proxy.
+
+What building it found:
+
+- **A third addition to the baseline, accepted (Kevin, 2026-11-11):** every confined program
+  may read the system's TLS configuration and trust roots (`/private/etc/ssl`). `curl` does not
+  start without it, and nothing in it is secret.
+- **A proxy that forwards a request as it came is wrong.** A program sends the proxy the whole URL;
+  a strict server answers 404 to that. The proxy now sends the path, and closes after one request
+  so the next is checked again. Python's client found this; the tests' server was too forgiving to,
+  and is strict now.
+- **Tests that passed for the wrong reason.** With the TLS files unreadable, `curl` died before it
+  tried anything, and every "refused" test passed. The tests now assert `curl`'s own exit code: 7
+  for a connection the sandbox stopped, 22 for the proxy's refusal.
+
+**The interpreters tried**, by hand on this machine (they need its interpreter tree, so they are not
+tests): `curl` 8.7.1, `node` 22.22.1 with `fetch`, and `python3` with `urllib` each reached a listed
+host and were refused an unlisted one. `node` honours the proxy only because the engine also sets
+`NODE_USE_ENV_PROXY=1`. A real request, `https://example.com/` with `example.com:443` listed,
+returned 200 through the tunnel with its certificate checked, and the same request to an unlisted
+host was refused. Not tried: any agent harness, and any client that speaks something other than
+HTTP (a database driver, say), which cannot use this proxy at all and so reaches no named host.
