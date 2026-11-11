@@ -143,3 +143,52 @@ open work starts at the first record that may still be open. Nothing a run repor
   list, and a wake-up armed long ago may still name one; it finds it done and does nothing. Freeing
   them means naming work some other way, through the whole engine. About 0.33 KB a call, or 29 MiB a
   day at one a second: a run is good for weeks now, and still not for ever.
+
+**The forgetting step is merged** (Kevin, 2026-11-11), and S4c follows it.
+
+**S4c, first half, is built** on `feat/s4c-hosted-loop` (2026-11-11): the lock is gone. A hosted
+graph's engine runs the run's loop on a thread of its own (`Engine::serve_calls`); a connection hands
+it a call and waits for that call's outcome; calls from different connections overlap as traces do
+in a run. The wire is unchanged, and a connection still carries one call at a time. Four
+real-process tests in `tests/peers.rs`, each of which fails on the engine before this step.
+
+What building it found, all three in the engine before this step:
+
+- **A hosted graph that sat idle failed its next call at once.** The engine's clock stood still
+  between calls, so a call that arrived after an idle gap longer than its timeout had its timeout
+  armed in the past. A call's clock now starts when it arrives. Any hosted graph called less often
+  than its timeout had this.
+- **A hosted graph that was quiet was reported as failed.** An inside that settled with no reply from
+  `exit` (2.6 step 3) came back over the wire as an `inner` error. It is quiet now, event for event
+  what the same graph gives run locally.
+- **A deadline could fire a wake-up early.** When the engine's wait ran to a deadline that came
+  before its next wake-up, the wake-up fired at once: a run given a time limit reported one spurious
+  call timeout as it stopped. The deadline's instant is now the deadline's.
+
+And one thing found and not fixed: **a burst the worker cannot keep up with fails badly.** 3,000
+calls sent 3 ms apart to a hosted graph of one program: 59 answered, the rest were reset or timed
+out after their whole 20 seconds, on the engine before this step and after it alike. At 12 ms apart
+all 6,000 of three rounds answered. This is point 5 above (a limit on calls at once), still a
+decision of its own.
+
+Memory of the hosted engine over those 6,000 calls grew by about 0.5 KB a call, the emptied work
+records named above.
+
+**S4c, second half, is not built and wants answers first.** A hosted file with sources, fed over the
+wire, and events a caller can read are both changes to the wire, and neither has a text to build to:
+
+1. **What an `inject` on the wire is.** Recommended: a line `{"type":"inject","source","payload",
+   "replaces"?,"budget"?}` on a connection to a `peer --network` graph, the same object a live
+   producer writes to standard input (4.1), injected when it is read, with no reply; a refused one
+   is a line on the worker's stderr, as a live producer's is.
+2. **Whether one hosted file can be both** called as a neuron and fed at its sources. Recommended:
+   yes. `entry` and `exit` are needed only to be called; sources only to be fed; a file may declare
+   either or both, and a `call` to a file with no `entry` is refused as it is today.
+3. **Where a hosted graph's own outer events go.** Today they are dropped. Recommended:
+   `peer --network <file> --stream <path>`, the worker's own file on its own machine, the same lines
+   a live run writes. Reading events *over the wire* waits for identity (0016 point 3), because it
+   is the first thing a connection could read that is not its own call's answer.
+4. **Whether the hosted file may then declare a `ground`**. Recommended: not yet. 2.6 refuses it in a
+   composed file, and a file that is fed and never called is no longer only composed; that wants the
+   SPEC's word on what a hosted file is, which is the wire's contract commit (0013's P5).
+

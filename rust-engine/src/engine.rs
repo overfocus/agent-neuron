@@ -628,8 +628,16 @@ pub struct Engine {
     /// over many calls (the peer's graph worker, finding 3, 0014): the wire
     /// says the boundary's fixed `inner` message; this is the cause for the
     /// worker's stderr only, and a diagnostic — nothing of the run's records
-    /// reads it (sealing holds: inner events are never reported out).
-    inner_why: Option<String>,
+    /// reads it (sealing holds: inner events are never reported out). Kept
+    /// by the composed call that failed, and only while hosting: calls
+    /// overlap, and each logs its own cause.
+    inner_why: HashMap<usize, String>,
+    /// This engine hosts one boundary for callers outside (`serve_calls`,
+    /// decision 0020): it keeps no events and no answers of its own.
+    hosting: bool,
+    /// The hosted calls still open, by their work record, and what each one's
+    /// boundary replied once it has (an answer or a quiet).
+    hosted_out: HashMap<usize, Option<GraphOut>>,
 }
 
 impl Engine {
@@ -695,7 +703,9 @@ impl Engine {
             ground: None,
             peers: None,
             confine: None,
-            inner_why: None,
+            inner_why: HashMap::new(),
+            hosting: false,
+            hosted_out: HashMap::new(),
         }
     }
 
@@ -729,9 +739,6 @@ impl Engine {
         self.grants = Some(grants);
     }
 
-    /// The peers (decision 0013): the machines that execute some of this
-    /// run's neurons, and the wire to them. Set before the plant; absent is a
-    /// run whose every call is local.
     /// A live run (decision 0020): the producer injects while the run is
     /// under way, through the handle this returns (`Ev::Inject`, then
     /// `Ev::InputsClosed` when it is done). The run keeps no events and no
@@ -744,6 +751,15 @@ impl Engine {
         self.host().post_handle()
     }
 
+    /// A handle that posts into this engine's host queue (a hosted graph's
+    /// connections wake its loop with it).
+    pub(crate) fn post_handle(&mut self) -> host::Post {
+        self.host().post_handle()
+    }
+
+    /// The peers (decision 0013): the machines that execute some of this
+    /// run's neurons, and the wire to them. Set before the plant; absent is a
+    /// run whose every call is local.
     pub fn set_peers(&mut self, peers: crate::peers::Peers) {
         self.peers = Some(peers);
     }
@@ -821,7 +837,7 @@ impl Engine {
         }
         self.observer_sees(&ev);
         self.event_count += 1;
-        if self.answer_sink.is_none() {
+        if self.answer_sink.is_none() && !self.hosting {
             self.events.push(ev);
         }
     }
@@ -1286,6 +1302,14 @@ impl Engine {
             self.wake_composed_calls();
             return Step::Advanced;
         }
+        // The wait ran to its cap. When the cap was the deadline and not the
+        // next wake-up, the instant is the deadline's: the wake-up is not due
+        // yet and must not fire early.
+        if let Some(d) = self.deadline {
+            if next.is_none_or(|t| d < t) {
+                self.now = self.now.max(d);
+            }
+        }
         if self.deadline_due() {
             return Step::DeadlineDue;
         }
@@ -1441,6 +1465,9 @@ impl Engine {
             host::Ev::Desk => self.drain_desk(),
             host::Ev::Inject(inp) => self.live_inject(*inp),
             host::Ev::InputsClosed => self.live_inputs = false,
+            // Something outside the queue wants the loop's attention (a call
+            // or a cancel for a hosted graph): taking it is the whole effect.
+            host::Ev::Nudge => {}
         }
         true
     }
@@ -1896,8 +1923,11 @@ impl Engine {
                 // The wording the peer's worker logs when this instance's
                 // call fails: the wire says the boundary's fixed `inner`,
                 // and sealing keeps this out of the run's records.
-                if self.inner_why.is_none() {
-                    self.inner_why = Some(msg.to_string());
+                // A composed call that failed for a cause of its own inside
+                // hands that cause up: the first one is the one logged.
+                if self.hosting {
+                    let cause = self.inner_why.remove(&work).unwrap_or_else(|| msg.to_string());
+                    self.inner_why.entry(cw).or_insert(cause);
                 }
                 self.works[cw].fail_inner = true;
             }
@@ -2019,6 +2049,7 @@ impl Engine {
             if let Some(inner) = self.works[w].inner_root {
                 self.forget(inner);
             }
+            self.inner_why.remove(&w);
             let work = &mut self.works[w];
             work.inputs = Vec::new();
             work.entry = None;
@@ -3093,6 +3124,16 @@ impl Engine {
         // from here, and its own forward can no longer cut it.
         self.works[work].done = true;
         self.works[work].reported = true;
+        if let Some(slot) = self.hosted_out.get_mut(&work) {
+            // A hosted call's own reply (2.6 steps 2 and 3): what its caller
+            // is answered with. A failure is read off the record when the
+            // call is closed.
+            match &outcome {
+                Outcome::Answer { payload, .. } => *slot = Some(GraphOut::Answer(payload.as_full())),
+                Outcome::Quiet => *slot = Some(GraphOut::Quiet),
+                Outcome::Fail { .. } => {}
+            }
+        }
         match outcome.clone() {
             Outcome::Fail { code, msg } => {
                 self.emit_fail(work, code, &msg);
@@ -3113,7 +3154,7 @@ impl Engine {
                 // The run prints the answers of the neurons with no outgoing
                 // links (SPEC 4.4); the whole payload, the trace cuts long
                 // ones (TRACE.md).
-                if self.nodes[node].out.is_empty() {
+                if self.nodes[node].out.is_empty() && !self.hosting {
                     match &mut self.answer_sink {
                         Some(sink) => sink(&printed(&payload)),
                         None => self.answers.push((self.disp(node), payload.clone())),
@@ -4879,8 +4920,8 @@ impl Engine {
                 // wording rides with the worker's diagnostic (the wire says
                 // the boundary's fixed `inner`; sealing holds).
                 let _ = code;
-                if self.inner_why.is_none() {
-                    self.inner_why = Some(msg.clone());
+                if self.hosting {
+                    self.inner_why.entry(cw).or_insert(msg);
                 }
                 self.works[cw].fail_inner = true;
             }
@@ -4964,101 +5005,179 @@ impl Engine {
         self.refused.as_deref()
     }
 
-    /// One call to a peer-hosted graph (finding 3, 0014). The engine was
-    /// planted once for the worker process, the hosted file sitting behind
-    /// one composed boundary of instance 0 (`boundary`, the id peers.rs gave
-    /// it), so a call arrives the way a composed node's call arrives here: a
-    /// signal at the boundary starts the call, `start_composed` delivers the
-    /// payload at the file's `entry` as a new inner root (new trace, hops 0,
-    /// its own pool, 2.6 step 1), and the engine's own machinery finishes
-    /// the call — the first reply of the file's `exit` is the boundary's
-    /// reply and the remaining inner work is cancelled through the composed
-    /// cut (`composed_exit_replied`, `composed_cancel_inner`, 2.6 step 2),
-    /// an inside with nothing left is quiet, or `inner` after an inner
-    /// failure (step 3, via `wake_composed_calls` — the loop gives it the
-    /// same check after every wake-up the run's loop does), and a timeout of
-    /// the call cuts it like any call's timeout (step 4). The engine
-    /// persists: its serve programs and their state are shared by the
-    /// instance's calls, isolated per call by the fresh root (2.6 step 4).
+    /// The calls of a peer-hosted graph, for the life of the worker (finding
+    /// 3 of 0014; decision 0020, S4c). The engine was planted once, the
+    /// hosted file sitting behind one composed boundary of instance 0
+    /// (`boundary`, the id peers.rs gave it), so a call arrives the way a
+    /// composed node's call arrives here: a signal at the boundary starts the
+    /// call, `start_composed` delivers the payload at the file's `entry` as a
+    /// new inner root (new trace, hops 0, its own pool, 2.6 step 1), and the
+    /// engine's own machinery finishes it — the first reply of the file's
+    /// `exit` is the boundary's reply and the remaining inner work is cut
+    /// (step 2), an inside with nothing left is quiet, or `inner` after an
+    /// inner failure (step 3), and the call's timeout cuts it like any call's
+    /// (step 4).
     ///
-    /// `cancelled` is the wire's word: the connection's reader holds what a
-    /// cancel saw, and this loop polls it one step at a time — the closure
-    /// decides by THIS call's id, so a cancel held for another call never
-    /// cuts this one. When it fires, the call is cut the way any staleness
-    /// cut is (`cut_work`, 5.4) and the caller answers what the wire needs.
-    pub fn hosted_call(&mut self, boundary: &str, payload: Value, timeout_ms: u64, cancelled: &dyn Fn() -> bool) -> GraphOut {
-        let Some(node) = self
+    /// This is the run's loop fed from outside: calls come in on `calls` as
+    /// they arrive and overlap as traces do in a run, each a root of its own
+    /// (2.6 step 4), all on the one step the run takes. The serve programs
+    /// start with the first call and their state is the instance's. A caller
+    /// that sends a call, or whose `cancelled` has changed, posts a
+    /// `Ev::Nudge` so a waiting loop looks. The loop ends when every sender
+    /// of `calls` is gone and nothing is open.
+    ///
+    /// Each call has the worker's backstop (`backstop_ms` past its own
+    /// timeout): a call the engine failed to settle by then is cut and
+    /// answered as timed out, whatever the others are doing.
+    pub fn serve_calls(&mut self, boundary: &str, calls: std::sync::mpsc::Receiver<HostedCall>, backstop_ms: u64) {
+        use std::sync::mpsc::TryRecvError;
+        self.hosting = true;
+        let node = self
             .nodes
             .iter()
-            .position(|n| n.inst == 0 && matches!(n.kind, Kind::Network(_)) && n.display == boundary)
-        else {
-            return GraphOut::Failed(Some(format!("no composed boundary '{boundary}' in the graph the worker hosts")));
+            .position(|n| n.inst == 0 && matches!(n.kind, Kind::Network(_)) && n.display == boundary);
+        // A refusal is about the instance, so it repeats for every call.
+        let mut refused: Option<String> = match node {
+            None => Some(format!("no composed boundary '{boundary}' in the graph the worker hosts")),
+            Some(_) => self.refusal().map(|s| s.to_string()),
         };
-        if let Some(why) = self.refusal().map(|s| s.to_string()) {
-            return GraphOut::Failed(Some(why));
-        }
-        // The call is one root, and the events of the calls before it are
-        // their own: this call's harvest starts here (the caller's next
-        // answer must not see a predecessor's leftovers).
-        self.inner_why = None;
-        self.events.clear();
-        let sig = self.new_signal(node, vec![node], payload_of(payload), 0, None, None, None, None, 0, None);
-        let work = self.make_call(node, sig, WSt::Running);
-        // The call's timeout is the wire's: `start_composed` arms it with
-        // the boundary's timeout (6.2), so the cut cancels the inside at it.
-        self.nodes[node].timeout = timeout_ms;
-        // A hosted call is a trace of its own that no `finished` announces:
-        // it is forgotten once it and its inside are done, whichever way the
-        // call ends (the next step's tidy tries, and tries again).
-        self.forget_later.push(self.works[work].trace);
-        self.start_new_call(work);
-        while !self.works[work].done {
-            if cancelled() {
-                // A cancel for this call is on the wire (the reader saw it
-                // and the id is this call's): the cut a staleness cut would
-                // give the call (5.4, 2.6 step 4). The reply is the caller's
-                // cut machinery's own; the wire carries a stopped call.
-                self.cut_work(work);
-                return GraphOut::Cancelled;
+        let node = node.unwrap_or(0);
+        let mut started = false;
+        let mut open: Vec<OpenCall> = Vec::new();
+        loop {
+            // What has arrived. With nothing to step for (no program is up
+            // yet, or the instance refuses), the loop waits for a call.
+            loop {
+                let idle = open.is_empty() && (!started || refused.is_some());
+                let call = if idle {
+                    match calls.recv() {
+                        Ok(call) => call,
+                        Err(_) => return,
+                    }
+                } else {
+                    match calls.try_recv() {
+                        Ok(call) => call,
+                        Err(TryRecvError::Empty) => break,
+                        Err(TryRecvError::Disconnected) if open.is_empty() => return,
+                        Err(TryRecvError::Disconnected) => break,
+                    }
+                };
+                if let Some(why) = &refused {
+                    let _ = call.reply.send(GraphOut::Failed(Some(why.clone())));
+                    continue;
+                }
+                // The call's clock starts when it arrives, however long the
+                // instance sat with nothing to do.
+                self.now = self.now.max(host::clock_ms());
+                let due = self.now.saturating_add(call.timeout_ms).saturating_add(backstop_ms);
+                if !started {
+                    // The first call's budget covers the start waits of the
+                    // serve programs too (finding 5, 0014).
+                    self.deadline = Some(due);
+                    match self.start_serves() {
+                        Err(why) => {
+                            self.stop_after_refusal();
+                            let why = format!("the graph refused the run: {}", why);
+                            let _ = call.reply.send(GraphOut::Failed(Some(why.clone())));
+                            refused = Some(why);
+                            continue;
+                        }
+                        Ok(()) => started = true,
+                    }
+                }
+                let sig = self.new_signal(node, vec![node], payload_of(call.payload), 0, None, None, None, None, 0, None);
+                let work = self.make_call(node, sig, WSt::Running);
+                // The call's timeout is the wire's: `start_composed` arms it
+                // with the boundary's timeout as it starts (6.2).
+                self.nodes[node].timeout = call.timeout_ms;
+                // A hosted call is a trace of its own that no `finished`
+                // announces: it is forgotten once it and its inside are done,
+                // whichever way the call ends.
+                self.forget_later.push(self.works[work].trace);
+                self.hosted_out.insert(work, None);
+                self.start_new_call(work);
+                open.push(OpenCall {
+                    work,
+                    due,
+                    cancelled: call.cancelled,
+                    reply: call.reply,
+                });
             }
-            if self.deadline_due() {
-                // The worker's backstop (the caller's budget is the driver's
-                // timeout plus its own): cut the call as its timeout would
-                // (2.6 step 4) and say the run stopped here.
-                self.cut_work(work);
-                return GraphOut::TimedOut;
-            }
-            // The same step the run takes (decision 0016, S4). Here the
-            // deadline is the worker's backstop, and nothing left to wait for
-            // is only this instant ending: the call is not done, so the loop
-            // goes round to its own checks.
-            match self.real_step() {
-                Step::Advanced | Step::Idle => continue,
-                Step::DeadlineDue => {
+            // Close what is over: done of itself, cancelled on the wire (the
+            // cut a staleness cut would give it, 5.4), or past the backstop.
+            let mut i = 0;
+            while i < open.len() {
+                let work = open[i].work;
+                let out = if self.works[work].done {
+                    Some(self.hosted_outcome(work))
+                } else if (open[i].cancelled)() {
                     self.cut_work(work);
-                    return GraphOut::TimedOut;
+                    Some(GraphOut::Cancelled)
+                } else if self.now >= open[i].due {
+                    self.cut_work(work);
+                    Some(GraphOut::TimedOut)
+                } else {
+                    None
+                };
+                match out {
+                    Some(out) => {
+                        self.hosted_out.remove(&work);
+                        self.inner_why.remove(&work);
+                        let call = open.swap_remove(i);
+                        let _ = call.reply.send(out);
+                    }
+                    None => i += 1,
                 }
             }
+            if refused.is_some() {
+                continue;
+            }
+            // The same step the run takes (decision 0016, S4). The deadline
+            // is the nearest backstop of an open call; with none open the
+            // loop waits for the host: a call's nudge, or a serve program's
+            // own business (a ping, a restart).
+            self.deadline = open.iter().map(|c| c.due).min();
+            self.real_step();
         }
-        // The call is done of itself. The boundary's answer is the inside's
-        // first exit reply (2.6 step 2) — its own entry in `answers` (the
-        // boundary is a sink by construction: the wrapper plants no links).
-        // A quiet inside pushed nothing (step 3); an inner failure's fixed
-        // message is the wire's word and its cause stays on stderr (sealing).
-        let answers = std::mem::take(&mut self.answers);
-        if answers.last().map(|(who, _)| who.as_str()) == Some(boundary) {
-            return GraphOut::Answer(answers.last().expect("the boundary's answer").1.as_full());
+    }
+
+    /// What a hosted call that is done answers its caller. The boundary's
+    /// reply was kept as it was made (an answer or a quiet); a failure is
+    /// read off the record: an inner failure with its cause for the worker's
+    /// stderr, or the call's own timeout.
+    fn hosted_outcome(&mut self, work: usize) -> GraphOut {
+        if let Some(Some(out)) = self.hosted_out.remove(&work) {
+            return out;
         }
         if self.works[work].fail_inner {
-            return GraphOut::Failed(self.inner_why.take());
+            return GraphOut::Failed(self.inner_why.remove(&work));
         }
         if self.works[work].reported {
-            // The call's own timeout (the machinery's cut): the caller
-            // reported the timeout at the same instant.
             return GraphOut::TimedOut;
         }
         GraphOut::Quiet
     }
+}
+
+/// One call to a hosted graph, as its connection hands it to the engine's
+/// loop (`Engine::serve_calls`).
+pub struct HostedCall {
+    pub payload: Value,
+    /// The caller's timeout for the call, in ms.
+    pub timeout_ms: u64,
+    /// The wire's word, polled each step: true once this call's cancel is in
+    /// or its connection is gone.
+    pub cancelled: Box<dyn Fn() -> bool + Send>,
+    /// Where the call's one outcome goes.
+    pub reply: std::sync::mpsc::Sender<GraphOut>,
+}
+
+struct OpenCall {
+    work: usize,
+    /// The worker's backstop for this call, on the host's clock.
+    due: u64,
+    cancelled: Box<dyn Fn() -> bool + Send>,
+    reply: std::sync::mpsc::Sender<GraphOut>,
 }
 // ---------------------------------------------------------------------------
 // Remaining glue: the input value of a call, staleness registration, and the

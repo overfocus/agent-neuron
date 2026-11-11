@@ -1808,3 +1808,218 @@ fn a_cancel_line_reaches_a_served_call_on_a_peer() {
         );
     }
 }
+
+/// The outer network of the idle test: a short timeout on the hosted graph.
+const OUTER_SHORT: &str = r#"{
+  "version": 0,
+  "name": "outer",
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "graph", "description": "a whole network", "network": "inner.network.json", "timeout": 1000}
+  ],
+  "links": [{"from": "src", "to": "graph"}]
+}
+"#;
+
+/// A hosted graph that sat idle for longer than a call's timeout still gives
+/// the next call its whole timeout: the call's clock starts when it arrives,
+/// not when the graph last had something to do.
+#[test]
+fn a_hosted_graph_that_sat_idle_gives_the_next_call_its_whole_timeout() {
+    let temp = Temp::new("graph-idle");
+    let inner = temp.write("inner.network.json", INNER);
+    let outer = temp.write("outer.network.json", OUTER_SHORT);
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 1}}\n{\"at\": 2500, \"source\": \"src\", \"payload\": {\"n\": 2}}\n",
+    );
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--network", inner.to_str().expect("a path")]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"graph\": \"b\"}"));
+    let out = run(
+        &temp,
+        &outer,
+        &inputs,
+        &temp.path("trace.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    let answers = stdout(&out);
+    assert!(answers.contains("\"tagged\":{\"n\":1}"), "the first call: {answers}");
+    assert!(answers.contains("\"tagged\":{\"n\":2}"), "the call after the idle gap: {answers}");
+}
+
+// -- A hosted graph's calls overlap (decision 0020, S4c) ---------------------
+
+/// The outer network of the overlap tests.
+const OUTER_MANY: &str = r#"{
+  "version": 0,
+  "name": "outer",
+  "neurons": [
+    {"id": "src", "description": "in", "source": true},
+    {"id": "graph", "description": "a whole network", "network": "inner.network.json", "timeout": 20000}
+  ],
+  "links": [{"from": "src", "to": "graph"}]
+}
+"#;
+
+/// A hosted graph whose one program logs when it began and when it ended, a
+/// second apart: the log's order says whether two calls ran at once.
+fn logging_inner(log: &Path) -> String {
+    format!(
+        r#"{{
+  "version": 0,
+  "name": "inner",
+  "neurons": [
+    {{"id": "entry", "description": "in", "run": ["/bin/cat"]}},
+    {{"id": "exit", "description": "slow", "run": ["/bin/sh", "-c", "read line; echo begin >> {log}; sleep 1; echo end >> {log}; printf '{{\"did\":%s}}' \"$line\""]}}
+  ],
+  "links": [{{"from": "entry", "to": "exit"}}],
+  "entry": "entry",
+  "exit": "exit"
+}}
+"#,
+        log = log.to_string_lossy(),
+    )
+}
+
+/// Calls to a hosted graph overlap as traces do in a run: the second begins
+/// before the first has ended, and each is answered with its own payload. A
+/// graph that takes one call at a time is the lock this step removed.
+#[test]
+fn calls_to_a_hosted_graph_overlap() {
+    let temp = Temp::new("graph-overlap");
+    let log = temp.path("log.txt");
+    let inner = temp.write("inner.network.json", &logging_inner(&log));
+    let outer = temp.write("outer.network.json", OUTER_MANY);
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 1}}\n\
+         {\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 2}}\n\
+         {\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 3}}\n",
+    );
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--network", inner.to_str().expect("a path")]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"graph\": \"b\"}"));
+    let out = run(
+        &temp,
+        &outer,
+        &inputs,
+        &temp.path("trace.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    let answers = stdout(&out);
+    for n in 1..=3 {
+        assert!(
+            answers.contains(&format!("{{\"did\":{{\"n\":{n}}}}}")),
+            "call {n} was not answered with its own payload: {answers}"
+        );
+    }
+    let lines: Vec<String> = std::fs::read_to_string(&log)
+        .expect("the programs' log")
+        .lines()
+        .map(|l| l.to_string())
+        .collect();
+    assert_eq!(count(&lines.join("\n"), "begin"), 3, "three calls began: {lines:?}");
+    assert_eq!(count(&lines.join("\n"), "end"), 3, "three calls ended: {lines:?}");
+    assert_eq!(
+        &lines[..3],
+        ["begin", "begin", "begin"],
+        "every call began before any ended; one at a time is begin, end, begin, end: {lines:?}"
+    );
+}
+
+/// A cut of one call to a hosted graph (a newer signal on its key, 5.4) stops
+/// that call's program and leaves the call beside it running to its answer.
+#[test]
+fn a_cut_of_one_hosted_call_leaves_the_other_running() {
+    let temp = Temp::new("graph-cut-one");
+    let log = temp.path("log.txt");
+    let inner = temp.write("inner.network.json", &logging_inner(&log));
+    let outer = temp.write("outer.network.json", OUTER_MANY);
+    // Two calls on one key, so the second cuts the first while it sleeps, and
+    // a third on no key that began beside the first and is never cut.
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 1}, \"replaces\": \"k\"}\n\
+         {\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 2}}\n\
+         {\"at\": 300, \"source\": \"src\", \"payload\": {\"n\": 3}, \"replaces\": \"k\"}\n",
+    );
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--network", inner.to_str().expect("a path")]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"graph\": \"b\"}"));
+    let out = run(
+        &temp,
+        &outer,
+        &inputs,
+        &temp.path("trace.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    let answers = stdout(&out);
+    assert!(!answers.contains("{\"n\":1}"), "the cut call answered: {answers}");
+    assert!(answers.contains("{\"did\":{\"n\":2}}"), "the call beside the cut one: {answers}");
+    assert!(answers.contains("{\"did\":{\"n\":3}}"), "the call that cut it: {answers}");
+    // The cut call's program was stopped in its sleep: three began, two ended.
+    let text = std::fs::read_to_string(&log).expect("the programs' log");
+    assert_eq!(count(&text, "begin"), 3, "three calls began: {text}");
+    assert_eq!(count(&text, "end"), 2, "the cut call's program was stopped before its end: {text}");
+}
+
+/// A hosted graph whose inside settles with no reply from `exit` is quiet
+/// (2.6 step 3), event for event what the same graph gives run locally.
+#[test]
+fn a_hosted_graph_that_is_quiet_is_quiet() {
+    let temp = Temp::new("graph-quiet");
+    let inner = temp.write(
+        "inner.network.json",
+        r#"{
+  "version": 0,
+  "name": "inner",
+  "neurons": [
+    {"id": "entry", "description": "in", "run": ["/bin/cat"]},
+    {"id": "exit", "description": "says nothing", "run": ["/bin/sh", "-c", "read line; true"]}
+  ],
+  "links": [{"from": "entry", "to": "exit"}],
+  "entry": "entry",
+  "exit": "exit"
+}
+"#,
+    );
+    let outer = temp.write("outer.network.json", OUTER_MANY);
+    let inputs = temp.write("inputs.jsonl", INPUTS);
+    let local = run(&temp, &outer, &inputs, &temp.path("local.json"), &[], &[]);
+    assert!(local.status.success(), "the local run failed: {}", stderr(&local));
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--network", inner.to_str().expect("a path")]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"graph\": \"b\"}"));
+    let remote = run(
+        &temp,
+        &outer,
+        &inputs,
+        &temp.path("remote.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(remote.status.success(), "the peer run failed: {}", stderr(&remote));
+    let a = events(&temp.path("local.json"));
+    let b = events(&temp.path("remote.json"));
+    assert!(
+        a.iter().any(|e| e.get("type").and_then(Value::as_str) == Some("quiet")),
+        "the local run was not quiet: {a:?}"
+    );
+    assert_eq!(a.len(), b.len(), "the event counts differ: {:?} vs {:?}", a, b);
+    for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+        assert!(
+            x.deep_eq(y),
+            "event {} differs:\n  local: {}\n  peer:  {}",
+            i,
+            json::write(x),
+            json::write(y)
+        );
+    }
+}

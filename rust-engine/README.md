@@ -446,6 +446,13 @@ closes and nothing is left. Anything that can write a line is a producer.
   is that step plus what ends it (S4a). An injection is one more host event, `Ev::Inject`, read by a
   thread of its own and stamped when read, so it is injected at that instant; `Ev::InputsClosed` is
   the producer saying it is done (S4b).
+- **A hosted graph is the same loop, fed by its callers** (S4c, `Engine::serve_calls`). The engine
+  of a `peer --network` graph lives on a thread of its own; a connection hands it a call and waits
+  for that call's outcome, and calls from different connections overlap as traces do in a run (the
+  lock that made them take turns is gone). A connection still carries one call at a time. Each call
+  has its own timeout and its own backstop, counted from when it arrives. A call, a cancel and a
+  dropped connection each post `Ev::Nudge`, which ends the loop's wait so it looks. The hosted
+  engine keeps no events and no answers, as a live run keeps none.
 - **A live run keeps nothing it has reported.** It requires `--stream` and refuses `--trace`: each
   event goes to the stream as it happens and is not kept, and each answer of a neuron with no
   outgoing links is printed on stdout as it happens.
