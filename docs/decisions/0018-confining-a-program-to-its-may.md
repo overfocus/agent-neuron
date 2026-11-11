@@ -156,8 +156,8 @@ Written and accepted 2026-11-11. **S2a is built** on `feat/s2a-confine` (2026-11
 `run --confine <file>`, `src/confine.rs`, and `tests/confine.rs` (17 real-process tests, macOS only).
 Without the flag a run is unchanged, and conformance is untouched.
 
-Building it changed the baseline of point 4 in two places. Both are my reading, found by running
-real programs, and each can be struck:
+Building it changed the baseline of point 4 in two places, both found by running real programs and
+both **accepted (Kevin, 2026-11-11)**:
 
 - **A confined program may signal the processes it started.** Without that it cannot stop its own
   child: a script that started a listener could not end it, and it ran on until the engine killed
