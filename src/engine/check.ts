@@ -8,6 +8,7 @@ import { delimiter, dirname, join, normalize, resolve } from 'node:path';
 export type NeuronSpec = {
   id: string; description?: string; at?: [number, number, number];
   source?: true; run?: string[]; serve?: string[]; http?: string; human?: true; network?: string;
+  neuron?: string; // a neuron's own file (SPEC 2.10): `readNetwork` replaces the entry with the neuron it describes
   threshold?: number; within?: number; maxHops?: number; timeout?: number; env?: string[]; cwd?: string; cost?: Record<string, number>; effect?: true; may?: MaySpec;
 };
 /** What a neuron's program is allowed to touch (SPEC 2.4, decision 0016). A member that is absent grants nothing. */
@@ -28,15 +29,17 @@ type Schema = { [key: string]: unknown };
 type Problem = { path: string; message: string };
 let schema: Schema | undefined;
 const loadSchema = (): Schema => (schema ??= JSON.parse(readFileSync(new URL('../../spec/network.schema.json', import.meta.url), 'utf8')) as Schema);
+let neuronSchema: Schema | undefined;
+const loadNeuronSchema = (): Schema => (neuronSchema ??= JSON.parse(readFileSync(new URL('../../spec/neuron.schema.json', import.meta.url), 'utf8')) as Schema);
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /** Problems with `value` against `node` of the schema; each has a JSON path such as `$.neurons[1].filter`. */
-export function validate(value: unknown, node: Schema = loadSchema(), path = '$'): Problem[] {
+export function validate(value: unknown, node: Schema = loadSchema(), path = '$', root: Schema = loadSchema()): Problem[] {
   if (typeof node.$ref === 'string') {
-    const target = node.$ref.replace('#/', '').split('/').reduce<unknown>((n, k) => (n as Schema)[k], loadSchema());
-    return validate(value, target as Schema, path);
+    const target = node.$ref.replace('#/', '').split('/').reduce<unknown>((n, k) => (n as Schema)[k], root);
+    return validate(value, target as Schema, path, root);
   }
   const errors: Problem[] = [];
   const fail = (message: string, at = path) => errors.push({ path: at, message });
@@ -61,7 +64,7 @@ export function validate(value: unknown, node: Schema = loadSchema(), path = '$'
     if (typeof node.minItems === 'number' && value.length < node.minItems) fail(`needs at least ${node.minItems} items`);
     if (typeof node.maxItems === 'number' && value.length > node.maxItems) fail(`has more than ${node.maxItems} items`);
     if (node.uniqueItems && new Set(value.map((v) => JSON.stringify(v))).size !== value.length) fail('items must be unique');
-    if (isObject(node.items)) value.forEach((v, i) => errors.push(...validate(v, node.items as Schema, `${path}[${i}]`)));
+    if (isObject(node.items)) value.forEach((v, i) => errors.push(...validate(v, node.items as Schema, `${path}[${i}]`, root)));
   }
   if (isObject(value)) {
     const properties = (node.properties ?? {}) as Record<string, Schema>;
@@ -71,16 +74,16 @@ export function validate(value: unknown, node: Schema = loadSchema(), path = '$'
     }
     if (typeof node.minProperties === 'number' && Object.keys(value).length < node.minProperties) fail(`needs at least ${node.minProperties} members`);
     for (const [key, v] of Object.entries(value)) {
-      if (isObject(node.propertyNames)) errors.push(...validate(key, node.propertyNames as Schema, `${path}.${key}`));
-      if (properties[key]) errors.push(...validate(v, properties[key], `${path}.${key}`));
-      else if (isObject(node.additionalProperties)) errors.push(...validate(v, node.additionalProperties as Schema, `${path}.${key}`));
+      if (isObject(node.propertyNames)) errors.push(...validate(key, node.propertyNames as Schema, `${path}.${key}`, root));
+      if (properties[key]) errors.push(...validate(v, properties[key], `${path}.${key}`, root));
+      else if (isObject(node.additionalProperties)) errors.push(...validate(v, node.additionalProperties as Schema, `${path}.${key}`, root));
       else if (node.additionalProperties === false) fail(`unknown field "${key}"`, `${path}.${key}`);
     }
   }
-  if (isObject(node.not) && validate(value, node.not as Schema, path).length === 0) fail('must not match');
-  for (const sub of (node.allOf ?? []) as Schema[]) errors.push(...validate(value, sub, path));
+  if (isObject(node.not) && validate(value, node.not as Schema, path, root).length === 0) fail('must not match');
+  for (const sub of (node.allOf ?? []) as Schema[]) errors.push(...validate(value, sub, path, root));
   if (Array.isArray(node.oneOf)) {
-    const results = (node.oneOf as Schema[]).map((sub) => validate(value, sub, path));
+    const results = (node.oneOf as Schema[]).map((sub) => validate(value, sub, path, root));
     const matches = results.filter((r) => r.length === 0).length;
     // none match: report the closest branch (fewest errors), which names the real problem
     if (matches === 0) errors.push(...results.reduce((best, r) => (r.length < best.length ? r : best)));
@@ -142,8 +145,34 @@ function nearest(id: string, ids: Iterable<string>): string | undefined {
 const onPath = (cmd: string, cwd: string) =>
   cmd.includes('/') ? existsSync(resolve(cwd, cmd)) : (process.env.PATH ?? '').split(delimiter).some((d) => d && existsSync(join(d, cmd)));
 
-/** Reads and parses a network file; throws if it is not JSON. Does not validate. */
-export const readNetwork = (file: string): NetworkFile => JSON.parse(readFileSync(file, 'utf8')) as NetworkFile;
+/** A neuron's own file (SPEC 2.10, decision 0019): what is true of the program wherever it runs. */
+type NeuronFile = Pick<NeuronSpec, 'description' | 'run' | 'serve' | 'http' | 'human' | 'timeout' | 'env' | 'cwd' | 'effect' | 'may'> & { version: 0 };
+
+/**
+ * The neuron an entry with `neuron` stands for: the file's kind and own options, the entry's on top. Relative paths
+ * of the file are relative to its directory, so the `cwd` is written absolute. Assumes `check` passed.
+ */
+function resolved(entry: NeuronSpec, of: NeuronFile, neuronFile: string): NeuronSpec {
+  const { version: _version, ...own } = of as NeuronFile & { $schema?: string };
+  delete (own as { $schema?: string }).$schema;
+  const { neuron: _neuron, ...mine } = entry;
+  return { ...own, ...mine, ...(of.run || of.serve ? { cwd: resolve(dirname(neuronFile), of.cwd ?? '.') } : {}) };
+}
+
+/**
+ * Reads and parses a network file; throws if it is not JSON. Does not validate. Every entry that names a neuron's own
+ * file is replaced by the neuron it describes (SPEC 2.10), so nothing after this sees the `neuron` kind.
+ */
+export function readNetwork(file: string): NetworkFile {
+  const net = JSON.parse(readFileSync(file, 'utf8')) as NetworkFile;
+  if (!Array.isArray(net.neurons)) return net;
+  net.neurons = net.neurons.map((n) => {
+    if (typeof n?.neuron !== 'string') return n;
+    const neuronFile = resolve(dirname(file), n.neuron);
+    return resolved(n, JSON.parse(readFileSync(neuronFile, 'utf8')) as NeuronFile, neuronFile);
+  });
+  return net;
+}
 
 /**
  * Everything `check` must report (SPEC 2.7); composed files are checked too, relative to `file`. Errors make the file unusable.
@@ -170,6 +199,31 @@ export function check(file: string, seen: string[] = [], shown?: string): Findin
     for (const p of problems) add('error', p.path, `${p.path}: ${p.message}`);
     return out; // the rest assumes the shape is right
   }
+  // a neuron named by its own file (SPEC 2.10, decision 0019): the file is read and checked, the entry may only narrow
+  // it, and from here on the neuron is the one the file describes
+  let unresolved = false;
+  net.neurons = net.neurons.map((n, i) => {
+    if (n.neuron === undefined) return n;
+    const at = `$.neurons[${i}]`, neuronFile = resolve(dirname(file), n.neuron);
+    const stop = (path: string, message: string) => { add('error', path, message); unresolved = true; return n; };
+    if (!existsSync(neuronFile)) return stop(`${at}.neuron`, `file not found: ${n.neuron}`);
+    let of: NeuronFile;
+    try {
+      of = JSON.parse(readFileSync(neuronFile, 'utf8')) as NeuronFile;
+    } catch (e) {
+      return stop(`${at}.neuron`, `${n.neuron}: not valid JSON: ${(e as Error).message}`);
+    }
+    const wrong = validate(of, loadNeuronSchema(), '$', loadNeuronSchema());
+    if (wrong.length) return stop(`${at}.neuron`, `${n.neuron}: ${wrong.map((p) => `${p.path}: ${p.message}`).join('; ')} (a neuron file holds what is the neuron's own, SPEC 2.10)`);
+    const program = of.run !== undefined || of.serve !== undefined;
+    for (const key of ['env', 'may'] as const) if (n[key] !== undefined && !program) return stop(`${at}.${key}`, `"${key}" narrows a program's, and ${n.neuron} is not a run or serve neuron`);
+    const limit = of.timeout ?? 30000;
+    if (n.timeout !== undefined && n.timeout > limit) return stop(`${at}.timeout`, `timeout ${n.timeout} is wider than the neuron's own (${limit}, ${n.neuron}): the entry that names a neuron may only narrow it (SPEC 2.10)`);
+    for (const name of n.env ?? []) if (!(of.env ?? []).includes(name)) return stop(`${at}.env`, `env "${name}" is wider than the neuron's own (${n.neuron}): the entry that names a neuron may only narrow it (SPEC 2.10)`);
+    for (const m of MAY) for (const v of n.may?.[m] ?? []) if (!(of.may?.[m] ?? []).includes(v)) return stop(`${at}.may`, `may ${m} "${v}" is wider than the neuron's own (${n.neuron}): the entry that names a neuron may only narrow it (SPEC 2.10)`);
+    return resolved(n, of, neuronFile);
+  });
+  if (unresolved) return out; // the rest assumes every neuron has its kind
   const ids = new Set<string>();
   net.neurons.forEach((n, i) => {
     if (ids.has(n.id)) add('error', `$.neurons[${i}].id`, `duplicate neuron id "${n.id}"`);

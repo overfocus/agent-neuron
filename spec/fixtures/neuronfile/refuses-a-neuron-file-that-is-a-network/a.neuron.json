@@ -1,0 +1,13 @@
+{
+  "version": 0,
+  "neurons": [
+    {
+      "id": "e",
+      "run": [
+        "neuron-e"
+      ]
+    }
+  ],
+  "entry": "e",
+  "exit": "e"
+}

@@ -41,7 +41,7 @@ One JSON object. An engine MUST fail a fixture with an unknown top-level field.
 | `independent` | boolean | `false` | The observer's injections only add traces of their own (6). |
 
 `inputs` are the producer: each is injected into its `source` at virtual millisecond `at`
-(SPEC 4.1). The network files are ordinary network files and pass `check` (SPEC 2.7), except those of a fixture with `refuses`. Their program
+(SPEC 4.1). The network files are ordinary network files and pass `check` (SPEC 2.7), except those of a fixture with `refuses`; a fixture's directory also holds the composed files (SPEC 2.6) and the neuron files (SPEC 2.10) its network names. Their program
 commands (`["neuron-a"]`) are names only: nothing runs them.
 
 ## 3. Comparison

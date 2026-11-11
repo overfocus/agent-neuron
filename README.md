@@ -53,7 +53,7 @@ quiescence): [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
 | Per-trace budgets, effects that are never cut, a live event stream | A neuron reporting its own spend |
 | A second complete engine in Rust (`rust-engine/`): real processes, `http` neurons (from a network file), `human` neurons on the desk, the MCP server `neuron-engine mcp` | `https` (needs a dependency policy) and packaging of the engine binary for npm |
 | Composed neurons: a whole network behind one wrapper, sealed from outside | Anything that learns: today each call is its own process and nothing is kept |
-| 231 conformance fixtures any other engine must pass (decisions 0012 and 0016's `may` included); recorded traces; a local page that draws a run | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
+| 245 conformance fixtures any other engine must pass (decisions 0012, 0016's `may` and 0019's neuron file included); recorded traces; a local page that draws a run | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
 
 ## Try it
 
@@ -114,7 +114,7 @@ The whole storm is this file, `spec/examples/alerts.network.json`. The programs 
 ## How it compares
 
 - **Unix pipes.** A level-0 neuron is a filter: a program that reads JSON on stdin and writes JSON on stdout. The difference is that neurons form a graph (many in, many out, loops allowed and bounded), not a line.
-- **Node-RED and similar flow files.** The shape is similar: a JSON file lists nodes and links. The difference I am trying for is that each node carries its own firing rules (threshold, staleness, budget, effect), and that those rules have a written specification and conformance fixtures, so another engine can be checked against the first. That has now happened three times: the TypeScript reference, a Python protocol test, and a complete Rust engine — all three pass the same 231 fixtures (the 21 of decision 0012 and the 7 of decision 0016's `may` included).
+- **Node-RED and similar flow files.** The shape is similar: a JSON file lists nodes and links. The difference I am trying for is that each node carries its own firing rules (threshold, staleness, budget, effect), and that those rules have a written specification and conformance fixtures, so another engine can be checked against the first. That has now happened three times: the TypeScript reference, a Python protocol test, and a complete Rust engine — all three pass the same 245 fixtures (the 21 of decision 0012, the 7 of decision 0016's `may` and the 14 of decision 0019's neuron file included).
 - **Agent frameworks.** They usually put a controller or planner in the middle. Here nothing in the middle decides; and no model is required, since a neuron can be any program. And the top-level deciding can belong to the team: quorum, gates and budgets are neuron fields, so three people agreeing on a merge is the same graph that triages forty alerts by itself (`npm run demo:team`).
 
 I have not benchmarked any of these against it, and this one is far smaller and younger than all of them.
@@ -336,7 +336,7 @@ Any further engine must give the same events as this one on
 the same inputs (the first Rust attempt was tried and stopped:
 [decision 0005](docs/decisions/0005-rust-engine-experiment.md); the engine now on
 `main` restarted from the text under the same terms —
-[decision 0009](docs/decisions/0009-rust-engine.md), covered below). The shared test is [`spec/fixtures/`](spec/fixtures/): 231
+[decision 0009](docs/decisions/0009-rust-engine.md), covered below). The shared test is [`spec/fixtures/`](spec/fixtures/): 245
 small fixtures, each a network file, scripted inputs, scripted neuron replies with
 latencies on a virtual clock, and the exact events expected, ids normalised. No
 process starts and no clock is read, so a run is exactly repeatable.
@@ -349,6 +349,7 @@ The format and the command-line contract any engine implements are in
 [docs/CONFORMANCE.md](docs/CONFORMANCE.md). None is pending; the fixtures under `budget/` pin the budget
 of version 0.1 and the `finished` event, `effect/` the effect option and the `unknown` outcome, `stream/` the live stream, and
 `ground/` the trail layer ([decision 0012](docs/decisions/0012-the-ground.md): deposits, ageing, the seeded draw), and
+`neuronfile/` a neuron described in a file of its own, which the network that names it may only narrow ([decision 0019](docs/decisions/0019-the-neuron-file.md)), and
 `may/` what a neuron's program is declared to touch ([decision 0016](docs/decisions/0016-the-self-describing-neuron.md): checked by every engine; the Rust engine holds a program to it on macOS when a run asks with `--confine`, [decision 0018](docs/decisions/0018-confining-a-program-to-its-may.md)).
 
 #### A second engine, in Python

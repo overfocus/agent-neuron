@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "An entry that names a neuron's file that does not exist is refused by check (2.7), so the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

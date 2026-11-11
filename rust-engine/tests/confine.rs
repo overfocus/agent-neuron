@@ -502,3 +502,50 @@ fn a_neuron_cannot_use_another_neurons_proxy() {
     assert_eq!(r.stdout().trim(), "curl:7", "{}", r.stderr());
     assert!(!r.stderr().contains("was refused a connection"), "{}", r.stderr());
 }
+
+// -- A neuron named by its own file (SPEC 2.10, decision 0019) ----------------
+
+/// A network whose one neuron `a` is named by `kit/a.neuron.json`, with
+/// `entry` as the entry's other members.
+fn named(temp: &Temp, own: &str, entry: &str) -> String {
+    temp.write("kit/a.neuron.json", own);
+    let entry = if entry.is_empty() { String::new() } else { format!(", {}", entry) };
+    format!(
+        "{{\"version\": 0, \"neurons\": [{{\"id\": \"src\", \"source\": true}}, {{\"id\": \"a\", \"neuron\": \"kit/a.neuron.json\"{}}}], \"links\": [{{\"from\": \"src\", \"to\": \"a\"}}]}}",
+        entry
+    )
+}
+
+/// The neuron's file is where its paths start: it runs in its own directory,
+/// and its `may` is read from there. Unconfined first, so the path rule is
+/// shown apart from the sandbox.
+#[test]
+fn a_neuron_file_runs_in_its_own_directory_and_its_may_is_read_from_there() {
+    let temp = Temp::new("neuronfile");
+    temp.write("kit/data/a.txt", "a");
+    temp.write("data/a.txt", "the using file's, not the neuron's");
+    let script = "/bin/pwd | /usr/bin/grep -q '/kit$' && where=kit || where=elsewhere; /bin/cat data/a.txt >/dev/null 2>&1 && r=yes || r=no; echo \"\\\"in:$where read:$r\\\"\"";
+    let own = format!(
+        "{{\"version\": 0, \"run\": [\"/bin/sh\", \"-c\", {}], \"may\": {{\"read\": [\"data\"]}}}}",
+        json_str(script)
+    );
+    let open = run(&temp, &named(&temp, &own, ""), None, &[]);
+    assert_eq!(open.stdout().trim(), "in:kit read:yes", "{}", open.stderr());
+    let held = run(&temp, &named(&temp, &own, ""), Some(&[]), &[]);
+    assert_eq!(held.stdout().trim(), "in:kit read:yes", "{}", held.stderr());
+}
+
+/// What the entry narrows is what the sandbox holds: the file may read its
+/// data, the entry that names it keeps nothing, and the program reads nothing.
+#[test]
+fn a_narrowed_may_is_the_one_the_sandbox_holds() {
+    let temp = Temp::new("neuronfile-narrow");
+    temp.write("kit/data/a.txt", "a");
+    let script = "/bin/cat data/a.txt >/dev/null 2>&1 && echo '\"read\"' || echo '\"denied\"'";
+    let own = format!(
+        "{{\"version\": 0, \"run\": [\"/bin/sh\", \"-c\", {}], \"may\": {{\"read\": [\"data\"]}}}}",
+        json_str(script)
+    );
+    let narrowed = run(&temp, &named(&temp, &own, "\"may\": {}"), Some(&[]), &[]);
+    assert_eq!(narrowed.stdout().trim(), "denied", "{}", narrowed.stderr());
+}

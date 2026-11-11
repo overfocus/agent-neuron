@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "`effect` is the neuron's own (2.10): declared in its file, it makes the neuron an effect in every network that names it, and a failure of a started call is unknown, as effect/a-non-zero-exit-and-junk-are-unknown-too has it inline.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":0,"source":"s","payload":2}
+  ],
+  "script": {
+    "notify": {"calls":[{"when":1,"after":10,"reply":{"error":"boom"}},{"when":2,"after":10,"reply":{"junk":"sent!"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"signal","t":0,"id":"#2","from":"s","to":["notify"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"unknown","t":10,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"neuron":"notify","message":"exit 1:","code":"exit","payload":{"type":"json","data":1}},
+    {"type":"unknown","t":10,"id":"#2","from":"s","to":["notify"],"trace":"#2","hops":0,"neuron":"notify","message":"not JSON:","code":"junk","payload":{"type":"json","data":2}}
+  ]
+}

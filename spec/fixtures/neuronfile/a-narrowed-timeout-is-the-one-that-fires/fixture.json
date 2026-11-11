@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "The entry that names a neuron's file may narrow its `timeout` (2.10): the file says 100 ms, the entry 20, and the call times out at 20.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":0,"reply":{"hang":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":20,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","message":"timed out after 20 ms","code":"timeout","payload":{"type":"json","data":1}},
+    {"type":"note","t":20,"neuron":"a","what":"cancel"},
+    {"type":"note","t":20,"neuron":"a","what":"term"}
+  ]
+}

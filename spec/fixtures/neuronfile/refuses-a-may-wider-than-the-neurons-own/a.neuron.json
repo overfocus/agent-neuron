@@ -1,0 +1,11 @@
+{
+  "version": 0,
+  "run": [
+    "neuron-a"
+  ],
+  "may": {
+    "connect": [
+      "api.example.test:443"
+    ]
+  }
+}

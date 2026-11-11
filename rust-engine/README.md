@@ -425,6 +425,17 @@ for event (wall-clock `t` zeroed, ids renormalised by first appearance), a
 peer-hosted graph is the local composed neuron answer for answer and event for
 event, and a graph spread over two engines answers as a wholly local run does.
 
+## A neuron named by its own file (SPEC 2.10, decision 0019)
+
+`{"id": "a", "neuron": "kit/a.neuron.json"}`: `net.rs` reads the file when it reads the entry
+(`neuron_of_file`), checks which side each option is on and that the entry only narrows `timeout`,
+`env` and `may`, and hands the rest of the validator the neuron as it would be written inline, its
+working directory written whole (the file's relative paths are the file's own). Nothing after the
+loader knows the kind: the engine, the trace, the peers and confinement see an ordinary neuron.
+Findings are anchored at the entry and name the file. Covered by the 14 fixtures of
+`spec/fixtures/neuronfile/`, `tests/check.rs` (each refusal's message) and two real-process tests in
+`tests/confine.rs`.
+
 ## Confinement — `run --confine` (decision 0018, S2a and S2b)
 
 `run <file> --confine <confine.json>` starts every `run` and `serve` program of the tree under

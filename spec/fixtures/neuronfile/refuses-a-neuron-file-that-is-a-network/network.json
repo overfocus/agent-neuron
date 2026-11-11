@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "refuses-a-neuron-file-that-is-a-network",
+  "description": "A neuron's file describes one program (2.10). A network file named as one is refused by check: a neuron whose inside is other neurons is named by `network`.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

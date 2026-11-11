@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "The entry that names a neuron's file may only narrow its `may` (2.10): the entry lists a host the file does not, so check refuses and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

@@ -123,6 +123,71 @@ def _ground(g, ids, path):
         raise CheckError(f"{path}: seed must be a whole number from 0 up")
 
 
+# A neuron named by its own file (SPEC 2.10, decision 0019). The entry that names it holds what is the
+# network's, and may restate `timeout`, `env` and `may` only to narrow them; the file holds the rest.
+ENTRY = COMMON | {"neuron", "threshold", "within", "maxHops", "cost", "timeout", "env", "may"}
+FILE_KINDS = ("run", "serve", "http", "human")
+
+
+def _resolve(n, i, base):
+    """The neuron an entry with `neuron` stands for, as it would be written inline; any other entry as it is."""
+    if not isinstance(n, dict) or "neuron" not in n:
+        return n
+    what = f"neurons[{i}]"
+    if any(k in n for k in KINDS):
+        raise CheckError(f"{what}: exactly one kind field required")
+    extra = set(n) - ENTRY
+    if extra:
+        raise CheckError(f"{what}: {sorted(extra)[0]} is the neuron's own: it is written in the neuron's file")
+    _literal(n["neuron"], "neuron")
+    path = os.path.join(base, n["neuron"])
+    try:
+        with open(path, encoding="utf-8") as fh:
+            of = json.load(fh)
+    except (OSError, ValueError) as e:
+        raise CheckError(f"{what}: the neuron file {n['neuron']}: {e}")
+    name = f"the neuron file {n['neuron']}"
+    if not isinstance(of, dict):
+        raise CheckError(f"{name}: not an object")
+    kinds = [k for k in FILE_KINDS if k in of]
+    if len(kinds) != 1:
+        raise CheckError(f"{name}: exactly one of run, serve, http, human required")
+    program = kinds[0] in ("run", "serve")
+    own = {"$schema", "version", "description", kinds[0], "timeout", "effect"} | ({"env", "cwd", "may"} if program else set())
+    extra = set(of) - own
+    if extra:
+        raise CheckError(f"{name}: {sorted(extra)[0]} is not the neuron's own")
+    if of.get("version") != 0 or isinstance(of.get("version"), bool):
+        raise CheckError(f"{name}: version must be 0")
+    # narrowing: the entry may ask for less than the file gives, never for more
+    limit = of.get("timeout", 30000)
+    if "timeout" in n and (not _isint(n["timeout"]) or not _isint(limit) or n["timeout"] > limit):
+        raise CheckError(f"{what}: timeout is wider than the neuron's own ({limit})")
+    for key in ("env", "may"):
+        if key in n and not program:
+            raise CheckError(f"{what}: {key} narrows a program's, and {name} is not a run or serve neuron")
+    if "env" in n:
+        theirs = of.get("env", [])
+        if not isinstance(n["env"], list) or not isinstance(theirs, list) or any(x not in theirs for x in n["env"]):
+            raise CheckError(f"{what}: env is wider than the neuron's own")
+    if "may" in n:
+        mine, theirs = n["may"], of.get("may", {})
+        if not isinstance(mine, dict) or not isinstance(theirs, dict):
+            raise CheckError(f"{what}: may is wider than the neuron's own")
+        for member, items in mine.items():
+            listed = theirs.get(member, [])
+            if not isinstance(items, list) or not isinstance(listed, list) or any(x not in listed for x in items):
+                raise CheckError(f"{what}: may.{member} is wider than the neuron's own")
+    merged = {k: v for k, v in of.items() if k not in ("$schema", "version")}
+    merged.update({k: v for k, v in n.items() if k != "neuron"})
+    if program:
+        if "cwd" in of:
+            _literal(of["cwd"], "cwd")
+        # the file's relative paths are relative to the file's own directory
+        merged["cwd"] = os.path.abspath(os.path.join(os.path.dirname(path), of.get("cwd", ".")))
+    return merged
+
+
 def _neuron(n, i):
     if not isinstance(n, dict):
         raise CheckError(f"neurons[{i}]: not an object")
@@ -210,6 +275,9 @@ def load(path, _stack=()):
     neurons = data.get("neurons")
     if not isinstance(neurons, list) or not neurons:
         raise CheckError(f"{path}: neurons must be a non-empty array")
+    neurons = [_resolve(n, i, base) for i, n in enumerate(neurons)]
+    data = dict(data)
+    data["neurons"] = neurons
     ids = {}
     for i, n in enumerate(neurons):
         kind = _neuron(n, i)
