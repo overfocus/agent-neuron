@@ -22,9 +22,10 @@ Three findings carry this record.
    sub-network has to be lifted into the outermost file, and a team behind one wrapper can only
    report.
 3. **The engine is a controller.** The whitepaper's claim is firing rules on the wrapper, not in a
-   controller. The SPEC nearly keeps it: `threshold`, `within`, `maxHops`, `timeout`, `effect`,
-   staleness by (sender, key) and forwarding along a neuron's own links are all local to the neuron
-   that receives the input. The Rust engine does not: one heap of wake-ups serves the whole graph,
+   controller. The SPEC nearly keeps it: `threshold`, `within`, `maxHops`, `timeout`, `effect`
+   and forwarding along a neuron's own links are all local to the neuron that receives the input,
+   and staleness by (sender, key) is too, except where the newer signal never reaches a target
+   that holds older work (SPEC Appendix E; corrected when S0 wrote the map). The Rust engine does not: one heap of wake-ups serves the whole graph,
    and under `--peers` the driver routes every signal (P2P.md's shape A, a hub by its own table).
 
 Kevin's direction, the same day: sandbox and identity come first; open the field budget; neurons
@@ -215,4 +216,9 @@ any time after S1 (it takes `may`), and the effect fold after S3 (it reads the f
 
 ## Where it stands
 
-Written and accepted 2026-11-11. No branch exists for any step; S0 is next.
+Written and accepted 2026-11-11. **S0 is written** on `feat/s0-local-global-map`: SPEC Appendix E
+(informative) marks each runtime rule local, link, global or static. It found four global things
+beyond point 7's four: ids that must not collide, the start (one `serve` neuron that is not ready
+refuses the whole run, 3.2), the desk's one page per run, and observers. It also found one cut a
+link must carry: 5.4's, to a target the newer signal never reaches. None of the five has an answer
+in this record.
