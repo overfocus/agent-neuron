@@ -118,11 +118,12 @@ What building it found:
   injections of a 1 KB payload through one `serve` neuron): memory grew about 2.6 KB per injection,
   to 59 MiB, and the time per injection from 0.05 ms to 0.09 ms. At one such injection a second
   that is about 220 MiB a day. A live run is good for hours or days, not for ever.
-- **A refused live injection does not end the run**, my reading: a file of inputs with a bad entry
+- **A refused live injection does not end the run**, accepted (Kevin, 2026-11-11): a file of inputs with a bad entry
   refuses the whole run before it starts, but a live producer's bad line arrives after others have
   been taken, and other producers may depend on the run. It is one line on stderr.
 - **The SPEC paragraph makes a live producer optional for an engine** (MAY), as confinement is.
+  Accepted (Kevin, 2026-11-11).
 
-**Next, before S4c:** forgetting finished traces. When a trace is finished (7.2) nothing can refer
+**Next, before S4c (accepted, Kevin, 2026-11-11):** forgetting finished traces. When a trace is finished (7.2) nothing can refer
 to its signals or its work again, so they can go; the run-over check becomes a count. It is the
 difference between a run that stays up and one that can.
