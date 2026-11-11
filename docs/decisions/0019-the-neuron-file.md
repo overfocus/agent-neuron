@@ -152,7 +152,7 @@ The confinement gate is met by two real-process tests in `rust-engine/tests/conf
 named by file runs in its file's directory with its `may` read from there, and a `may` the entry
 narrowed to nothing is the one the sandbox holds.
 
-Three things the build settled, each my reading:
+Three things the build settled, each **accepted (Kevin, 2026-11-11)**:
 
 - **An option is allowed in a neuron file only where it is on an inline neuron of that kind**: a
   `human` neuron's file cannot carry `env`, and an entry cannot narrow the `may` of an `http` neuron.
