@@ -456,6 +456,11 @@ pub struct RunOutcome {
     /// How many events the run reported. A live run keeps none of them
     /// (decision 0020), so `events` is empty there and this is the count.
     pub event_count: u64,
+    /// What the engine still held of its traces when the run ended: signals,
+    /// staleness entries, held inputs, pools. A run that is over has finished
+    /// every trace, and a finished trace is forgotten (decision 0020), so
+    /// this is 0; the conformance runner fails a fixture where it is not.
+    pub kept: usize,
     /// The run reached its deadline (a caller's `timeout_ms`) with work still
     /// open: the loop broke there, the teardown followed, and these are the
     /// facts of the run up to the deadline. Only the real host sets it.
@@ -510,6 +515,7 @@ impl RunOutcome {
             injected_traces: Vec::new(),
             answers: Vec::new(),
             event_count: 0,
+            kept: 0,
             timed_out: false,
         }
     }
@@ -556,6 +562,18 @@ pub struct Engine {
     pools: HashMap<u64, Units>,                 // trace -> the pool
     stale: BTreeMap<(ScopeKey, String, String), Vec<StaleEnt>>,
     traces: Vec<(u64, TraceInfo)>,
+    /// What the engine may forget (decision 0020). A trace that is finished
+    /// (7.2) can be referred to by nothing again, so its signals, its pool
+    /// and its bookkeeping go, and a run that does not end does not grow by
+    /// what it has finished. `low` is the first work record that may still be
+    /// open: every scan for open work starts there. The two maps say which
+    /// signals and work records a trace has (a composed call's inside is a
+    /// trace of its own, reached through the call); `forget_later` holds the
+    /// traces that are finished but whose last work is still winding down.
+    low: usize,
+    trace_sigs: HashMap<u64, Vec<u64>>,
+    trace_works: HashMap<u64, Vec<usize>>,
+    forget_later: Vec<u64>,
     injections: usize,
     obs_pending: usize,
     injected_roots: Vec<u64>,
@@ -653,6 +671,10 @@ impl Engine {
             pools: HashMap::new(),
             stale: BTreeMap::new(),
             traces: Vec::new(),
+            low: 0,
+            trace_sigs: HashMap::new(),
+            trace_works: HashMap::new(),
+            forget_later: Vec::new(),
             injections: 0,
             obs_pending: 0,
             injected_roots: Vec::new(),
@@ -1211,6 +1233,7 @@ impl Engine {
                     Step::Idle => break,
                 }
             }
+            self.tidy();
             let Some(next) = self.next_wake() else { break };
             self.now = next;
             let Some(w) = self.pop() else { break };
@@ -1220,6 +1243,15 @@ impl Engine {
         if self.is_real() {
             self.end_run_quietly();
         }
+        // The last trace finished in the last step: forget it as the others.
+        self.tidy();
+        let kept = self.sigs.len()
+            + self.stale.len()
+            + self.pools.len()
+            + self.trace_sigs.len()
+            + self.trace_works.len()
+            + self.forget_later.len()
+            + self.groups.values().filter(|held| !held.is_empty()).count();
         RunOutcome {
             events: std::mem::take(&mut self.events),
             refused: self.refused.take(),
@@ -1227,6 +1259,7 @@ impl Engine {
             injected_traces: std::mem::take(&mut self.injected_roots),
             answers: std::mem::take(&mut self.answers),
             event_count: self.event_count,
+            kept,
             timed_out,
         }
     }
@@ -1243,6 +1276,7 @@ impl Engine {
     /// (only a wake-up used to make it, and the real host would otherwise
     /// wait for the composed call's timeout).
     fn real_step(&mut self) -> Step {
+        self.tidy();
         let next = self.next_wake();
         let cap = match (next, self.deadline) {
             (Some(t), Some(d)) => Some(t.min(d)),
@@ -1364,7 +1398,7 @@ impl Engine {
         !self.live_inputs
             && self.injections == 0
             && self.obs_pending == 0
-            && self.works.iter().all(|w| w.done)
+            && self.works[self.low..].iter().all(|w| w.done)
             && self.groups.values().all(|list| list.is_empty())
             && !self.serves.values().any(|s| s.grace)
     }
@@ -1915,7 +1949,7 @@ impl Engine {
             .iter()
             .filter(|(trace, info)| !info.finished && Some(*trace) != excl)
             .filter(|(trace, _)| {
-                !self.works.iter().any(|w| w.trace == *trace && !w.done)
+                !self.works[self.low..].iter().any(|w| w.trace == *trace && !w.done)
                     && !self
                         .groups
                         .iter()
@@ -1924,9 +1958,10 @@ impl Engine {
             .map(|(trace, info)| (*trace, info.exhausted))
             .collect();
         for (trace, exhausted) in pending {
-            if let Some(ix) = self.traces.iter().position(|(t, _)| *t == trace) {
-                self.traces[ix].1.finished = true;
-            }
+            // A finished trace leaves the list: nothing asks about it again,
+            // and a list that kept every trace would be read whole each time.
+            self.traces.retain(|(t, _)| *t != trace);
+            self.forget_later.push(trace);
             let mut o = Obj::new()
                 .str("type", "finished")
                 .int("t", self.now_t())
@@ -1939,6 +1974,68 @@ impl Engine {
             }
             self.emit(0, o.build());
         }
+    }
+
+    /// The first work record that may still be open moves up past the ones
+    /// that are done, and the traces waiting to be forgotten are tried.
+    /// Called once a step: cheap when nothing changed.
+    fn tidy(&mut self) {
+        while self.low < self.works.len() && self.works[self.low].done {
+            self.low += 1;
+        }
+        if self.forget_later.is_empty() {
+            return;
+        }
+        let waiting = std::mem::take(&mut self.forget_later);
+        for trace in waiting {
+            if self.all_done(trace) {
+                self.forget(trace);
+            } else {
+                self.forget_later.push(trace);
+            }
+        }
+    }
+
+    /// Is every work record of the trace done, the inside of its composed
+    /// calls included? A finished trace may still have a cancelled program
+    /// winding down (6.2 rule 6); it is forgotten when that is over.
+    fn all_done(&self, trace: u64) -> bool {
+        self.trace_works.get(&trace).is_none_or(|works| {
+            works
+                .iter()
+                .all(|&w| self.works[w].done && self.works[w].inner_root.is_none_or(|inner| self.all_done(inner)))
+        })
+    }
+
+    /// Forget a finished trace (decision 0020): its signals with their
+    /// payloads, what its work records hold, its place in the staleness map
+    /// and the threshold groups, and the same for the inside of each of its
+    /// composed calls. The work records themselves stay, emptied: they are
+    /// named by their place in the list, and a late wake-up may still name
+    /// one (it finds it done, and does nothing).
+    fn forget(&mut self, trace: u64) {
+        let works = self.trace_works.remove(&trace).unwrap_or_default();
+        for &w in &works {
+            if let Some(inner) = self.works[w].inner_root {
+                self.forget(inner);
+            }
+            let work = &mut self.works[w];
+            work.inputs = Vec::new();
+            work.entry = None;
+            work.desk = None;
+        }
+        let sigs: HashSet<u64> = self.trace_sigs.remove(&trace).unwrap_or_default().into_iter().collect();
+        for sig in &sigs {
+            self.sigs.remove(sig);
+        }
+        // Finished work is unaffected by staleness (5.4), so its entries were
+        // only ever skipped; a threshold group that emptied has nothing held.
+        self.stale.retain(|_, list| {
+            list.retain(|ent| !sigs.contains(&ent.sig));
+            !list.is_empty()
+        });
+        self.groups.retain(|(_, t), list| *t != trace || !list.is_empty());
+        self.pools.remove(&trace);
     }
 
     fn disp(&self, node: usize) -> String {
@@ -2006,6 +2103,7 @@ impl Engine {
         self.next_id += 1;
         let trace = trace.unwrap_or(id);
         let scope = ScopeKey(inst, owner_call.unwrap_or(0));
+        self.trace_sigs.entry(trace).or_default().push(id);
         self.sigs.insert(
             id,
             SigRec {
@@ -2316,6 +2414,7 @@ impl Engine {
             desk: None,
         };
         let ix = self.works.len();
+        self.trace_works.entry(work.trace).or_default().push(ix);
         self.works.push(work);
         self.register_work(sig, ix);
         ix
@@ -2775,7 +2874,7 @@ impl Engine {
     /// out (its timeout, a staleness cut) discards it: a late reply is
     /// discarded and frees nothing.
     fn host_http_done(&mut self, idx: usize, out: crate::http::HttpOut) {
-        let Some(work) = self.works.iter().position(|w| w.http == Some(idx)) else {
+        let Some(work) = (self.low..self.works.len()).find(|&ix| self.works[ix].http == Some(idx)) else {
             return;
         };
         let running = self.works[work].running() && !self.works[work].cut && !self.works[work].reported;
@@ -2929,7 +3028,7 @@ impl Engine {
     /// `approve_text_of` rule, so what settled here is what `/state` reads
     /// back.
     fn desk_settle(&mut self, reply: crate::desk::Reply) {
-        let Some(work) = self.works.iter().position(|w| w.desk.as_deref() == Some(reply.item.as_str())) else {
+        let Some(work) = (self.low..self.works.len()).find(|&ix| self.works[ix].desk.as_deref() == Some(reply.item.as_str())) else {
             return;
         };
         let running = self.works[work].running() && !self.works[work].cut && !self.works[work].reported;
@@ -3051,6 +3150,7 @@ impl Engine {
         let rec = &self.sigs[&sig];
         let id = self.next_id;
         self.next_id += 1;
+        self.trace_sigs.entry(rec.trace).or_default().push(id);
         self.sigs.insert(
             id,
             SigRec {
@@ -4488,7 +4588,7 @@ impl Engine {
         if failed || !down {
             return;
         }
-        let other_open = self.works.iter().any(|w| w.open())
+        let other_open = self.works[self.low..].iter().any(|w| w.open())
             || self.groups.values().any(|l| !l.is_empty())
             || self.injections > 0
             || self.obs_pending > 0;
@@ -4825,16 +4925,14 @@ impl Engine {
     /// After each wake-up: does some composed call now have an inside with
     /// nothing running, queued or held and no reply from `exit`? (2.6 step 3)
     fn wake_composed_calls(&mut self) {
-        let calls: Vec<usize> = self
-            .works
-            .iter()
-            .enumerate()
+        let calls: Vec<usize> = (self.low..self.works.len())
+            .map(|ix| (ix, &self.works[ix]))
             .filter(|(_, w)| w.kind == WKind::Composed && w.open() && !w.exit_replied)
             .map(|(ix, _)| ix)
             .collect();
         for cw in calls {
             let Some(root) = self.works[cw].inner_root else { continue };
-            let inner_open = self.works.iter().any(|w| w.trace == root && w.open())
+            let inner_open = self.works[self.low..].iter().any(|w| w.trace == root && w.open())
                 || self.groups.iter().any(|((_, t), list)| *t == root && !list.is_empty());
             if inner_open {
                 continue;
@@ -4909,6 +5007,10 @@ impl Engine {
         // The call's timeout is the wire's: `start_composed` arms it with
         // the boundary's timeout (6.2), so the cut cancels the inside at it.
         self.nodes[node].timeout = timeout_ms;
+        // A hosted call is a trace of its own that no `finished` announces:
+        // it is forgotten once it and its inside are done, whichever way the
+        // call ends (the next step's tidy tries, and tries again).
+        self.forget_later.push(self.works[work].trace);
         self.start_new_call(work);
         while !self.works[work].done {
             if cancelled() {

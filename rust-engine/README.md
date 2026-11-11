@@ -452,13 +452,18 @@ closes and nothing is left. Anything that can write a line is a producer.
 - **A line the engine refuses does not end the run**: not JSON, an `at` (it counts from the start of
   a run, which a live producer cannot know), an unknown source, a key over 256 bytes, a budget the
   file does not allow. One line on stderr, `refused an injection ...`, and the run goes on.
-- **What it still keeps, and so what a long run costs.** The engine does not forget a finished
-  trace: its signals (payloads included), its work records and the staleness map stay for the life
-  of the run. Measured on one machine (Apple M3; 20,000 injections of a 1 KB payload through one
-  `serve` neuron, not a benchmark): memory grew by about 2.6 KB per injection, to 59 MiB, and the
-  time per injection from 0.05 ms to 0.09 ms, because the run-over check reads every work record.
-  A live run is good for hours or days at a modest rate, not for ever. Forgetting finished traces is
-  the next step, not this one.
+- **The engine forgets a finished trace.** When a trace is finished (SPEC 7.2) and the last of its
+  work is done, its signals with their payloads, its pool, its entries in the staleness map and its
+  threshold groups go (`Engine::forget`), the inside of its composed calls with them; a hosted call
+  is forgotten the same way. Every scan for open work starts at the first record that may still be
+  open (`low`), not at the first record. The conformance runner checks it: a fixture fails if the
+  engine still holds anything of its traces when the run is over.
+- **What a long run still costs.** The work records themselves stay, emptied: each is named by its
+  place in a list, and a late wake-up may still name one. Measured on one machine (Apple M3; 20,000
+  injections of a 1 KB payload through one `serve` neuron, not a benchmark): memory grows about
+  0.33 KB per injection whatever the payload's size (it was 2.6 KB, payload included), 10.6 MiB at
+  the end against 59 MiB, and the time per injection stays at 0.05 ms where it had risen to 0.09.
+  At one injection a second that is about 29 MiB a day: weeks, not for ever.
 - Covered by `tests/live.rs` (5): an answer while standard input is still open and the run waiting
   quietly after it, a `serve` neuron keeping its state across injections, each refusal with the run
   going on, a live key replacing running work, and the flags.

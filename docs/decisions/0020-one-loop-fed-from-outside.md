@@ -127,3 +127,19 @@ What building it found:
 **Next, before S4c (accepted, Kevin, 2026-11-11):** forgetting finished traces. When a trace is finished (7.2) nothing can refer
 to its signals or its work again, so they can go; the run-over check becomes a count. It is the
 difference between a run that stays up and one that can.
+
+**Forgetting is built** on `feat/s4-forget` (2026-11-11). A finished trace whose last work is done
+loses its signals and payloads, its pool, its staleness entries and its threshold groups, the
+inside of its composed calls included; a hosted call is forgotten the same way; and every scan for
+open work starts at the first record that may still be open. Nothing a run reports changed.
+
+- **The same measurement:** memory per injection fell from about 2.6 KB to about 0.33 KB and no
+  longer depends on the payload's size (10.6 MiB after 20,000 injections, against 59 MiB); the time
+  per injection stays at 0.05 ms where it had climbed to 0.09.
+- **The fixtures now test it.** The conformance runner fails a fixture if the engine still holds
+  anything of its traces when the run is over. All 246 pass; with forgetting switched off, 211 fail
+  on that check, so it bites.
+- **What is left, and why.** The work records stay, emptied. They are named by their place in a
+  list, and a wake-up armed long ago may still name one; it finds it done and does nothing. Freeing
+  them means naming work some other way, through the whole engine. About 0.33 KB a call, or 29 MiB a
+  day at one a second: a run is good for weeks now, and still not for ever.

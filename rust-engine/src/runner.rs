@@ -149,7 +149,16 @@ fn one_run(
             // start is a refusal of the whole run (SPEC 3.2, 5.3).
             return Err(RunFail::Refused(why));
         }
-        Ok(eng.run())
+        let outcome = eng.run();
+        // A run that is over has finished every trace, and the engine forgets
+        // a finished trace (decision 0020): every fixture checks it does.
+        if outcome.refused.is_none() && outcome.harness.is_none() && outcome.kept != 0 {
+            return Err(RunFail::Harness(format!(
+                "the engine still held {} records of its traces when the run was over",
+                outcome.kept
+            )));
+        }
+        Ok(outcome)
     }))
     .map_err(|payload| {
         RunFail::Harness(
