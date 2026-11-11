@@ -221,4 +221,5 @@ Written and accepted 2026-11-11. **S0 is written** on `feat/s0-local-global-map`
 beyond point 7's four: ids that must not collide, the start (one `serve` neuron that is not ready
 refuses the whole run, 3.2), the desk's one page per run, and observers. It also found one cut a
 link must carry: 5.4's, to a target the newer signal never reaches. None of the five has an answer
-in this record.
+in this record; [decision 0017](0017-the-cut-a-link-carries-and-readiness.md) answers the start and
+the cut and parks the other three. S0 merged to `main` on Kevin's go, 2026-11-11.
