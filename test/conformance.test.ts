@@ -85,6 +85,10 @@ const mutations: { name: string; edits: [from: string, to: string, count?: numbe
     "    this.report(scope, { type: 'signal', ...this.fields(sig), ...withKey(sig.replaces), payload: this.payload(sig.payload) });\n    if (sig.replaces !== undefined) this.makeStale(`${scope.id}\\0${sig.from}\\0${sig.replaces}`);\n",
     "    if (sig.replaces !== undefined) this.makeStale(`${scope.id}\\0${sig.from}\\0${sig.replaces}`);\n    this.report(scope, { type: 'signal', ...this.fields(sig), ...withKey(sig.replaces), payload: this.payload(sig.payload) });\n"]] },
   { name: 'threshold counting the same sender twice', edits: [['if (older) {', 'if (false as boolean) {'], ['new Set(held.map((h) => h.sig.from)).size < k', 'held.length < k']] },
+  { name: 'a key that reaches only the links the newer signal took (SPEC 5.4, decision 0017)', edits: [
+    ['    if (sig.replaces !== undefined) this.makeStale(`${scope.id}\\0${sig.from}\\0${sig.replaces}`);\n    for (const to of sig.to)', '    if (sig.replaces !== undefined) this.makeStale(`${scope.id}\\0${sig.from}\\0${sig.replaces}`, sig.to);\n    for (const to of sig.to)'],
+    ['  private makeStale(key: string) {\n    for (const w of this.stale.get(key) ?? []) {', '  private makeStale(key: string, only: string[] = []) {\n    for (const w of this.stale.get(key) ?? []) {\n      if (!only.includes(w.node.spec.id)) continue;'],
+  ] },
   { name: 'no cut by an earlier input of a running call (issue 17)', edits: [['if (w.call.cancelled || w.call.finished) continue;', 'if (w.call.cancelled || w.call.finished || w !== w.call.crossing) continue;']] },
   { name: 'an inner event leaking into the outer trace', edits: [['this.inner && ((e) => this.inner!(node.path, e))', '(e) => this.events.push(e)']] },
   { name: 'a reply with the same hops as its input', edits: [['to: [sig.from], hops: sig.hops + 1, replyTo', 'to: [sig.from], hops: sig.hops, replyTo']] },

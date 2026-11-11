@@ -1,0 +1,23 @@
+{
+  "fixture": 0,
+  "description": "A sender's newer signal makes its older one stale wherever the older one went (5.4): `r` first forwards to `a` alone, then, for a newer input with the same key, to `b` alone. No signal reaches `a` again, and its running call is cut all the same: a key reaches every outgoing link of its sender.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1,"replaces":"k"},
+    {"at":20,"source":"s","payload":2,"replaces":"k"}
+  ],
+  "script": {
+    "r": {"calls":[{"when":1,"after":10,"reply":{"answer":1,"to":["a"]}},{"when":2,"after":10,"reply":{"answer":2,"to":["b"]}}]},
+    "a": {"calls":[{"after":100,"reply":{"answer":"late"}}]},
+    "b": {"calls":[{"after":5,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["r"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":1}},
+    {"type":"answer","t":10,"id":"#2","from":"r","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":1}},
+    {"type":"signal","t":10,"id":"#3","from":"r","to":["a"],"trace":"#1","cause":"#2","hops":2,"replaces":"k","payload":{"type":"json","data":1}},
+    {"type":"signal","t":20,"id":"#4","from":"s","to":["r"],"trace":"#4","hops":0,"replaces":"k","payload":{"type":"json","data":2}},
+    {"type":"answer","t":30,"id":"#5","from":"r","to":["s"],"trace":"#4","replyTo":"#4","hops":1,"payload":{"type":"json","data":2}},
+    {"type":"signal","t":30,"id":"#6","from":"r","to":["b"],"trace":"#4","cause":"#5","hops":2,"replaces":"k","payload":{"type":"json","data":2}},
+    {"type":"drop","t":30,"id":"#3","from":"r","to":["a"],"trace":"#1","cause":"#2","hops":2,"neuron":"a","reason":"replaced","phase":"running","payload":{"type":"json","data":1}},
+    {"type":"quiet","t":35,"id":"#7","from":"b","to":["r"],"trace":"#4","replyTo":"#6","hops":3}
+  ]
+}

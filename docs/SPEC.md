@@ -466,8 +466,17 @@ to stdin and closes it, ignoring write errors (a program need not read stdin).
 
 ### 3.2 Level 1: `serve`
 
-One process per neuron (per instance), started when the engine starts. If it
-does not reach `ready` within `timeout`, the engine refuses to start.
+One process per neuron (per instance), started when the engine starts. It is
+**ready** when its process has said `ready`; a neuron of any other kind is ready at once.
+
+**Readiness folds outward** ([decision 0017](decisions/0017-the-cut-a-link-carries-and-readiness.md)).
+A network is ready when every neuron it contains is ready, a composed neuron (2.6) when its inside
+is. A `serve` neuron that does not reach `ready` within its `timeout` has failed to start, and so
+has every network that contains it, outward to the network the engine was asked to run: the engine
+refuses to start. Nothing is delivered to a network that is not ready. Only what a network contains
+is folded: an `http` neuron names another party's endpoint, and is ready whatever that party is
+doing. After the start nothing folds: a neuron whose later restarts fail is failed (below), and the
+network around it keeps running.
 
 **Framing.** UTF-8, one JSON object per line ended by `\n` (`\r\n` tolerated
 on read), at most 1 MiB, blank lines ignored, every object has a string
@@ -700,6 +709,21 @@ with key *K* from sender *S* makes every older signal of the same (*S*, *K*)
 
 Finished work is unaffected, and so is what it forwarded: staleness does not
 travel down a chain. Each hop replaces on its own sender's key.
+
+**A key reaches every outgoing link of its sender** ([decision 0017](decisions/0017-the-cut-a-link-carries-and-readiness.md)).
+The older signal may have gone where the newer one does not: a level 1 reply may name some of its
+links (3.2), and the ground forwards along one (4.5). The older work is stale all the same. So a
+signal with a key is delivered to the neurons in its `to`, and every other neuron its sender has an
+outgoing link to receives a **cut**: the sender and the key, and nothing else. A neuron treats a cut
+as the arrival of a newer input of that (sender, key) with no input in it: its older work for the
+pair is made stale by the rules above, and nothing is held, queued or run. A cut for a pair it has
+no work for does nothing. A cut is not a signal and not an event: the `drop` it causes is the record
+(6.2 rule 2 places it), and it is delivered at the instant its signal is emitted.
+
+An engine that holds the work of every neuron in one place applies this by holding it, and sends
+nothing. Where the sender and a target are held apart, the cut is what crosses between them. If it
+cannot be delivered, the work there is not made stale: it ends as it would have, and its answer is
+forwarded. That is the one case in which this section is best effort, and it is never an error.
 
 **Any replaced input cuts a running threshold call.** The call is stale when any
 input it was built from is stale, not only the one that crossed. One drop is
@@ -973,7 +997,7 @@ after 10; `b` is quiet after 5. Expected (this is `spec/fixtures/routing/chain-f
 {"type":"quiet","t":15,"id":"#4","from":"b","to":["a"],"trace":"#1","replyTo":"#3","hops":3}
 ```
 
-The fixtures cover routing, threshold, staleness (issue 17 included), `maxHops`, composed
+The fixtures cover routing, threshold, staleness (issue 17 included, and a newer signal sent elsewhere than the older one), `maxHops`, composed
 neurons and sealing, every row of the 6.1 table that an engine can reach, the 6.2 order, the
 end of a run, level 1 (handshake, queueing, cancel, ping, restart), observers and
 the version 0.1 budget (`budget/`: reserve, commit, refusal, the pool of a trace, a composed cap, `finished`),
@@ -1482,7 +1506,7 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 2.9 | A confined run is refused whole when one program cannot be held | global | One neuron's `may` decides for the network, as G6. |
 | 3.1 | Level 0: input, output, failures, cancel, stderr | local | Wrapper and program only. |
 | 3.2 | Level 1: framing, messages, `re`, slots, cancel, `timeout`, ping, restart, junk | local | Wrapper and program only. |
-| 3.2 | "If it does not reach `ready` within `timeout`, the engine refuses to start" | global | One neuron's failure decides for the whole network (G6). |
+| 3.2 | Readiness folds outward: a network is ready when every neuron it contains is | local | Each container decides from what it contains; the outermost one not being ready is the run refused (G6, answered by decision 0017). |
 | 3.2 | Reply `to`: each id an outgoing link | local | The neuron's own links. |
 | 3.3, 3.4 | `http`, `human` | local | Wrapper and endpoint, wrapper and person. Appendix D's one page per run is shared by every `human` neuron (informative, G7). |
 | 4.1 | Injection: a root signal at a source, its `to`, its key | local | The source's wrapper. |
@@ -1497,7 +1521,7 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 5.2 | Threshold: groups by (neuron, trace), distinct senders, `within` | local | The receiver's own inputs; the sender is on the signal. |
 | 5.3 | `maxHops` | local | `hops` is on the signal. |
 | 5.4 | Staleness, when the newer signal reaches the same target | local | The target sees the newer (sender, key) input and cuts its own older work. |
-| 5.4 | Staleness, when the newer signal does not reach a target that holds older work (a reply's `to` named a subset, or the ground drew another link) | link | The sender must tell that target; no input arrives there to do it. |
+| 5.4 | Staleness, when the newer signal does not reach a target that holds older work (a reply's `to` named a subset, or the ground drew another link) | link | The sender tells that target with a cut: a key reaches every outgoing link of its sender (5.4, decision 0017). |
 | 5.4 | A stale answer is discarded; an effect call is not cut; a running threshold call is cut by any of its inputs | local | The receiver's own work. |
 | 6.1 | Every failure row but the three below | local | Wrapper and program. |
 | 6.1 | `budget` | global | The pool (G1). |
@@ -1542,12 +1566,12 @@ Everything marked global above is one of these.
 | G3 | One list on one clock | 6.2 rules 1 and 2, 7.2 `t`, 8, 9.1, the order of draws in 4.5 and 10.3 |
 | G4 | The ground | 4.5 |
 | G5 | Ids that do not collide | 4.1, 7 |
-| G6 | The start: one `serve` neuron that is not ready refuses the whole run | 3.2 |
+| G6 | The start: one `serve` neuron that is not ready refuses the whole run. Answered: readiness folds outward, so each container decides for itself | 3.2 |
 | G7 | The desk: one page for every `human` neuron of a run | Appendix D (informative) |
 | G8 | Observers: a reader of the whole stream | 9, 9.1, 11.4 |
 
-And one thing a link must carry that it does not carry today: the cut of 5.4 to a target the newer
-signal never reaches.
+And one thing a link must carry besides the signal: the cut of 5.4, to a target the newer signal
+never reaches.
 
 Decision 0016 answers G1 to G3 and leaves G4 to a record of its own. G5 to G8 and the link cut were
-found by writing this map.
+found by writing this map; decision 0017 answers the cut and G6 and parks G5, G7 and G8.

@@ -1,0 +1,43 @@
+{
+  "version": 0,
+  "name": "a-newer-signal-sent-elsewhere-cuts-the-older-work",
+  "description": "A sender's newer signal makes its older one stale wherever the older one went (5.4): `r` first forwards to `a` alone, then, for a newer input with the same key, to `b` alone. No signal reaches `a` again, and its running call is cut all the same: a key reaches every outgoing link of its sender.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "r",
+      "serve": [
+        "neuron-r"
+      ]
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "r"
+    },
+    {
+      "from": "r",
+      "to": "a"
+    },
+    {
+      "from": "r",
+      "to": "b"
+    }
+  ]
+}
