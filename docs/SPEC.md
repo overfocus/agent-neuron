@@ -25,7 +25,7 @@ Contents
 11. Effects (normative)
 
 Appendices (informative): A. Walk-through: one alert. B. Out of version 0.1.
-C. How the TypeScript library differs. D. A page for `human` neurons.
+C. How the TypeScript library differs. D. A page for `human` neurons. E. Where each rule lives.
 
 ## 0. Quick start for neuron authors (informative)
 
@@ -1290,3 +1290,100 @@ interface to the engine.
 - **Nothing is fetched from elsewhere.** The page loads its fonts from its own origin and runs one inline script under
   a nonce; every value from an input is shown as text, never parsed as HTML.
 
+
+## Appendix E. Where each rule lives (informative)
+
+A map, not a rule: nothing here changes what an engine does, and no fixture pins it. It marks each
+runtime rule of sections 2.6 and 3 to 11 by what must be known to apply it, so that the work of
+[decision 0016](decisions/0016-the-self-describing-neuron.md) (the engine as the wrapper of one
+neuron) can be read off the text. A **wrapper** is whatever applies the rules for one neuron; today
+one engine is the wrapper of every neuron at once.
+
+| Mark | Meaning |
+|---|---|
+| **local** | One neuron's wrapper can apply it from its own declaration, the inputs delivered to it, its program and its outgoing links. |
+| **link** | The two ends of a link must exchange something besides the signal. |
+| **global** | It needs state shared by neurons that no link joins, or a view of the whole network. |
+| **static** | It reads files, not a run (`check`, 2.7). Not a runtime rule; listed where a section mixes the two. |
+
+A composed neuron's wrapper contains its inside (2.6), so "global to the inside" is local to that
+wrapper: the same four global things below recur at every boundary, one level down.
+
+### E.1 The map
+
+| Section | Rule | Mark | Why |
+|---|---|---|---|
+| 2.6 | One shared inner network per instance; steps 1, 2, 4, 5, 7; sealing | local | The composed neuron's wrapper holds its inside. |
+| 2.6 | Step 3: the inside has nothing running, queued or held for the call | global (inside) | The end of a call's inner work, G2 below, one level down. |
+| 2.6 | Step 6: `cost` and the inner `budget` bound the inside (10.5) | local | The boundary owns the inner trace's pool. |
+| 3.1 | Level 0: input, output, failures, cancel, stderr | local | Wrapper and program only. |
+| 3.2 | Level 1: framing, messages, `re`, slots, cancel, `timeout`, ping, restart, junk | local | Wrapper and program only. |
+| 3.2 | "If it does not reach `ready` within `timeout`, the engine refuses to start" | global | One neuron's failure decides for the whole network (G6). |
+| 3.2 | Reply `to`: each id an outgoing link | local | The neuron's own links. |
+| 3.3, 3.4 | `http`, `human` | local | Wrapper and endpoint, wrapper and person. Appendix D's one page per run is shared by every `human` neuron (informative, G7). |
+| 4.1 | Injection: a root signal at a source, its `to`, its key | local | The source's wrapper. |
+| 4.1 | A new id, and a `trace` that is that id | global | Ids must not collide across the network (G5). |
+| 4.1 | An injection may lower the trace's budget | global | The pool (G1). |
+| 4.2 | Delivery to each neuron in `to`; each is independent work | local | The sender's links. The order of `to` matters to others only through G1 and G3. |
+| 4.3 | Reply to the sender | local | Carried by the input: its `from`, `id`, `trace`, `hops`. |
+| 4.4 | Forward along outgoing links; key set, cleared or inherited; two hops per neuron | local | The neuron's links and the input's fields. |
+| 4.5 | The ground: a value per place, deposits, evaporation | global | Any reply may write any place, and a draw at one neuron reads its targets' places (G4). |
+| 4.5 | One generator per engine, one draw per omitted-`to` reply | global | The sequence of draws follows the order of every neuron's replies (G4, G3). |
+| 5.1 | Order at a delivery: hops, hold, run | local | |
+| 5.2 | Threshold: groups by (neuron, trace), distinct senders, `within` | local | The receiver's own inputs; the sender is on the signal. |
+| 5.3 | `maxHops` | local | `hops` is on the signal. |
+| 5.4 | Staleness, when the newer signal reaches the same target | local | The target sees the newer (sender, key) input and cuts its own older work. |
+| 5.4 | Staleness, when the newer signal does not reach a target that holds older work (a reply's `to` named a subset, or the ground drew another link) | link | The sender must tell that target; no input arrives there to do it. |
+| 5.4 | A stale answer is discarded; an effect call is not cut; a running threshold call is cut by any of its inputs | local | The receiver's own work. |
+| 6.1 | Every failure row but the three below | local | Wrapper and program. |
+| 6.1 | `budget` | global | The pool (G1). |
+| 6.1 | `inner` | global (inside) | 2.6 step 3. |
+| 6.1 | `start`: an input to a failed neuron | local | The neuron's own state. |
+| 6.2 | Rule 1: work due at one instant runs in the order it was scheduled | global | One scheduler and one clock across neurons (G3). |
+| 6.2 | Rule 2: a signal's event, then the drops it caused, then each target's delivery effects in `to` order | global | It orders what several wrappers report in one list (G3). The order within one target is local. |
+| 6.2 | Rules 3, 4, 5, 7: reply before forward; a running drop when the work goes stale; a call ending as its input goes stale is stale; an outcome at the timeout instant goes first | local | One wrapper's own events on its own clock. |
+| 6.2 | Rule 6: when a run is over | global | Nothing open anywhere (G2). |
+| 6.2 | Rule 8: where `finished` goes | global | G2 and G3. |
+| 6.3 | `cancel`, `term`, `kill`, `restart`, `junk` notes | local | Facts about the wrapper's own process. |
+| 6.3 | `reserve`, `commit` notes | local | Written by the call's wrapper. The reservation itself is G1. |
+| 6.3 | `inject` note | global | An observer's act (G8). |
+| 7.1 | The header: every neuron and link, one `demo`, one `engine` | global | A description of the whole network. |
+| 7.2 | What each event carries; the payload cut; `phase`, `code`, `forwarded` | local | One wrapper's fact. |
+| 7.2 | One event list; `t` in ms since the run started | global | One list and one clock (G3). |
+| 7.2 | `finished`, its `status` and `remaining` | global | G2, and for `remaining` G1. |
+| 8 | The virtual clock, the one compared list, normalisation by first appearance | global | Conformance is written for one list (G3). It stays the test of wrappers that share a host. |
+| 9 | An observer reads the events and may inject into a source | global | A view of the whole network from outside it (G8). The injection itself is 4.1, local. |
+| 9.1 | The stream is the trace | global | One stream (G3). |
+| 10.1 | `cost` on a neuron | local | |
+| 10.1 | `budget` on the file; every neuron under it declares a `cost` | static | |
+| 10.2 | One pool per trace; a forward draws from its trace's pool | global | G1. |
+| 10.3 | Reserving; a refusal; targets of one signal draw in `to` order | global | G1; the draw order is also G3. |
+| 10.3 | A held input reserves nothing; a queued call reserves when its slot frees | local | When the wrapper asks. |
+| 10.4 | Committing: the reservation on every outcome, `ms`, `basis` | local | In version 0.1 a commit returns nothing to the pool, so it writes nothing shared. A usage claim below the reservation (10.8) would make it G1. |
+| 10.5 | The pool of a composed call's inner trace | local | Held at the boundary: the composed neuron's wrapper is the owner. |
+| 10.6 | A loop ends at the pool or at `maxHops` | global, local | G1; 5.3. |
+| 11.1 to 11.3 | An effect call is not cut; its answer is recorded; `unknown` | local | The wrapper's own call. |
+| 11.4 | Reconciling | global | A producer or an observer, outside (G8). |
+| 11.5 | No `effect` inside a composed file | static | |
+| 11.6 | A trace waits for a running stale effect call | global | G2. |
+
+### E.2 The global things
+
+Everything marked global above is one of these.
+
+| | The thing | Where |
+|---|---|---|
+| G1 | The budget pool of a trace | 4.1, 6.1 `budget`, 7.2 `remaining`, 10.2, 10.3, 10.6 |
+| G2 | The end: of a run, of a trace, of a composed call's inside | 2.6 step 3, 6.1 `inner`, 6.2 rules 6 and 8, 7.2 `finished`, 11.6 |
+| G3 | One list on one clock | 6.2 rules 1 and 2, 7.2 `t`, 8, 9.1, the order of draws in 4.5 and 10.3 |
+| G4 | The ground | 4.5 |
+| G5 | Ids that do not collide | 4.1, 7 |
+| G6 | The start: one `serve` neuron that is not ready refuses the whole run | 3.2 |
+| G7 | The desk: one page for every `human` neuron of a run | Appendix D (informative) |
+| G8 | Observers: a reader of the whole stream | 9, 9.1, 11.4 |
+
+And one thing a link must carry that it does not carry today: the cut of 5.4 to a target the newer
+signal never reaches.
+
+Decision 0016 answers G1 to G3 and leaves G4 to a record of its own. G5 to G8 and the link cut were
+found by writing this map.
