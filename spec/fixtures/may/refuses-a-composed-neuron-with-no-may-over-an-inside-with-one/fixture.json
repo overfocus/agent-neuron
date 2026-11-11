@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "A `may` that is absent grants nothing (2.4), on a composed neuron too: its inside declares a path it may read and the composed neuron declares no `may`, so check refuses (2.7) and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":{"n":1},"replaces":"k"}
+  ],
+  "expect": [
+
+  ]
+}

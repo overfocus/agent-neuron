@@ -501,6 +501,54 @@ fn check_refusal_an_at_that_is_not_three_numbers() {
     assert!(errs[0].contains("at is three numbers"), "{}", errs[0]);
 }
 
+/// `may` (SPEC 2.4, decision 0016): the two fixtures that run check clean, and
+/// each refusal's own message.
+#[test]
+fn check_takes_may_and_refuses_a_bad_one() {
+    for fixture in ["may/may-changes-nothing", "may/a-composed-neuron-declares-what-its-inside-may"] {
+        let path = fixture_network(fixture);
+        let diags = check::tree(path.to_string_lossy().as_ref());
+        assert!(err_lines(&diags).is_empty(), "{}: {}", fixture, err_lines(&diags).join("\n"));
+    }
+    for (fixture, want) in [
+        ("may/refuses-a-may-with-an-unknown-member", "may has no member 'exec'"),
+        (
+            "may/refuses-a-may-connect-that-is-not-host-and-port",
+            "may.connect: 'api.example.test' is not host:port",
+        ),
+        ("may/refuses-a-may-on-a-source", "option 'may' is not allowed on a source"),
+        (
+            "may/refuses-a-composed-neuron-whose-may-does-not-cover-its-inside",
+            "the may of 'diag' does not cover its inside: 'x' may connect 'other.example.test:443' (2.7)",
+        ),
+        (
+            "may/refuses-a-composed-neuron-with-no-may-over-an-inside-with-one",
+            "the may of 'diag' does not cover its inside: 'e' may read 'data' (2.7)",
+        ),
+    ] {
+        let path = fixture_network(fixture);
+        let diags = check::tree(path.to_string_lossy().as_ref());
+        let errs = err_lines(&diags);
+        assert_eq!(errs.len(), 1, "{}: {}", fixture, errs.join("\n"));
+        assert!(errs[0].contains(want), "{}: {}", fixture, errs[0]);
+    }
+}
+
+/// The fold's finding sits on the composed neuron: at its `may` when it has
+/// one, at its `network` key when it has none.
+#[test]
+fn check_places_the_fold_error_on_the_composed_neuron() {
+    for (fixture, line) in [
+        ("may/refuses-a-composed-neuron-whose-may-does-not-cover-its-inside", 13),
+        ("may/refuses-a-composed-neuron-with-no-may-over-an-inside-with-one", 12),
+    ] {
+        let path = fixture_network(fixture);
+        let diags = check::tree(path.to_string_lossy().as_ref());
+        let error = diags.iter().find(|d| d.error).expect("one error");
+        assert_eq!(error.pos.map(|p| p.line), Some(line), "{}", fixture);
+    }
+}
+
 #[test]
 fn check_takes_at_on_every_neuron() {
     let path = fixture_network("descriptive/at-changes-nothing");

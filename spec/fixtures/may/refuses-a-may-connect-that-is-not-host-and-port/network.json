@@ -1,0 +1,28 @@
+{
+  "version": 0,
+  "name": "refuses-a-may-connect-that-is-not-host-and-port",
+  "description": "A `connect` or `listen` entry is `host:port` (2.4): a host with no port is refused by check, so the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "may": {
+        "connect": [
+          "api.example.test"
+        ]
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

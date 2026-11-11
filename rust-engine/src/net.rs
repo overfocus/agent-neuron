@@ -43,6 +43,62 @@ pub struct Opts {
     pub effect: bool,
     pub cost: Option<Units>,
     pub cwd: Option<String>,
+    /// What the program is allowed to touch (SPEC 2.4, decision 0016).
+    /// Checked, not yet enforced: nothing that runs a program reads it.
+    pub may: Option<May>,
+}
+
+/// A `may` (SPEC 2.4): four lists, each as the file wrote it. A member the
+/// file leaves out is empty here: it grants nothing either way.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct May {
+    pub connect: Vec<String>,
+    pub listen: Vec<String>,
+    pub read: Vec<String>,
+    pub write: Vec<String>,
+}
+
+pub const MAY_MEMBERS: [&str; 4] = ["connect", "listen", "read", "write"];
+
+impl May {
+    pub fn member(&self, name: &str) -> &Vec<String> {
+        match name {
+            "connect" => &self.connect,
+            "listen" => &self.listen,
+            "read" => &self.read,
+            _ => &self.write,
+        }
+    }
+    fn member_mut(&mut self, name: &str) -> &mut Vec<String> {
+        match name {
+            "connect" => &mut self.connect,
+            "listen" => &mut self.listen,
+            "read" => &mut self.read,
+            _ => &mut self.write,
+        }
+    }
+}
+
+/// The fold of SPEC 2.7 (decision 0016): what a composed neuron declares it
+/// may touch covers what the neurons of its file declare, member by member
+/// and string by string. Returns the first thing `outer` lacks, as a message.
+pub fn may_fold_error(outer: &Node, inner: &Network) -> Option<String> {
+    let none = May::default();
+    let mine = outer.opts.may.as_ref().unwrap_or(&none);
+    for n in &inner.nodes {
+        let Some(theirs) = &n.opts.may else { continue };
+        for member in MAY_MEMBERS {
+            for v in theirs.member(member) {
+                if !mine.member(member).contains(v) {
+                    return Some(format!(
+                        "the may of '{}' does not cover its inside: '{}' may {} '{}' (2.7)",
+                        outer.id, n.id, member, v
+                    ));
+                }
+            }
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone)]
@@ -928,6 +984,7 @@ fn neuron(nv: &Value, i: usize, scan: &Scan, span: Span, out: &mut Vec<Diag>) ->
             "maxHops" | "timeout" | "cost" => true,
             "effect" => !is_network,
             "env" | "cwd" => is_command,
+            "may" => is_command || is_network,
             _ => false,
         };
         if !allowed {
@@ -1029,7 +1086,82 @@ fn neuron(nv: &Value, i: usize, scan: &Scan, span: Span, out: &mut Vec<Diag>) ->
         let (cost_anchor, cost_probe) = crate::net::anchor_point(scan, (span.0, span.1.min(scan.len())), "cost");
         opts.cost = units(x, &format!("{}: cost", what), scan, cost_anchor, cost_probe, "cost", out);
     }
+    if let Some(x) = nv.get("may") {
+        opts.may = Some(may(x, &what, scan, span, out));
+    }
     Node { id, desc, at, kind, opts }
+}
+
+/// `host:port` (2.4): lower-case letters, digits, dots and hyphens, starting
+/// and ending with a letter or digit, at most 253; then a port from 1 to 65535
+/// with no leading zero.
+fn is_host_port(s: &str) -> bool {
+    let Some((host, port)) = s.rsplit_once(':') else { return false };
+    let edge = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit();
+    let host_ok = !host.is_empty()
+        && host.len() <= 253
+        && host.chars().all(|c| edge(c) || c == '.' || c == '-')
+        && host.chars().next().is_some_and(edge)
+        && host.chars().last().is_some_and(edge);
+    let port_ok = !port.is_empty()
+        && port.len() <= 5
+        && !port.starts_with('0')
+        && port.chars().all(|c| c.is_ascii_digit())
+        && port.parse::<u32>().is_ok_and(|p| p <= 65_535);
+    host_ok && port_ok
+}
+
+/// A `may` (2.4): a closed object of `connect`, `listen`, `read` and `write`,
+/// each an array of unique literal strings; the first two hold `host:port`,
+/// the last two paths that are not empty. The diagnostics sit at `may`.
+fn may(v: &Value, what: &str, scan: &Scan, span: Span, out: &mut Vec<Diag>) -> May {
+    let mut m = May::default();
+    let Value::Obj(entries) = v else {
+        push(span, scan, "may", &format!("{}: may is an object", what), out);
+        return m;
+    };
+    for (member, items) in entries {
+        if !MAY_MEMBERS.contains(&member.as_str()) {
+            push(span, scan, "may", &format!("{}: may has no member '{}'", what, member), out);
+            continue;
+        }
+        let Some(items) = items.as_arr() else {
+            push(span, scan, "may", &format!("{}: may.{} is an array of strings", what, member), out);
+            continue;
+        };
+        let mut seen: Vec<String> = Vec::new();
+        for item in items {
+            let Some(s) = item.as_str().filter(|s| is_literal(s)) else {
+                push(
+                    span,
+                    scan,
+                    "may",
+                    &format!("{}: may.{} is an array of literal strings", what, member),
+                    out,
+                );
+                continue;
+            };
+            let net = matches!(member.as_str(), "connect" | "listen");
+            if net && !is_host_port(s) {
+                push(
+                    span,
+                    scan,
+                    "may",
+                    &format!("{}: may.{}: '{}' is not host:port", what, member, s),
+                    out,
+                );
+            } else if !net && s.is_empty() {
+                push(span, scan, "may", &format!("{}: may.{}: a path is not empty", what, member), out);
+            }
+            if seen.iter().any(|x| x == s) {
+                push(span, scan, "may", &format!("{}: may.{} names '{}' twice", what, member, s), out);
+            } else {
+                seen.push(s.to_string());
+            }
+        }
+        *m.member_mut(member) = seen;
+    }
+    m
 }
 
 /// How many kind fields the neuron carries.

@@ -1,0 +1,43 @@
+{
+  "version": 0,
+  "name": "a-composed-neuron-declares-what-its-inside-may",
+  "description": "A composed neuron's `may` covers what the neurons of its file declare (2.7, decision 0016): here it names everything they name and one thing more, so the file checks and runs as composed/entry-to-exit-and-onward does.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json",
+      "may": {
+        "connect": [
+          "api.example.test:443",
+          "spare.example.test:443"
+        ],
+        "read": [
+          "data"
+        ],
+        "write": [
+          "out"
+        ]
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    },
+    {
+      "from": "diag",
+      "to": "b"
+    }
+  ]
+}

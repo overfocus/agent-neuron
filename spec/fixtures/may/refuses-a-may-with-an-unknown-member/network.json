@@ -1,0 +1,28 @@
+{
+  "version": 0,
+  "name": "refuses-a-may-with-an-unknown-member",
+  "description": "`may` is closed (2.4): its members are `connect`, `listen`, `read` and `write`. Another member is refused by check, so the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "may": {
+        "exec": [
+          "tool"
+        ]
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}
