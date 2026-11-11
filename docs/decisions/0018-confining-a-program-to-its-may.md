@@ -186,7 +186,7 @@ neuron's proxy.
 
 What building it found:
 
-- **A third addition to the baseline, my reading, to be struck or kept:** every confined program
+- **A third addition to the baseline, accepted (Kevin, 2026-11-11):** every confined program
   may read the system's TLS configuration and trust roots (`/private/etc/ssl`). `curl` does not
   start without it, and nothing in it is secret.
 - **A proxy that forwards a request as it came is wrong.** A program sends the proxy the whole URL;
