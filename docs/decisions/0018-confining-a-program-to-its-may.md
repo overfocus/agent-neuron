@@ -201,7 +201,7 @@ What building it found:
 confinement means for any engine that offers it (it fails closed, the baseline, paths, connections,
 nothing reported), 2.4 and the quick start point at it, and Appendix C says which engine confines
 where. No fixture: conformance starts no process. Three things the SPEC text settles that this
-record left loose, each my reading:
+record left loose, each **accepted (Kevin, 2026-11-11)**:
 
 - **Confinement is optional for an engine** (MAY), and the rules bind one that offers it.
 - **A proxy is allowed, not required.** The rule is that nothing unlisted is reached; an engine with
