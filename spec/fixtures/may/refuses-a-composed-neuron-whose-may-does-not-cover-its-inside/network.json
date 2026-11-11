@@ -1,0 +1,36 @@
+{
+  "version": 0,
+  "name": "refuses-a-composed-neuron-whose-may-does-not-cover-its-inside",
+  "description": "A composed neuron's `may` must cover its inside (2.7, decision 0016): an inner neuron may connect to a host the composed neuron does not name, so check refuses and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json",
+      "may": {
+        "connect": [
+          "api.example.test:443"
+        ]
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    },
+    {
+      "from": "diag",
+      "to": "b"
+    }
+  ]
+}

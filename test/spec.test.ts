@@ -170,6 +170,28 @@ describe('network schema v0', () => {
     expect(broken(() => {}, (s) => (s.neurons[0].effect = true)).join()).toContain('may not contain an effect neuron');
   });
 
+  it('takes `may` on run, serve and network neurons: a closed shape, and a composed neuron covers its inside (decision 0016)', () => {
+    const full = { connect: ['api.example.test:443'], listen: ['127.0.0.1:8080'], read: ['data', '/srv/in'], write: ['out'] };
+    expect(broken((n) => (n.neurons[1].may = full))).toEqual([]);
+    expect(broken((n) => (n.neurons[1].may = {}))).toEqual([]);
+    expect(broken((n) => (n.neurons[0].may = {})).join()).toContain('unknown field "may"'); // a source
+    expect(broken((n) => (n.neurons[1].may = { exec: ['tool'] })).join()).toContain('unknown field "exec"');
+    expect(broken((n) => (n.neurons[1].may = { read: 'data' })).join()).toContain('expected an array');
+    expect(broken((n) => (n.neurons[1].may = { read: ['data', 'data'] })).join()).toContain('items must be unique');
+    expect(broken((n) => (n.neurons[1].may = { read: [''] })).join()).toContain('too short');
+    expect(broken((n) => (n.neurons[1].may = { write: ['${OUT}'] })).join()).toContain('must not match');
+    for (const bad of ['api.example.test', 'api.example.test:0', 'api.example.test:65536', 'api.example.test:080', '*.example.test:443', 'API.example.test:443', '[::1]:443', ':443']) {
+      expect(broken((n) => (n.neurons[1].may = { connect: [bad] })).join(), bad).toContain('does not match');
+    }
+    for (const good of ['localhost:1', '10.0.0.7:65535', 'a-b.example.test:8443']) expect(broken((n) => (n.neurons[1].may = { listen: [good] })), good).toEqual([]);
+    // the fold: neurons[5] is the composed diagnosis neuron
+    const inside = (s: Record<string, any>) => (s.neurons[0].may = { connect: ['api.example.test:443'], read: ['data'] });
+    expect(broken(() => {}, inside).join()).toContain('does not cover its inside');
+    expect(broken((n) => (n.neurons[5].may = { connect: ['api.example.test:443'] }), inside)).toEqual([expect.stringContaining('may read "data"')]);
+    expect(broken((n) => (n.neurons[5].may = { read: ['api.example.test:443', 'data'], connect: ['api.example.test:443'] }), inside)).toEqual([]);
+    expect(broken((n) => (n.neurons[5].may = { connect: ['spare.example.test:443'] }))).toEqual([]); // more than the inside needs is allowed
+  });
+
   it('finds a composed network file that is missing, or lacks entry or exit', () => {
     expect(broken((n) => (n.neurons[5].network = 'gone.network.json')).join()).toContain('file not found');
     expect(broken(() => {}, (s) => delete s.entry).join()).toContain('needs "entry"');

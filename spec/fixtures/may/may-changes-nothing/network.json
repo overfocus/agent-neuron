@@ -1,0 +1,49 @@
+{
+  "version": 0,
+  "name": "may-changes-nothing",
+  "description": "SPEC 8.4's worked fixture with a `may` on both programs (2.4, decision 0016): one that names all four members, one that is empty. A `may` is checked and changes nothing an engine reports, so the events are those of routing/chain-forward-with-cause.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "may": {
+        "connect": [
+          "api.example.test:443"
+        ],
+        "listen": [
+          "127.0.0.1:8080"
+        ],
+        "read": [
+          "data",
+          "/srv/in"
+        ],
+        "write": [
+          "out"
+        ]
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "may": {}
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

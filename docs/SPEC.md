@@ -1,7 +1,8 @@
 # agent-neuron specification, version 0.1
 
 Status: draft. Version 0.1 is version 0 plus budgets and the `finished` event
-(section 10), effects with the `unknown` outcome (section 11) and the live trace stream (9.1); a network file's `version` stays `0`, because the new fields are
+(section 10), effects with the `unknown` outcome (section 11), the live trace stream (9.1) and the `may`
+declaration (2.4); a network file's `version` stays `0`, because the new fields are
 additions. The spec may change in any way until it is called 1; a change
 is one commit to this file, `spec/network.schema.json` and the fixtures
 together. MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Each section
@@ -89,6 +90,10 @@ Rules you will hit:
   neuron's `env`. No `HOME`, no virtualenv variables, no API keys unless you
   list their names (`"env": ["OPENAI_API_KEY"]`). Use an absolute interpreter
   path, or name what the interpreter needs.
+- **What your program may touch is declared, not yet enforced.** A neuron's `may` names the hosts it
+  may connect to, the addresses it may listen on and the paths it may read and write; without one it
+  is declared to touch nothing (2.4). Engines check the declaration today and do not yet confine the
+  program, so write a `may` as the truth about your program, and do not read one as a jail.
 - **Logs go to stderr.** Level 1 stdout carries protocol lines only.
 - **Answer a `cancel`.** The engine keeps a cancelled call's slot until you reply for
   its `re`; send `quiet` (the reply is discarded). A neuron that never does is
@@ -218,9 +223,36 @@ program's working directory.
 | `cwd` | path | the directory of the file that declares the neuron | run, serve | working directory |
 | `cost` | units (10.1) | none | all but source | what one call reserves, and the most it may consume (10) |
 | `effect` | `true` | none | run, serve, http, human | a started call is never cut by staleness; its failures are `unknown` (11) |
+| `may` | object (below) | none: nothing | run, serve, network | what the neuron's program is allowed to touch |
 
 A program's environment is empty except `PATH` and the `env` names (a name the
 engine lacks stays unset). `threshold` and `within` are not allowed on `network`.
+
+**`may`** ([decision 0016](decisions/0016-the-self-describing-neuron.md)) is a closed object of four
+members, each optional, each an array of unique literal strings:
+
+| Member | Entries | Declares |
+|---|---|---|
+| `connect` | `host:port` | the outgoing connections the program may make |
+| `listen` | `address:port` | the addresses the program may accept connections on |
+| `read` | paths | the files or trees the program may read |
+| `write` | paths | the files or trees the program may write |
+
+- **Absent grants nothing.** A neuron with no `may`, a `may` of `{}`, a member left out and a member
+  that is `[]` all declare the same for what they leave out: none of it.
+- **`host:port`** is a host or address of lower-case letters, digits, dots and hyphens that starts and
+  ends with a letter or digit, at most 253 characters, then `:` and a port from 1 to 65535 with no
+  leading zero. There is no wildcard and no bracketed address in this version.
+- **A path** is a literal that is not empty, written as the program would name it: relative to the
+  neuron's working directory, or absolute.
+- **On a `network` neuron** `may` declares what its inside may touch, and it MUST cover what the
+  neurons of its file declare: for each member, every string a neuron of that file lists is listed
+  by the `network` neuron too, compared as written. A composed neuron inside counts by its own
+  `may`. `check` reports the first thing it lacks as an error (2.7). It MAY list more.
+- **An engine MUST check `may` and, in this version, need not enforce it.** The declaration and its
+  checks are fixed here; confining a program to its `may` is not yet in this text (Appendix B). An
+  engine that does not confine MUST NOT be described as doing so. `may` changes nothing an engine
+  reports: no event, no note, no field of the trace.
 
 ### 2.5 Links
 
@@ -287,12 +319,13 @@ or `cost` amount that is not a whole number from 0 to 2^53 - 1, a `cost` naming 
 file's `budget` lacks, an empty `budget` or `cost`, or a non-source neuron with no `cost` in a file that
 has a `budget` (10.1) (errors); a `network` file that contains a neuron with `effect` (11.5) (error); a `cost` above the file's ceiling in some unit (the neuron can never run),
 or a `network` neuron whose file has neurons costing a unit its `cost` does not name (those calls are always
-refused, 10.5) (warnings); an executable that cannot be found (warning).
+refused, 10.5) (warnings); an executable that cannot be found (warning); a `network` neuron whose `may` does not cover what the
+neurons of its file declare (2.4) (error).
 
 ### 2.8 Field budget (informative)
 
 10 top-level fields (`budget` is the ninth, `ground` the tenth — [decision
-0012](decisions/0012-the-ground.md)); per neuron `id`, `description`, `at`, one kind field, at most 8
+0012](decisions/0012-the-ground.md)); per neuron `id`, `description`, `at`, one kind field, at most 9
 options; 2 per link. A new field must answer one question: does it say how
 neurons connect, or how one decides? Deciders are programs. A second, closed
 class of field is descriptive (for people and tools, acted on by no engine):
@@ -302,7 +335,9 @@ the rule. Version 0.1 added `budget` (the ninth top-level field), `cost` (the se
 eighth): a limit on spend is the engine's to enforce, not a program's to declare for itself, the same class
 as `timeout` and `maxHops` ([decision 0006](decisions/0006-budgets.md)); whether staleness may cut a call,
 and what a failure of it means, is likewise the engine's to apply, not something a program can do for itself
-([decision 0007](decisions/0007-effects-and-the-live-stream.md)).
+([decision 0007](decisions/0007-effects-and-the-live-stream.md)). `may` is the ninth, admitted when the budget was
+reopened for it: what a program may touch is a limit of the same class, since a program cannot be trusted to
+confine itself ([decision 0016](decisions/0016-the-self-describing-neuron.md)).
 
 ## 3. The neuron contract (normative)
 
@@ -836,7 +871,8 @@ neurons and sealing, every row of the 6.1 table that an engine can reach, the 6.
 end of a run, level 1 (handshake, queueing, cancel, ping, restart), observers and
 the version 0.1 budget (`budget/`: reserve, commit, refusal, the pool of a trace, a composed cap, `finished`),
 effects (`effect/`: a call staleness does not cut, an answer recorded and not forwarded, `unknown` after a crash, a hang or a timeout, cost committed) and
-the live stream (`stream/`).
+the live stream (`stream/`) and `may` (`may/`: the shape, the kinds it is allowed on, a composed neuron that
+covers its inside and two that do not).
 
 ### 8.5 The observer rule
 
@@ -1154,6 +1190,9 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
   a composed neuron; byte-level fixtures and real-process fixtures; hot reload.
 - Distribution: the engine will ship as a binary inside the npm and pip
   packages (the esbuild and ruff pattern).
+- `may`, later ([decision 0016](decisions/0016-the-self-describing-neuron.md)): confining a program to what
+  it declares, and what an engine does where it cannot; wildcards and bracketed addresses; a `may` on a source
+  that carries a program; a neuron described by a file of its own, which the file that uses it may narrow.
 - Effects, later: an engine-held `unknown` that blocks a key until reconciled, a retry policy, effects
   inside a composed file (11.5).
 - Budgets, later: usage claims in level 1 replies, an owed ledger, spend per source or per time
@@ -1210,6 +1249,8 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
 - **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` only for a scripted observer;
   `reserve` and `commit` with a budget.
 - **Effects** (section 11): all of it. `unknown` is a separate event type; the `forwarded` mark is on the `answer` event.
+- **`may`** (2.4): checked, the fold included; not enforced. A program runs with the rights of whoever started
+  the engine, whatever its `may` says.
 - **Budgets** (section 10): all of it. A call's `ms` is read from `performance.now()` in real runs, rounded to whole ms.
 - **Process start failure** (no such executable) is an `exit` error, `exit 127:`
   then the reason; the table in 6.1 has no row for it.
@@ -1316,6 +1357,7 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 2.6 | One shared inner network per instance; steps 1, 2, 4, 5, 7; sealing | local | The composed neuron's wrapper holds its inside. |
 | 2.6 | Step 3: the inside has nothing running, queued or held for the call | global (inside) | The end of a call's inner work, G2 below, one level down. |
 | 2.6 | Step 6: `cost` and the inner `budget` bound the inside (10.5) | local | The boundary owns the inner trace's pool. |
+| 2.4 | `may`: the shape, and a composed neuron covering its inside | static | Confining a program to it, once in the text, is local: the wrapper starts the program. |
 | 3.1 | Level 0: input, output, failures, cancel, stderr | local | Wrapper and program only. |
 | 3.2 | Level 1: framing, messages, `re`, slots, cancel, `timeout`, ping, restart, junk | local | Wrapper and program only. |
 | 3.2 | "If it does not reach `ready` within `timeout`, the engine refuses to start" | global | One neuron's failure decides for the whole network (G6). |

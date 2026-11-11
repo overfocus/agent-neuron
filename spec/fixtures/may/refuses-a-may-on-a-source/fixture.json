@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "`may` is an option of `run`, `serve` and `network` neurons (2.4): a source has no program to allow anything, so a `may` on one is refused by check and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

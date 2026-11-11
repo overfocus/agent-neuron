@@ -8,8 +8,11 @@ import { delimiter, dirname, join, normalize, resolve } from 'node:path';
 export type NeuronSpec = {
   id: string; description?: string; at?: [number, number, number];
   source?: true; run?: string[]; serve?: string[]; http?: string; human?: true; network?: string;
-  threshold?: number; within?: number; maxHops?: number; timeout?: number; env?: string[]; cwd?: string; cost?: Record<string, number>; effect?: true;
+  threshold?: number; within?: number; maxHops?: number; timeout?: number; env?: string[]; cwd?: string; cost?: Record<string, number>; effect?: true; may?: MaySpec;
 };
+/** What a neuron's program is allowed to touch (SPEC 2.4, decision 0016). A member that is absent grants nothing. */
+export type MaySpec = { connect?: string[]; listen?: string[]; read?: string[]; write?: string[] };
+const MAY = ['connect', 'listen', 'read', 'write'] as const;
 /** The ground (SPEC 4.5, decision 0012): deposits per place, evaporation, and one-link routing for replies that name no `to`. */
 export type GroundSpec = {
   deposit?: { on: string; add: string; by?: string }; // the payload fields a reply deposits: the place name and the amount
@@ -233,6 +236,10 @@ export function check(file: string, seen: string[] = [], shown?: string): Findin
     if (sub.neurons.some((x) => x.effect)) add('error', `${at}.network`, `${n.network} is used as a composed neuron and may not contain an effect neuron (SPEC 11.5)`);
     if (sub.neurons.some((x) => x.source)) add('error', `${at}.network`, `${n.network} is used as a composed neuron and may not contain a source`);
     if (sub.ground !== undefined) add('error', `${at}.network`, `${n.network} is used as a composed neuron and may not declare a ground (SPEC 4.5)`);
+    // the fold (SPEC 2.7, decision 0016): what a composed neuron declares it may touch covers what its inside declares
+    for (const x of sub.neurons) for (const m of MAY) for (const v of x.may?.[m] ?? []) {
+      if (!(n.may?.[m] ?? []).includes(v)) add('error', n.may ? `${at}.may` : at, `the may of "${n.id}" does not cover its inside: "${x.id}" in ${n.network} may ${m} "${v}" (SPEC 2.7)`);
+    }
     const lacking = [...new Set(sub.neurons.flatMap((x) => Object.keys(x.cost ?? {})))].filter((u) => n.cost && !(u in n.cost));
     if (lacking.length) add('warning', at, `${n.network} has neurons costing ${lacking.join(', ')}, which the cost of "${n.id}" does not name: those calls are always refused (SPEC 10.5)`);
     if (sub.exit && (sub.links ?? []).some((l) => l.from === sub.exit)) add('error', `${at}.network`, `${n.network}: "exit" may not have outgoing links`);

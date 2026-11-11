@@ -85,6 +85,17 @@ pub fn load_network_tree(path: &Path) -> std::result::Result<(Network, HashMap<S
             },
         );
     }
+    // The fold (SPEC 2.7, decision 0016): every composed neuron of the tree
+    // declares at least what its file's neurons may touch.
+    for net in std::iter::once(&root).chain(files.values().map(|f| &f.net)) {
+        for n in &net.nodes {
+            if let net::Kind::Network(rel) = &n.kind {
+                if let Some(why) = files.get(rel).and_then(|inner| net::may_fold_error(n, &inner.net)) {
+                    return Err(vec![format!("{}: {}", path.to_string_lossy(), why)]);
+                }
+            }
+        }
+    }
     Ok((root, files))
 }
 

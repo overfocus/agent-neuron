@@ -94,6 +94,25 @@ fn visit(path: &Path, composed: bool, out: &mut Vec<Diag>, seen: &mut HashSet<Pa
             });
             continue;
         }
+        // The fold (2.7, decision 0016): the composed neuron's `may` covers
+        // what its file's neurons declare. A file with errors of its own
+        // reports those, and is not folded.
+        if let Ok(inner_text) = std::fs::read_to_string(&inner_path) {
+            let mut inner_diags = Vec::new();
+            let inner_net = net::check_text(&inner_text, true, &mut inner_diags);
+            if !inner_diags.iter().any(|d| d.error) {
+                if let Some(why) = net::may_fold_error(n, &inner_net) {
+                    let span = neuron_spans.get(i).copied().unwrap_or(NONE_SPAN);
+                    let key = if n.opts.may.is_some() { "may" } else { "network" };
+                    out.push(Diag {
+                        error: true,
+                        file: Some(name.clone()),
+                        pos: scan.at(span, key),
+                        message: why,
+                    });
+                }
+            }
+        }
         visit(&inner_path, true, out, seen);
     }
 }

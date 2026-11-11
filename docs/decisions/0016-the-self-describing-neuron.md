@@ -223,3 +223,21 @@ refuses the whole run, 3.2), the desk's one page per run, and observers. It also
 link must carry: 5.4's, to a target the newer signal never reaches. None of the five has an answer
 in this record; [decision 0017](0017-the-cut-a-link-carries-and-readiness.md) answers the start and
 the cut and parks the other three. S0 merged to `main` on Kevin's go, 2026-11-11.
+
+**S1 is built** on `feat/s1-may` (2026-11-11): `may` in SPEC 2.4, 2.7 and 2.8, the schema, and seven
+fixtures in `spec/fixtures/may/`; the TypeScript, Python and Rust engines check it and pass them, and
+none enforces it (the SPEC says so in 2.4 and Appendix C). Three things S1 settled or moved, each a
+reading to be overridden:
+
+- **The narrowing refusal moved to S3.** S1's gate named it, but narrowing needs two declarations of
+  one neuron (its own file's, and the using file's), and until S3 a neuron has one. S1 pins the fold
+  refusal, twice: a `may` that lacks something its inside declares, and no `may` over an inside that
+  declares one.
+- **The fold compares strings as written**, member by member. It does not resolve a path against a
+  directory or treat a tree as covering the files under it; what a path means on disk is S2's.
+- **`may` is strict where 0016 left its edges open:** lower-case hosts, ports 1 to 65535, no wildcard,
+  no bracketed address, and not on `http`, `human` or `source`. Each can be loosened later without
+  breaking a file that checks today.
+
+One finding for S2: a program that takes a path from a variable named in `env` (the notify example's
+`SENT_LOG`) cannot have that path in a literal `may`. No example file carries a `may` yet for that reason.

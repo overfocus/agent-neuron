@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "`may` is closed (2.4): its members are `connect`, `listen`, `read` and `write`. Another member is refused by check, so the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

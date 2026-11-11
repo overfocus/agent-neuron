@@ -1,0 +1,31 @@
+{
+  "version": 0,
+  "name": "refuses-a-composed-neuron-with-no-may-over-an-inside-with-one",
+  "description": "A `may` that is absent grants nothing (2.4), on a composed neuron too: its inside declares a path it may read and the composed neuron declares no `may`, so check refuses (2.7) and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "diag",
+      "network": "inner.network.json"
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "diag"
+    },
+    {
+      "from": "diag",
+      "to": "b"
+    }
+  ]
+}

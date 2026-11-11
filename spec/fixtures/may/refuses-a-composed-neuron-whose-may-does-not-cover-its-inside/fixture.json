@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "A composed neuron's `may` must cover its inside (2.7, decision 0016): an inner neuron may connect to a host the composed neuron does not name, so check refuses and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":{"n":1},"replaces":"k"}
+  ],
+  "expect": [
+
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "version": 0,
+  "description": "The network inside a composed neuron.",
+  "neurons": [
+    {
+      "id": "e",
+      "run": [
+        "neuron-e"
+      ],
+      "may": {
+        "connect": [
+          "api.example.test:443"
+        ]
+      }
+    },
+    {
+      "id": "x",
+      "run": [
+        "neuron-x"
+      ],
+      "may": {
+        "connect": [
+          "other.example.test:443"
+        ]
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "e",
+      "to": "x"
+    }
+  ],
+  "entry": "e",
+  "exit": "x"
+}

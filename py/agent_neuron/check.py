@@ -14,15 +14,17 @@ KINDS = ("source", "run", "serve", "http", "human", "network")
 COMMON = {"id", "description", "at"}  # `at`: descriptive, for a drawing (decision 0011)
 OPTS = {
     "source": set(),
-    "run": {"threshold", "within", "maxHops", "timeout", "env", "cwd", "cost", "effect"},
-    "serve": {"threshold", "within", "maxHops", "timeout", "env", "cwd", "cost", "effect"},
+    "run": {"threshold", "within", "maxHops", "timeout", "env", "cwd", "cost", "effect", "may"},
+    "serve": {"threshold", "within", "maxHops", "timeout", "env", "cwd", "cost", "effect", "may"},
     "http": {"threshold", "within", "maxHops", "timeout", "cost", "effect"},
     "human": {"threshold", "within", "maxHops", "timeout", "cost", "effect"},
-    "network": {"maxHops", "timeout", "cost"},
+    "network": {"maxHops", "timeout", "cost", "may"},
 }
 TOP = {"$schema", "version", "name", "description", "neurons", "links", "entry", "exit", "budget", "ground"}
 GROUND = {"deposit", "evaporate", "select", "base", "power", "seed"}
 MAX_AMOUNT = 2**53 - 1
+MAY = ("connect", "listen", "read", "write")  # what a program may touch (SPEC 2.4, decision 0016)
+HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$")
 
 
 class CheckError(Exception):
@@ -56,6 +58,33 @@ def _units(v, what):
             raise CheckError(f"{what}: bad unit name {k!r}")
         if not _isint(a) or a < 0 or a > MAX_AMOUNT:
             raise CheckError(f"{what}: amount of {k} must be a whole number from 0 to 2^53-1")
+
+
+def _host_port(s):
+    """`host:port` (2.4): lower-case letters, digits, dots and hyphens, then a port from 1 to 65535."""
+    host, sep, port = s.rpartition(":")
+    if not sep or not HOST_RE.match(host):
+        return False
+    return port.isascii() and port.isdigit() and port[0] != "0" and int(port) <= 65535
+
+
+def _may(m, what):
+    """A `may` (2.4): a closed object of four members, each an array of unique literal strings."""
+    if not isinstance(m, dict):
+        raise CheckError(f"{what}: may must be an object")
+    extra = set(m) - set(MAY)
+    if extra:
+        raise CheckError(f"{what}: may: unknown member {sorted(extra)[0]}")
+    for member, items in m.items():
+        if not isinstance(items, list) or not all(isinstance(x, str) for x in items) or len(set(items)) != len(items):
+            raise CheckError(f"{what}: may.{member} must be an array of unique strings")
+        for x in items:
+            _literal(x, f"{what}.may.{member}")
+            if member in ("connect", "listen"):
+                if not _host_port(x):
+                    raise CheckError(f"{what}: may.{member}: {x!r} is not host:port")
+            elif not x:
+                raise CheckError(f"{what}: may.{member}: a path is not empty")
 
 
 def _ground(g, ids, path):
@@ -150,6 +179,8 @@ def _neuron(n, i):
         _units(n["cost"], f"neurons[{i}].cost")
     if "effect" in n and n["effect"] is not True:
         raise CheckError(f"neurons[{i}]: effect must be true")
+    if "may" in n:
+        _may(n["may"], f"neurons[{i}]")
     return kind
 
 
@@ -248,6 +279,13 @@ def load(path, _stack=()):
                 raise CheckError(f"{n['network']}: composed file may not contain an effect neuron")
             if "ground" in sub:
                 raise CheckError(f"{n['network']}: composed file may not declare ground")
+            # the fold (2.7, decision 0016): the composed neuron's may covers what its inside declares
+            mine = n.get("may", {})
+            for x in sub["neurons"]:
+                for member in MAY:
+                    for v in x.get("may", {}).get(member, []):
+                        if v not in mine.get(member, []):
+                            raise CheckError(f"{path}: the may of {i} does not cover its inside: {x['id']} may {member} {v!r}")
             inner[i] = sub
     data = dict(data)
     data["_inner"] = inner
