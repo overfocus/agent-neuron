@@ -349,7 +349,7 @@ The format and the command-line contract any engine implements are in
 [docs/CONFORMANCE.md](docs/CONFORMANCE.md). None is pending; the fixtures under `budget/` pin the budget
 of version 0.1 and the `finished` event, `effect/` the effect option and the `unknown` outcome, `stream/` the live stream, and
 `ground/` the trail layer ([decision 0012](docs/decisions/0012-the-ground.md): deposits, ageing, the seeded draw), and
-`may/` what a neuron's program is declared to touch ([decision 0016](docs/decisions/0016-the-self-describing-neuron.md): checked by every engine, not yet enforced by any).
+`may/` what a neuron's program is declared to touch ([decision 0016](docs/decisions/0016-the-self-describing-neuron.md): checked by every engine; the Rust engine holds a program to it on macOS when a run asks with `--confine`, [decision 0018](docs/decisions/0018-confining-a-program-to-its-may.md)).
 
 #### A second engine, in Python
 

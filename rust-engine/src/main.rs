@@ -17,7 +17,7 @@ use std::path::Path;
 
 fn usage() -> ! {
     eprintln!("usage: neuron-engine conform <dir> [--only <text>]");
-    eprintln!("       neuron-engine run <file> --inputs <jsonl> [--trace <out.json>] [--stream <path>] [--ping <ms>] [--grants <json>] [--peers <json>]");
+    eprintln!("       neuron-engine run <file> --inputs <jsonl> [--trace <out.json>] [--stream <path>] [--ping <ms>] [--grants <json>] [--peers <json>] [--confine <json>]");
     eprintln!("       neuron-engine check <file>");
     eprintln!("       neuron-engine mcp");
     eprintln!("       neuron-engine peer --listen <host:port> --token <hex> [--name <name>]");
@@ -127,7 +127,7 @@ fn run(args: &[String]) {
     if flags
         .named
         .iter()
-        .any(|(n, _)| !matches!(n.as_str(), "inputs" | "trace" | "stream" | "ping" | "grants" | "peers"))
+        .any(|(n, _)| !matches!(n.as_str(), "inputs" | "trace" | "stream" | "ping" | "grants" | "peers" | "confine"))
     {
         usage();
     }
@@ -172,6 +172,7 @@ fn run(args: &[String]) {
         ping_every,
         grants: get("grants"),
         peers: get("peers"),
+        confine: get("confine"),
     };
     match run::run_with_stream(&file, &opts, sink) {
         Ok(result) => {

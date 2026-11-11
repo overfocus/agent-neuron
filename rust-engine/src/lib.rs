@@ -2,6 +2,7 @@
 // (conformance), the real host with `run` (M1), the http client and the desk
 // (M2), the MCP surface (M3).
 pub mod check;
+pub mod confine;
 pub mod desk;
 pub mod engine;
 pub mod fixture;
