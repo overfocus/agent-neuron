@@ -436,6 +436,33 @@ Findings are anchored at the entry and name the file. Covered by the 14 fixtures
 `spec/fixtures/neuronfile/`, `tests/check.rs` (each refusal's message) and two real-process tests in
 `tests/confine.rs`.
 
+## A live run — `run --inputs -` (decision 0020, S4a and S4b)
+
+`run <file> --inputs - --stream <path>` takes its injections from standard input as they arrive, one
+JSON object per line (`{source, payload, replaces?, budget?}`), and stays up until standard input
+closes and nothing is left. Anything that can write a line is a producer.
+
+- **One loop.** The run's loop and a hosted call's loop are one step, `Engine::real_step`, and each
+  is that step plus what ends it (S4a). An injection is one more host event, `Ev::Inject`, read by a
+  thread of its own and stamped when read, so it is injected at that instant; `Ev::InputsClosed` is
+  the producer saying it is done (S4b).
+- **A live run keeps nothing it has reported.** It requires `--stream` and refuses `--trace`: each
+  event goes to the stream as it happens and is not kept, and each answer of a neuron with no
+  outgoing links is printed on stdout as it happens.
+- **A line the engine refuses does not end the run**: not JSON, an `at` (it counts from the start of
+  a run, which a live producer cannot know), an unknown source, a key over 256 bytes, a budget the
+  file does not allow. One line on stderr, `refused an injection ...`, and the run goes on.
+- **What it still keeps, and so what a long run costs.** The engine does not forget a finished
+  trace: its signals (payloads included), its work records and the staleness map stay for the life
+  of the run. Measured on one machine (Apple M3; 20,000 injections of a 1 KB payload through one
+  `serve` neuron, not a benchmark): memory grew by about 2.6 KB per injection, to 59 MiB, and the
+  time per injection from 0.05 ms to 0.09 ms, because the run-over check reads every work record.
+  A live run is good for hours or days at a modest rate, not for ever. Forgetting finished traces is
+  the next step, not this one.
+- Covered by `tests/live.rs` (5): an answer while standard input is still open and the run waiting
+  quietly after it, a `serve` neuron keeping its state across injections, each refusal with the run
+  going on, a live key replacing running work, and the flags.
+
 ## Confinement — `run --confine` (decision 0018, S2a and S2b)
 
 `run <file> --confine <confine.json>` starts every `run` and `serve` program of the tree under

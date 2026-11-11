@@ -105,4 +105,25 @@ and no `at` on a live injection.
 
 ## Where it stands
 
-Written and accepted 2026-11-11. S4a is merged. S4b is next, on `feat/s4b-live-inputs`.
+Written and accepted 2026-11-11. S4a is merged. **S4b is built** on `feat/s4b-live-inputs`
+(2026-11-11): `run <file> --inputs - --stream <path>`, an injection as a host event, a run that waits
+for a producer that has not finished, `tests/live.rs` (5 real-process tests), and a paragraph in
+SPEC 4.1 saying what a live producer is.
+
+What building it found:
+
+- **The engine never forgets a finished trace**, which this record did not name. It named the event
+  list and the staleness map; the signals (with their payloads) and the work records are kept too,
+  and the run-over check reads every work record at every step. Measured on one machine (20,000
+  injections of a 1 KB payload through one `serve` neuron): memory grew about 2.6 KB per injection,
+  to 59 MiB, and the time per injection from 0.05 ms to 0.09 ms. At one such injection a second
+  that is about 220 MiB a day. A live run is good for hours or days, not for ever.
+- **A refused live injection does not end the run**, accepted (Kevin, 2026-11-11): a file of inputs with a bad entry
+  refuses the whole run before it starts, but a live producer's bad line arrives after others have
+  been taken, and other producers may depend on the run. It is one line on stderr.
+- **The SPEC paragraph makes a live producer optional for an engine** (MAY), as confinement is.
+  Accepted (Kevin, 2026-11-11).
+
+**Next, before S4c (accepted, Kevin, 2026-11-11):** forgetting finished traces. When a trace is finished (7.2) nothing can refer
+to its signals or its work again, so they can go; the run-over check becomes a count. It is the
+difference between a run that stays up and one that can.
