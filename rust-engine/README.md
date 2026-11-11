@@ -107,6 +107,7 @@ target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/e
 target/debug/neuron-engine run spec/examples/alerts-python-serve.network.json --inputs spec/examples/alerts.inputs.jsonl
 target/debug/neuron-engine run spec/examples/alerts-budget.network.json --inputs spec/examples/alerts.inputs.jsonl
 target/debug/neuron-engine check <file>
+target/debug/neuron-engine run <file> --inputs <jsonl> --confine <json>   # every program held to its neuron's `may` (decision 0018, macOS)
 neuron-engine mcp                                   # the M3 server on stdin/stdout
 neuron-engine peer --listen 127.0.0.1:7301 --token <hex> [--name b]   # a peer (P0, decision 0013)
 neuron-engine peer --listen 127.0.0.1:7302 --token <hex> --network f.network.json [--peers g.json]  # a peer that is one neuron (P0.5)
@@ -423,6 +424,34 @@ peers suite proves both claims end to end: a peer's call is the local call event
 for event (wall-clock `t` zeroed, ids renormalised by first appearance), a
 peer-hosted graph is the local composed neuron answer for answer and event for
 event, and a graph spread over two engines answers as a wholly local run does.
+
+## Confinement — `run --confine` (decision 0018, S2a)
+
+`run <file> --confine <confine.json>` starts every `run` and `serve` program of the tree under
+macOS's `sandbox-exec`, with a profile built from its neuron's `may` (SPEC 2.4). Without the flag
+nothing is confined and a run is what it was. `src/confine.rs` is the whole of it: the engine swaps
+the command for the sandbox's at the plant, so the host, the process groups and the 6.1 failures
+are untouched.
+
+- **The confine file** is a side file, as `--grants` and `--peers` are: `{"version": 0, "tools":
+  [absolute paths]}`, closed. `tools` are the trees this machine keeps its interpreters in; every
+  confined program may read them.
+- **The baseline** every confined program has: the system's base profile, starting processes and
+  signalling the ones it started, metadata of any path, the `tools` trees, and its working directory
+  as a directory and no deeper (it sees the names beside it, never their contents).
+- **`read` and `write`** entries grant the file or the whole tree they name, relative to the
+  neuron's working directory, resolved through symbolic links at the plant. `write` does not
+  include `read`.
+- **`connect`** to `localhost:P` or `127.0.0.1:P`, and **`listen`** on those or `0.0.0.0:P`, are
+  held by port. The sandbox cannot tell one host from another, so a `connect` to a named host is
+  refused until the engine's proxy exists (S2b), and any other listen address is refused.
+- **It fails closed.** A platform other than macOS, a `may` entry the sandbox cannot hold, or
+  `--peers` beside `--confine` refuses the run before any process starts.
+- A denied operation is the program's own failure (an `exit` error, say); nothing new is reported.
+- Covered by `tests/confine.rs` (17, macOS only): each member granting what it names and no more, a
+  neuron with no `may`, a child process, a `serve` neuron, the `tools`, a missing executable still
+  `exit 127`, and the four refusals. Its programs are inline `/bin/sh` scripts, so the tests name no
+  path of the machine they run on.
 
 ## Where it stands, and the roadmap (2026-11-09)
 

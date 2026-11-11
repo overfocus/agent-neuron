@@ -152,4 +152,26 @@ promise about version 1.
 
 ## Where it stands
 
-Written and accepted 2026-11-11. S2a is next, on `feat/s2a-confine`.
+Written and accepted 2026-11-11. **S2a is built** on `feat/s2a-confine` (2026-11-11):
+`run --confine <file>`, `src/confine.rs`, and `tests/confine.rs` (17 real-process tests, macOS only).
+Without the flag a run is unchanged, and conformance is untouched.
+
+Building it changed the baseline of point 4 in two places, both found by running real programs and
+both **accepted (Kevin, 2026-11-11)**:
+
+- **A confined program may signal the processes it started.** Without that it cannot stop its own
+  child: a script that started a listener could not end it, and it ran on until the engine killed
+  the group. Only processes in the same sandbox can be signalled.
+- **A confined program may read its working directory as a directory, and no deeper.** `node` and
+  `python3` ask where they are when they start, and both refused to start without this. The cost:
+  the program can see the names of the files beside it. It cannot read any of them, or list a
+  directory below. This narrows the answer to decision 2 below, which was to leave the working
+  directory out entirely; with it out entirely, every interpreter neuron would have to declare
+  `"read": ["."]`, which grants the whole tree and defeats the point.
+
+A hand run, not a test (it needs this machine's interpreter tree): a `node` neuron with
+`"read": ["neurons"]` and `HOME` named in its `env` ran, answered, and could not list the home
+directory; its twin with no `may` could not open its own script and failed with an `exit` error.
+
+Not in S2a: the proxy (S2b), a demo and its row in DEMOS.md, the MCP route (`run_network` confines
+nothing and has no option to), and the SPEC text (the contract commit, after S2b).

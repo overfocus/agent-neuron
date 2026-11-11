@@ -31,6 +31,9 @@ pub struct RunOpts {
     /// A peers file (decision 0013): the machines that execute some of this
     /// run's neurons, and who runs which. Absent: every call is local.
     pub peers: Option<String>,
+    /// A confine file (decision 0018): asks for every program of the run to
+    /// be held to its neuron's `may`. Absent: nothing is confined.
+    pub confine: Option<String>,
 }
 
 /// The inputs file: JSONL entries `{ at, source, payload, replaces?, budget? }`
@@ -66,6 +69,19 @@ pub fn read_inputs(path: &str) -> Result<Vec<fixture::Input>, String> {
 /// text and the rest as its JSON — the events, and the network's tree.
 pub fn run_with_stream(file: &str, opts: &RunOpts, sink: Option<StreamSink>) -> Result<RunResult, String> {
     let inputs = read_inputs(&opts.inputs)?;
+    // Confinement (decision 0018) fails closed: a run the engine cannot
+    // confine is refused before anything else is read or started. A placed
+    // program runs on another machine, and the wire does not carry `may` yet.
+    let confine = match &opts.confine {
+        None => None,
+        Some(c) => {
+            crate::confine::Confine::supported().map_err(|e| format!("cannot run: {e}"))?;
+            if opts.peers.is_some() {
+                return Err("cannot run: --confine and --peers together (a placed program is not confined yet, decision 0018)".into());
+            }
+            Some(crate::confine::Confine::load(c).map_err(|e| format!("cannot run: {e}"))?)
+        }
+    };
     let path = Path::new(file);
     // The declaring file's directory is the default working directory of its
     // neurons (SPEC 2.4); a file named bare is resolved against the caller's
@@ -100,6 +116,9 @@ pub fn run_with_stream(file: &str, opts: &RunOpts, sink: Option<StreamSink>) -> 
     if let Some(p) = &opts.peers {
         let peers = crate::peers::Peers::load(p).map_err(|e| format!("cannot run: {e}"))?;
         eng.set_peers(peers);
+    }
+    if let Some(confine) = confine {
+        eng.set_confine(confine);
     }
     if let Err(e) = eng.plant(&outer, &files, Some(&base)) {
         return Err(format!("cannot run: {}", e));

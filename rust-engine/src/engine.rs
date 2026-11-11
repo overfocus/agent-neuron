@@ -575,6 +575,7 @@ pub struct Engine {
     ground: Option<GroundState>,
     /// The peers this run dispatches to (decision 0013), when `--peers` named
     /// any: the placement is read at the plant, the wire at each call.
+    confine: Option<crate::confine::Confine>,
     peers: Option<crate::peers::Peers>,
     /// An inner failure's own wording, for a caller that runs ONE boundary
     /// over many calls (the peer's graph worker, finding 3, 0014): the wire
@@ -639,6 +640,7 @@ impl Engine {
             grants: None,
             ground: None,
             peers: None,
+            confine: None,
             inner_why: None,
         }
     }
@@ -678,6 +680,13 @@ impl Engine {
     /// run whose every call is local.
     pub fn set_peers(&mut self, peers: crate::peers::Peers) {
         self.peers = Some(peers);
+    }
+
+    /// Confinement (decision 0018): every `run` and `serve` program this
+    /// engine plants starts under the sandbox, held to its neuron's `may`.
+    /// Set before the plant; absent is a run that confines nothing.
+    pub fn set_confine(&mut self, confine: crate::confine::Confine) {
+        self.confine = Some(confine);
     }
 
     /// No desk on this route: a network with `human` neurons is refused at
@@ -933,6 +942,15 @@ impl Engine {
                     }
                 })
                 .or_else(|| Some(dir.clone()));
+            // Confined (decision 0018): the command becomes the sandbox's,
+            // with a profile built from this neuron's `may`. An entry the
+            // sandbox cannot hold refuses the plant, before anything starts.
+            let cmd = match &self.confine {
+                Some(confine) if !cmd.is_empty() && peer.is_none() => {
+                    confine.wrap(&prog, &cmd, cwd.as_deref().unwrap_or(&dir), n.opts.may.as_ref())?
+                }
+                _ => cmd,
+            };
             self.nodes.push(INode {
                 inst,
                 peer,
