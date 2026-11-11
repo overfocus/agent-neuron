@@ -466,8 +466,17 @@ to stdin and closes it, ignoring write errors (a program need not read stdin).
 
 ### 3.2 Level 1: `serve`
 
-One process per neuron (per instance), started when the engine starts. If it
-does not reach `ready` within `timeout`, the engine refuses to start.
+One process per neuron (per instance), started when the engine starts. It is
+**ready** when its process has said `ready`; a neuron of any other kind is ready at once.
+
+**Readiness folds outward** ([decision 0017](decisions/0017-the-cut-a-link-carries-and-readiness.md)).
+A network is ready when every neuron it contains is ready, a composed neuron (2.6) when its inside
+is. A `serve` neuron that does not reach `ready` within its `timeout` has failed to start, and so
+has every network that contains it, outward to the network the engine was asked to run: the engine
+refuses to start. Nothing is delivered to a network that is not ready. Only what a network contains
+is folded: an `http` neuron names another party's endpoint, and is ready whatever that party is
+doing. After the start nothing folds: a neuron whose later restarts fail is failed (below), and the
+network around it keeps running.
 
 **Framing.** UTF-8, one JSON object per line ended by `\n` (`\r\n` tolerated
 on read), at most 1 MiB, blank lines ignored, every object has a string
@@ -1497,7 +1506,7 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 2.9 | A confined run is refused whole when one program cannot be held | global | One neuron's `may` decides for the network, as G6. |
 | 3.1 | Level 0: input, output, failures, cancel, stderr | local | Wrapper and program only. |
 | 3.2 | Level 1: framing, messages, `re`, slots, cancel, `timeout`, ping, restart, junk | local | Wrapper and program only. |
-| 3.2 | "If it does not reach `ready` within `timeout`, the engine refuses to start" | global | One neuron's failure decides for the whole network (G6). |
+| 3.2 | Readiness folds outward: a network is ready when every neuron it contains is | local | Each container decides from what it contains; the outermost one not being ready is the run refused (G6, answered by decision 0017). |
 | 3.2 | Reply `to`: each id an outgoing link | local | The neuron's own links. |
 | 3.3, 3.4 | `http`, `human` | local | Wrapper and endpoint, wrapper and person. Appendix D's one page per run is shared by every `human` neuron (informative, G7). |
 | 4.1 | Injection: a root signal at a source, its `to`, its key | local | The source's wrapper. |
@@ -1557,7 +1566,7 @@ Everything marked global above is one of these.
 | G3 | One list on one clock | 6.2 rules 1 and 2, 7.2 `t`, 8, 9.1, the order of draws in 4.5 and 10.3 |
 | G4 | The ground | 4.5 |
 | G5 | Ids that do not collide | 4.1, 7 |
-| G6 | The start: one `serve` neuron that is not ready refuses the whole run | 3.2 |
+| G6 | The start: one `serve` neuron that is not ready refuses the whole run. Answered: readiness folds outward, so each container decides for itself | 3.2 |
 | G7 | The desk: one page for every `human` neuron of a run | Appendix D (informative) |
 | G8 | Observers: a reader of the whole stream | 9, 9.1, 11.4 |
 
