@@ -107,7 +107,7 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 191: mcp 22, real 31, check 20, confine 22, desk 17, http 13, live 5, peers 43, result 5, settings 7, args 4, unit 2
+cargo test                                          # 192: mcp 22, real 31, check 20, confine 22, desk 17, http 13, live 5, peers 43, result 5, settings 7, args 4, version 1, unit 2
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 344, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/probes     # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
@@ -115,6 +115,7 @@ target/debug/neuron-engine run spec/examples/alerts-python-serve.network.json --
 target/debug/neuron-engine run spec/examples/alerts-budget.network.json --inputs spec/examples/alerts.inputs.jsonl
 target/debug/neuron-engine check <file>
 target/debug/neuron-engine run <file> --inputs <jsonl> --confine <json>   # every program held to its neuron's `may` (decision 0018, macOS)
+neuron-engine --version                             # `neuron-engine 0.0.0 <commit>`: the commit it was built from
 neuron-engine mcp                                   # the M3 server on stdin/stdout
 neuron-engine peer --listen 127.0.0.1:7301 --token <hex> [--name b]   # a peer (P0, decision 0013)
 neuron-engine peer --listen 127.0.0.1:7302 --token <hex> --network f.network.json [--peers g.json]  # a peer that is one neuron (P0.5)

@@ -53,6 +53,7 @@ neuron-engine run <file> --inputs <jsonl | -> [--trace out.json] [--stream path]
 neuron-engine conform spec/fixtures [--only <text>]   # pass/fail/pending per fixture, non-zero exit on a failure (docs/CONFORMANCE.md)
 neuron-engine mcp                          # the MCP server on stdio
 neuron-engine peer --listen <host:port> --token <hex>   # a peer engine
+neuron-engine --version                    # the crate version and the commit the binary was built from
 ```
 
 Every flag is in [rust-engine/README.md](rust-engine/README.md).
