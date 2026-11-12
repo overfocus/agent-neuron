@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "times is at least 1 (2.4): a neuron that retries nothing leaves retry out. Check refuses it and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

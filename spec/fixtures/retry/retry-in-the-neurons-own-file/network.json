@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "retry-in-the-neurons-own-file",
+  "description": "retry is the neuron's own (2.10): written in its file and left out of the entry, it stands, and the failed call is started again.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "neuron": "work.neuron.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

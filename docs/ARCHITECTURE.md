@@ -19,9 +19,9 @@ MODEL
     http     one request per call
     human    a person answers at the desk (page)
     network  composed: a whole network file as one neuron (entry in, first exit reply out; inside sealed); states `effect` exactly when its file has an effect neuron (0022 S3)
-    neuron   named by its own neuron file (0019); using entry may NARROW timeout/env/may/maxInflight only (effect, each: the file's, never the entry's)
+    neuron   named by its own neuron file (0019); using entry may NARROW timeout/env/may/maxInflight/retry.times only (effect, each: the file's, never the entry's)
              and may ADD args[] to a run/serve file's command (0022 S4; an entry field, gone after the loader)
-  options (11)  threshold, within, maxHops, timeout, env, cwd, cost, effect, may{connect,listen,read,write}, maxInflight (run|http|network: calls at once, rest wait in arrival order; 0021 L2), each (run|serve|http|network: answer is an array, one forward per item; 0022 S2)   (SPEC 2.4)
+  options (12)  retry{times,wait} (run|serve|http|network: a failed call starts again, each attempt a call; on effect it covers unknown; 0022 S5), threshold, within, maxHops, timeout, env, cwd, cost, effect, may{connect,listen,read,write}, maxInflight (run|http|network: calls at once, rest wait in arrival order; 0021 L2), each (run|serve|http|network: answer is an array, one forward per item; 0022 S2)   (SPEC 2.4)
   settings      .env beside the declaring file (neuron file, or network file for inline) fills `env` names; wins over the engine's environment; never reported (0022 S6; settings.rs)
   input         {at, source, payload, replaces?, budget?}; `replaces` is the staleness key and rides the signal
   signal        payload + trace id + cause; link from->to carries answers; `to`-less reply routes by links

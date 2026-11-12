@@ -1,0 +1,27 @@
+{
+  "version": 0,
+  "name": "a-stale-effect-call-that-fails-is-not-retried",
+  "description": "The effect call was marked stale at 40 and crashes at 100: it is unknown, and a call that went stale is not retried, so no note follows and no further attempt starts.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 2
+      },
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

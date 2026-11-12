@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "The entry asks for 3 more attempts and the neuron's file gives 2: an entry may only lower times (2.10). Check refuses it and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

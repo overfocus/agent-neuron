@@ -1,0 +1,28 @@
+{
+  "version": 0,
+  "name": "an-unknown-is-retried-on-an-effect-neuron-with-retry",
+  "description": "On an effect neuron retry covers unknown: the crash at 10 is reported as the unknown it is, a retry note follows, and the second attempt's answer at 40 is the call's. Without retry the same crash is the call's outcome (effect/a-crashed-effect-call-is-unknown-and-commits-its-cost).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 1,
+        "wait": 20
+      },
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

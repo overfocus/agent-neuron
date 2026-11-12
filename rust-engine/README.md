@@ -108,7 +108,7 @@ of my own, written into a scratch directory outside the repository.
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
 cargo test                                          # 191: mcp 22, real 31, check 20, confine 22, desk 17, http 13, live 5, peers 43, result 5, settings 7, args 4, unit 2
-cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 318, 0, 0
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 344, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/probes     # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
 target/debug/neuron-engine run spec/examples/alerts-python-serve.network.json --inputs spec/examples/alerts.inputs.jsonl
@@ -557,6 +557,27 @@ array, reported once, and each item is forwarded as a signal of its own, in the 
   `tests/http.rs` (an `http` neuron, which no fixture reaches) and one in `tests/check.rs` (each
   refusal on its own rule). Not tested: `each` on a neuron placed on a peer, or on a hosted file.
 
+## Retry — the `retry` option (decision 0022, S5)
+
+`"retry": { "times": 2, "wait": 1000 }` on a `run`, `serve`, `http` or `network` neuron (SPEC 2.4): a
+call that fails is started again with the same input, at most `times` more times, `wait` ms apart.
+
+- **`emit_failure` is the one place**: every failure of a call is reported there, and
+  `arrange_retry` then writes the `retry` note and makes the next attempt, unless the code is
+  `budget` or `start`, the call was marked stale, or the attempts are used up.
+- **An attempt is a work record of its own** for the same signal (a threshold call's with the same
+  inputs), `Queued` until `Wake::Retry` fires `wait` ms later. So it is waiting work with no special
+  case: staleness drops it, the trace stays open, and it reserves nothing. When it fires it goes
+  through `start_new_call` like a new call: a place under `maxInflight`, the engine's cap, a slot.
+- **A retried attempt inside a composed neuron does not mark its call failed**; the last one does.
+- **`--result`** reads the note: see above.
+- **The entry that names a neuron's file** may state `retry` as `{ "times": n }` only, `n` at most
+  the file's; the loader keeps the file's `wait`.
+- Covered by `spec/fixtures/retry/` (26, on the scripted host), two tests in `tests/real.rs` (real
+  processes, with `--result`) and one in `tests/check.rs` (each refusal on its own rule). Not tested:
+  `retry` on an `http` neuron, on a neuron placed on a peer, and in a hosted file; a threshold call
+  retried.
+
 ## An effect inside a composed file (decision 0022, S3)
 
 A `network` neuron states `"effect": true` exactly when its file has an effect neuron (SPEC 11.5);
@@ -641,7 +662,7 @@ status is as before.
 
 ```json
 {"network":"name","ok":false,
- "totals":{"traces":2,"answers":1,"errors":1,"unknowns":0,"drops":0},
+ "totals":{"traces":2,"answers":1,"errors":1,"unknowns":0,"drops":0,"retried":0},
  "traces":[
   {"trace":"1","source":"s","replaces":"k1","status":"done",
    "answers":[{"neuron":"b","payload":{"got":1}}],"failures":[],"drops":[]},
@@ -653,12 +674,14 @@ status is as before.
   no outgoing links (SPEC 4.4), each payload whole (an event cuts one at 2000 characters);
   `failures` are the trace's `error` and `unknown` events; `drops` its `drop` events (the neuron,
   the reason, the phase).
-- **`ok`** is true when no call ended in an error or an unknown. A drop is not a failure.
+- **`ok`** is true when no call ended in an error or an unknown. A drop is not a failure, and neither
+  is a failed attempt that `retry` started again (S5): it is listed in `failures` with
+  `"retried": true`, counted in `totals.retried`, and left out of `errors` and `unknowns`.
 - **With the flag the run exits 3 when `ok` is false.** 1 and 2 keep their meaning (a run that was
   refused or could not start; usage).
 - **A live run** (`--inputs -`) keeps nothing, so its result holds `network`, `ok` and `totals` and
   no `traces`.
-- Covered by `tests/result.rs` (5).
+- Covered by `tests/result.rs` (5), and two tests of `retry` in `tests/real.rs`.
 
 ## Where it stands, and the roadmap (2026-11-09)
 

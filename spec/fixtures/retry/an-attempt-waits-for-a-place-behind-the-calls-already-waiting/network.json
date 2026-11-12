@@ -1,0 +1,27 @@
+{
+  "version": 0,
+  "name": "an-attempt-waits-for-a-place-behind-the-calls-already-waiting",
+  "description": "work takes one call at a time. A fails at 10 and its second attempt is due at once, but B has waited since 5 and takes the place first: the attempt starts as any call does, behind the calls already waiting, at 20.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 1
+      },
+      "maxInflight": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "version": 0,
+  "name": "a-level-1-error-reply-is-retried",
+  "description": "A serve neuron replies error for the call: code neuron, the neuron saying itself that it failed. It is a failure like any other, and it is retried.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "serve": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 1
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

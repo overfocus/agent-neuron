@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "The neuron's file has no retry, so it retries nothing and there is nothing to lower: an entry may not add retry (2.10). Check refuses it and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

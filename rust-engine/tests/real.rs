@@ -1072,3 +1072,89 @@ fn an_effect_inside_outlives_the_reply_of_exit() {
         .expect("the finished event's t");
     assert!(t >= 700, "the trace finished before the effect ended, at {t}: {trace}");
 }
+
+// -- retry (SPEC 2.4) ---------------------------------------------------------
+
+/// A program that fails the first time it is called and answers the second:
+/// it leaves a file beside the network to know.
+const FLAKY: &str =
+    r#"["/bin/sh", "-c", "read -r x; if [ -f tried ]; then echo '\"ok\"'; else : > tried; echo 'not yet' >&2; exit 3; fi"]"#;
+
+/// A failed call is started again after the wait (2.4): the error and its
+/// `retry` note are in the trace, the answer is the second attempt's, and
+/// with `--result` the retried failure does not fail the run.
+#[test]
+fn retry_starts_a_failed_call_again() {
+    let temp = Temp::new("retry");
+    let net = temp.write(
+        "network.json",
+        &network("", &[("work", "\"run\"", FLAKY, ", \"retry\": {\"times\": 2, \"wait\": 300}")]),
+    );
+    let inputs = inputs_file(&temp, &[("0", "src", "1")]);
+    let trace_path = temp.path("trace.json");
+    let result_path = temp.path("result.json");
+    let out = run_cli(
+        &temp,
+        &net,
+        &inputs,
+        &["--trace", &trace_path.to_string_lossy(), "--result", &result_path.to_string_lossy()],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "a retried failure does not fail the run: {}",
+        stderr(&out)
+    );
+    assert_eq!(stdout(&out).trim(), "ok", "the second attempt's answer: {}", stdout(&out));
+    let trace = std::fs::read_to_string(&trace_path).expect("the trace");
+    assert_eq!(count(&trace, "\"type\":\"error\""), 1, "one failed attempt: {trace}");
+    assert!(
+        has(&trace, "\"what\":\"retry\"") && has(&trace, "\"attempt\":2") && has(&trace, "\"wait\":300"),
+        "the retry note: {trace}"
+    );
+    let answer = trace.find("\"type\":\"answer\"").expect("an answer");
+    let t: u64 = trace[answer..]
+        .split("\"t\":")
+        .nth(1)
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|n| n.parse().ok())
+        .expect("the answer's t");
+    assert!(t >= 300, "the second attempt came before its wait was over, at {t}: {trace}");
+    let result = std::fs::read_to_string(&result_path).expect("the result");
+    assert!(has(&result, "\"ok\":true"), "the result: {result}");
+    assert!(
+        has(&result, "\"errors\":0") && has(&result, "\"retried\":1") && has(&result, "\"retried\":true"),
+        "the retried failure is listed and not counted as an error: {result}"
+    );
+}
+
+/// With the attempts used up the last failure is the call's (2.4): two
+/// errors in the trace, one note, and `--result` exits 3.
+#[test]
+fn retry_used_up_fails_the_call() {
+    let temp = Temp::new("retry-used-up");
+    let net = temp.write(
+        "network.json",
+        &network(
+            "",
+            &[(
+                "work",
+                "\"run\"",
+                "[\"/bin/sh\", \"-c\", \"exit 3\"]",
+                ", \"retry\": {\"times\": 1}",
+            )],
+        ),
+    );
+    let inputs = inputs_file(&temp, &[("0", "src", "1")]);
+    let trace_path = temp.path("trace.json");
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &trace_path.to_string_lossy(), "--result", "-"]);
+    assert_eq!(out.status.code(), Some(3), "the last failure fails the run: {}", stderr(&out));
+    let trace = std::fs::read_to_string(&trace_path).expect("the trace");
+    assert_eq!(count(&trace, "\"type\":\"error\""), 2, "two failed attempts: {trace}");
+    assert_eq!(count(&trace, "\"what\":\"retry\""), 1, "one retry: {trace}");
+    let result = stdout(&out);
+    assert!(
+        has(&result, "\"ok\":false") && has(&result, "\"errors\":1") && has(&result, "\"retried\":1"),
+        "the result: {result}"
+    );
+}

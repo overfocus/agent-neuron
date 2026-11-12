@@ -1,0 +1,7 @@
+{
+  "version": 0,
+  "human": true,
+  "retry": {
+    "times": 1
+  }
+}

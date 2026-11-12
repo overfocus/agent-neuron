@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "refuses-retry-times-wider-than-the-neurons-own",
+  "description": "The entry asks for 3 more attempts and the neuron's file gives 2: an entry may only lower times (2.10). Check refuses it and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "neuron": "work.neuron.json",
+      "retry": {
+        "times": 3
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

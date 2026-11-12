@@ -1,0 +1,37 @@
+{
+  "version": 0,
+  "name": "an-error-is-retried-to-an-answer",
+  "description": "The first attempt fails at 10: its error is reported, and a retry note follows it. After the wait of 100 ms the call starts again with the same input, and the second attempt's answer at 120 is the call's and is forwarded.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 2,
+        "wait": 100
+      }
+    },
+    {
+      "id": "after",
+      "run": [
+        "neuron-after"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    },
+    {
+      "from": "work",
+      "to": "after"
+    }
+  ]
+}

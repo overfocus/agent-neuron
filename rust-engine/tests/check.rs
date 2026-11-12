@@ -744,3 +744,48 @@ fn check_takes_each_and_refuses_it_where_it_is_not_an_option() {
         assert!(errs[0].contains(want), "{}: {}", fixture, errs[0]);
     }
 }
+
+/// `retry` (2.4, 2.10): each refusal fires on its own rule, and on that rule
+/// alone.
+#[test]
+fn check_refusals_of_retry_each_on_its_own_rule() {
+    for (fixture, message) in [
+        ("retry/refuses-retry-on-a-human-neuron", "option 'retry' is not allowed here"),
+        ("retry/refuses-retry-on-a-source", "option 'retry' is not allowed on a source"),
+        (
+            "retry/refuses-a-retry-of-zero-times",
+            "retry is an object of times (an integer at least 1)",
+        ),
+        (
+            "retry/refuses-a-retry-without-times",
+            "retry is an object of times (an integer at least 1)",
+        ),
+        (
+            "retry/refuses-a-retry-with-a-member-it-does-not-have",
+            "retry is an object of times",
+        ),
+        ("retry/refuses-a-retry-that-is-not-an-object", "retry is an object of times"),
+        (
+            "retry/refuses-retry-times-wider-than-the-neurons-own",
+            "retry times 3 (over 2) is wider than the neuron's own",
+        ),
+        (
+            "retry/refuses-retry-on-an-entry-whose-neurons-file-has-none",
+            "retry times 1 (the file has no retry) is wider than the neuron's own",
+        ),
+        (
+            "retry/refuses-a-wait-on-an-entry-that-names-a-neurons-file",
+            "the wait of 'retry' is the neuron's own",
+        ),
+        (
+            "retry/refuses-retry-in-the-file-of-a-human-neuron",
+            "'retry' is not the neuron's own (2.10)",
+        ),
+    ] {
+        let path = fixture_network(fixture);
+        let diags = check::tree(path.to_string_lossy().as_ref());
+        let errs = err_lines(&diags);
+        assert_eq!(errs.len(), 1, "{fixture}: {}", errs.join("\n"));
+        assert!(errs[0].contains(message), "{fixture}: {}", errs[0]);
+    }
+}

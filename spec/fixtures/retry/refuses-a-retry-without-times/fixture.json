@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "retry must say how many times (2.4): a wait alone is refused by check, and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}
