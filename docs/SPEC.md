@@ -1398,7 +1398,8 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
 - **Effects** (section 11): all of it. `unknown` is a separate event type; the `forwarded` mark is on the `answer` event.
 - **A live producer** (4.1): not taken by this engine, nor by the Python one. The Rust engine takes one on
   standard input (`run --inputs -`, `rust-engine/README.md`), writing its events to the stream as they happen
-  and keeping none.
+  and keeping none. A file it hosts for other engines (`peer --network`) takes the same injection as an
+  `inject` line on a connection, and writes the file's own events to the worker's `--stream`.
 - **A neuron named by its own file** (2.10): read when the network file is (`readNetwork`), so the engine itself
   never sees the `neuron` kind. The Python and Rust engines do the same in their loaders.
 - **`may`** (2.4): checked, the fold included. This engine does not confine (2.9): a program runs with the rights

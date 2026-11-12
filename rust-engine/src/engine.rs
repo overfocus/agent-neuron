@@ -638,6 +638,8 @@ pub struct Engine {
     /// The hosted calls still open, by their work record, and what each one's
     /// boundary replied once it has (an answer or a quiet).
     hosted_out: HashMap<usize, Option<GraphOut>>,
+    /// The node a hosted file's callers enter through (`plant_hosted`).
+    caller: Option<usize>,
 }
 
 impl Engine {
@@ -706,6 +708,7 @@ impl Engine {
             inner_why: HashMap::new(),
             hosting: false,
             hosted_out: HashMap::new(),
+            caller: None,
         }
     }
 
@@ -966,6 +969,52 @@ impl Engine {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Plant a file this engine hosts for callers outside (decision 0020,
+    /// S4c). The file is the engine's own outer network, instance 0: its
+    /// sources are injected into, its events are the ones reported, and its
+    /// traces finish as a run's do. A caller enters through one node the file
+    /// does not declare, a composed neuron whose inside IS instance 0, alone
+    /// in an instance of its own that is never reported: a call is 2.6's
+    /// composed call (a new root at the file's `entry`, the first reply of
+    /// `exit` the answer, the rest of that call's work cut), and what the
+    /// caller is told stays sealed while the worker's own stream shows its
+    /// file at work.
+    pub fn plant_hosted(&mut self, net: &Network, files: &HashMap<String, NetFile>, base: Option<&PathBuf>) -> Result<(), String> {
+        self.plant(net, files, base)?;
+        let inst = self.insts.len() as u32;
+        self.next_inst = self.next_inst.max(inst + 1);
+        let node = self.nodes.len();
+        self.insts.push(Inst {
+            nodes: vec![node],
+            entry: None,
+            exit: None,
+            budget: None,
+        });
+        // An id no file can declare (the id rule bars a leading underscore).
+        let id = "__call".to_string();
+        self.nodes.push(INode {
+            inst,
+            peer: None,
+            kind: Kind::Network(String::new()),
+            display: id.clone(),
+            threshold: 1,
+            within: 10_000,
+            max_hops: None,
+            timeout: 30_000,
+            effect: false,
+            cost: None,
+            out: Vec::new(),
+            prog: id,
+            cmd: Vec::new(),
+            cwd: None,
+            env: Vec::new(),
+        });
+        self.inner_inst_of.insert(node, 0);
+        self.caller = Some(node);
+        self.hosting = true;
         Ok(())
     }
 
@@ -1918,7 +1967,7 @@ impl Engine {
                 .build(),
         );
         self.works[work].reported = true;
-        if sigrec.inst != 0 {
+        {
             if let Some(cw) = sigrec.owner_call {
                 // The wording the peer's worker logs when this instance's
                 // call fails: the wire says the boundary's fixed `inner`,
@@ -4853,7 +4902,10 @@ impl Engine {
         let w = &self.works[work];
         let node = w.node;
         let inst = self.nodes[node].inst as usize;
-        if inst == 0 || self.insts[inst].exit != Some(node) {
+        // Only work a composed call started has an owner: an injected trace
+        // has none, whichever instance it runs in (a hosted file is instance
+        // 0, and its callers' work is owned as any composed inside is).
+        if self.insts[inst].exit != Some(node) {
             return None;
         }
         self.sigs[&w.sig].owner_call
@@ -4908,11 +4960,30 @@ impl Engine {
             return;
         }
         self.works[cw].exit_replied = true;
+        // The work that replied is over, not cut: it is done before the rest
+        // of the call's inside is cancelled.
+        self.works[work].done = true;
         self.composed_cancel_inner(cw);
         let node = self.works[work].node;
         self.free_slot(work);
         self.drain_serve(node);
-        self.works[work].done = true;
+        // A hosted file is the worker's own outer network: its `exit`'s reply
+        // is an event of the worker's stream like any other reply there. In
+        // every other instance the inside is sealed and nothing is made.
+        let sig = self.works[work].sig;
+        if self.hosting && work != cw && self.sigs[&sig].inst == 0 {
+            match &outcome {
+                Outcome::Answer { payload, .. } => {
+                    let reply = self.reply_signal(work, sig);
+                    self.emit(0, self.sig_event(reply, "answer").set("payload", payload.shaped()).build());
+                }
+                Outcome::Quiet => {
+                    let reply = self.reply_signal(work, sig);
+                    self.emit(0, self.sig_event(reply, "quiet").build());
+                }
+                Outcome::Fail { .. } => {}
+            }
+        }
         match outcome {
             Outcome::Fail { code, msg } => {
                 // An inner failure: the composed call's error comes when the
@@ -5005,100 +5076,143 @@ impl Engine {
         self.refused.as_deref()
     }
 
-    /// The calls of a peer-hosted graph, for the life of the worker (finding
-    /// 3 of 0014; decision 0020, S4c). The engine was planted once, the
-    /// hosted file sitting behind one composed boundary of instance 0
-    /// (`boundary`, the id peers.rs gave it), so a call arrives the way a
-    /// composed node's call arrives here: a signal at the boundary starts the
-    /// call, `start_composed` delivers the payload at the file's `entry` as a
-    /// new inner root (new trace, hops 0, its own pool, 2.6 step 1), and the
-    /// engine's own machinery finishes it — the first reply of the file's
-    /// `exit` is the boundary's reply and the remaining inner work is cut
-    /// (step 2), an inside with nothing left is quiet, or `inner` after an
-    /// inner failure (step 3), and the call's timeout cuts it like any call's
-    /// (step 4).
+    /// What reaches a hosted file from outside, for the life of the worker
+    /// (finding 3 of 0014; decision 0020, S4c). The file was planted once as
+    /// this engine's outer network (`plant_hosted`), and this is the run's
+    /// loop fed from outside, on the one step the run takes.
     ///
-    /// This is the run's loop fed from outside: calls come in on `calls` as
-    /// they arrive and overlap as traces do in a run, each a root of its own
-    /// (2.6 step 4), all on the one step the run takes. The serve programs
-    /// start with the first call and their state is the instance's. A caller
-    /// that sends a call, or whose `cancelled` has changed, posts a
-    /// `Ev::Nudge` so a waiting loop looks. The loop ends when every sender
-    /// of `calls` is gone and nothing is open.
+    /// A call is 2.6's composed call through the caller's node: a signal
+    /// there starts it, `start_composed` delivers the payload at the file's
+    /// `entry` as a new root (new trace, hops 0, its own pool, step 1), the
+    /// first reply of `exit` is the answer and the rest of that call's work
+    /// is cut (step 2), an inside with nothing left is quiet, or `inner`
+    /// after a failure (step 3), and the call's timeout cuts it like any
+    /// call's (step 4). Calls overlap as traces do in a run, each a root of
+    /// its own. An injection is a live producer's (SPEC 4.1): a root signal
+    /// at a source of the file, when it is taken.
+    ///
+    /// The serve programs start with the first thing that arrives, and their
+    /// state is the instance's. Whoever sends on `reqs`, or whose `cancelled`
+    /// has changed, posts a `Ev::Nudge` so a waiting loop looks. The loop
+    /// ends when every sender is gone and no call is open.
     ///
     /// Each call has the worker's backstop (`backstop_ms` past its own
     /// timeout): a call the engine failed to settle by then is cut and
     /// answered as timed out, whatever the others are doing.
-    pub fn serve_calls(&mut self, boundary: &str, calls: std::sync::mpsc::Receiver<HostedCall>, backstop_ms: u64) {
+    pub fn serve_calls(&mut self, reqs: std::sync::mpsc::Receiver<HostedReq>, backstop_ms: u64) {
         use std::sync::mpsc::TryRecvError;
         self.hosting = true;
-        let node = self
-            .nodes
-            .iter()
-            .position(|n| n.inst == 0 && matches!(n.kind, Kind::Network(_)) && n.display == boundary);
         // A refusal is about the instance, so it repeats for every call.
-        let mut refused: Option<String> = match node {
-            None => Some(format!("no composed boundary '{boundary}' in the graph the worker hosts")),
+        let mut refused: Option<String> = match self.caller {
+            None => Some("the graph the worker hosts was not planted to be called".to_string()),
             Some(_) => self.refusal().map(|s| s.to_string()),
         };
-        let node = node.unwrap_or(0);
+        let node = self.caller.unwrap_or(0);
         let mut started = false;
         let mut open: Vec<OpenCall> = Vec::new();
         loop {
             // What has arrived. With nothing to step for (no program is up
-            // yet, or the instance refuses), the loop waits for a call.
+            // yet, or the instance refuses), the loop waits for a request.
             loop {
                 let idle = open.is_empty() && (!started || refused.is_some());
-                let call = if idle {
-                    match calls.recv() {
-                        Ok(call) => call,
+                let req = if idle {
+                    match reqs.recv() {
+                        Ok(req) => req,
                         Err(_) => return,
                     }
                 } else {
-                    match calls.try_recv() {
-                        Ok(call) => call,
+                    match reqs.try_recv() {
+                        Ok(req) => req,
                         Err(TryRecvError::Empty) => break,
                         Err(TryRecvError::Disconnected) if open.is_empty() => return,
                         Err(TryRecvError::Disconnected) => break,
                     }
                 };
+                let refuse = |req: HostedReq, why: &str| match req {
+                    HostedReq::Call(call) => {
+                        let _ = call.reply.send(GraphOut::Failed(Some(why.to_string())));
+                    }
+                    HostedReq::Inject(_) => {
+                        use std::io::Write as _;
+                        let _ = writeln!(std::io::stderr(), "refused an injection: {}", why);
+                    }
+                };
                 if let Some(why) = &refused {
-                    let _ = call.reply.send(GraphOut::Failed(Some(why.clone())));
+                    refuse(req, why);
                     continue;
                 }
-                // The call's clock starts when it arrives, however long the
+                // The clock of whatever arrived starts now, however long the
                 // instance sat with nothing to do.
                 self.now = self.now.max(host::clock_ms());
-                let due = self.now.saturating_add(call.timeout_ms).saturating_add(backstop_ms);
+                let due = match &req {
+                    HostedReq::Call(call) => Some(self.now.saturating_add(call.timeout_ms).saturating_add(backstop_ms)),
+                    HostedReq::Inject(_) => None,
+                };
                 if !started {
-                    // The first call's budget covers the start waits of the
-                    // serve programs too (finding 5, 0014).
-                    self.deadline = Some(due);
+                    // A first call's budget covers the start waits of the
+                    // serve programs too (finding 5, 0014); an injection has
+                    // no budget of time, and each program's own start
+                    // deadline is the limit.
+                    self.deadline = due;
                     match self.start_serves() {
                         Err(why) => {
                             self.stop_after_refusal();
                             let why = format!("the graph refused the run: {}", why);
-                            let _ = call.reply.send(GraphOut::Failed(Some(why.clone())));
+                            refuse(req, &why);
                             refused = Some(why);
                             continue;
                         }
                         Ok(()) => started = true,
                     }
                 }
-                let sig = self.new_signal(node, vec![node], payload_of(call.payload), 0, None, None, None, None, 0, None);
+                let call = match req {
+                    HostedReq::Inject(inp) => {
+                        self.live_inject(*inp);
+                        continue;
+                    }
+                    HostedReq::Call(call) => call,
+                };
+                if self.insts[0].entry.is_none() || self.insts[0].exit.is_none() {
+                    let why = "the file has no `entry` and `exit`, so it is fed at its sources and cannot be called";
+                    let _ = call.reply.send(GraphOut::Failed(Some(why.to_string())));
+                    continue;
+                }
+                let sig = self.new_signal(
+                    node,
+                    vec![node],
+                    payload_of(call.payload),
+                    0,
+                    None,
+                    None,
+                    None,
+                    None,
+                    self.nodes[node].inst,
+                    None,
+                );
                 let work = self.make_call(node, sig, WSt::Running);
                 // The call's timeout is the wire's: `start_composed` arms it
-                // with the boundary's timeout as it starts (6.2).
+                // with the caller node's timeout as it starts (6.2).
                 self.nodes[node].timeout = call.timeout_ms;
-                // A hosted call is a trace of its own that no `finished`
-                // announces: it is forgotten once it and its inside are done,
-                // whichever way the call ends.
+                // The caller's side of the call is a trace of its own that no
+                // `finished` announces: it is forgotten once it and the work
+                // it started are done, whichever way the call ends.
                 self.forget_later.push(self.works[work].trace);
                 self.hosted_out.insert(work, None);
                 self.start_new_call(work);
+                // The work the call started is a trace of the file's, and
+                // the worker's own stream says when it finished (7.2).
+                if let Some(root) = self.works[work].inner_root {
+                    self.traces.push((
+                        root,
+                        TraceInfo {
+                            exhausted: false,
+                            finished: false,
+                        },
+                    ));
+                }
                 open.push(OpenCall {
                     work,
-                    due,
+                    due: due.unwrap_or(u64::MAX),
                     cancelled: call.cancelled,
                     reply: call.reply,
                 });
@@ -5125,6 +5239,9 @@ impl Engine {
                         self.inner_why.remove(&work);
                         let call = open.swap_remove(i);
                         let _ = call.reply.send(out);
+                        // A call that ended by its cut left its trace with
+                        // nothing open: say so, as any work ending does.
+                        self.finish_check(None);
                     }
                     None => i += 1,
                 }
@@ -5134,8 +5251,8 @@ impl Engine {
             }
             // The same step the run takes (decision 0016, S4). The deadline
             // is the nearest backstop of an open call; with none open the
-            // loop waits for the host: a call's nudge, or a serve program's
-            // own business (a ping, a restart).
+            // loop waits for the host: a nudge, a trace an injection
+            // started, or a serve program's own business (a ping, a restart).
             self.deadline = open.iter().map(|c| c.due).min();
             self.real_step();
         }
@@ -5159,8 +5276,15 @@ impl Engine {
     }
 }
 
-/// One call to a hosted graph, as its connection hands it to the engine's
-/// loop (`Engine::serve_calls`).
+/// What a connection hands a hosted graph's loop (`Engine::serve_calls`).
+pub enum HostedReq {
+    /// A call into the file's `entry`, answered once.
+    Call(HostedCall),
+    /// An injection at one of the file's sources (SPEC 4.1): no reply.
+    Inject(Box<Input>),
+}
+
+/// One call to a hosted graph.
 pub struct HostedCall {
     pub payload: Value,
     /// The caller's timeout for the call, in ms.

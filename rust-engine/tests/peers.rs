@@ -192,6 +192,13 @@ impl Drop for Worker {
 }
 
 impl Worker {
+    /// The next line the peer wrote on its stderr.
+    fn stderr_line(&mut self) -> String {
+        let mut line = String::new();
+        self._stderr.read_line(&mut line).expect("the peer's stderr");
+        line
+    }
+
     /// End the peer now (a machine that died mid-call).
     fn kill(&mut self) {
         let _ = self.child.kill();
@@ -2022,4 +2029,270 @@ fn a_hosted_graph_that_is_quiet_is_quiet() {
             json::write(y)
         );
     }
+}
+
+// -- A hosted file is fed, called, or both (decision 0020, S4c) ---------------
+
+/// A connection to a peer after its handshake: the socket to write lines on
+/// and a reader for the lines that come back.
+fn wire(port: u16) -> (TcpStream, BufReader<TcpStream>) {
+    let mut sock = TcpStream::connect(("127.0.0.1", port)).expect("the peer accepts");
+    sock.set_read_timeout(Some(std::time::Duration::from_secs(30)))
+        .expect("a read timeout");
+    let mut reader = BufReader::new(sock.try_clone().expect("a second handle"));
+    let hello = Obj::new()
+        .str("type", "hello")
+        .int("v", 1)
+        .str("peer", "t")
+        .str("token", TOKEN)
+        .build();
+    line(&mut sock, &json::write(&hello));
+    let mut reply = String::new();
+    reader.read_line(&mut reply).expect("the handshake replies");
+    assert!(reply.contains("\"ok\":true"), "the handshake: {reply}");
+    (sock, reader)
+}
+
+/// The events a worker has written to its stream, once `count` of them are
+/// of `kind` (the worker writes as things happen, so the test waits).
+fn stream_until(path: &Path, kind: &str, count: usize) -> Vec<Value> {
+    let mut seen = Vec::new();
+    for _ in 0..100 {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        seen = text
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| json::parse(l).expect("a stream line is JSON"))
+            .collect();
+        let have = seen.iter().filter(|e| e.get("type").and_then(Value::as_str) == Some(kind)).count();
+        if have >= count {
+            return seen;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    panic!("the stream never had {count} `{kind}` events: {seen:?}");
+}
+
+fn field<'a>(ev: &'a Value, name: &str) -> &'a str {
+    ev.get(name).and_then(Value::as_str).unwrap_or("")
+}
+
+/// A file with a source and nothing to be called through.
+const FED: &str = r#"{
+  "version": 0,
+  "name": "fed",
+  "neurons": [
+    {"id": "inbox", "description": "what arrives", "source": true},
+    {"id": "tag", "description": "tags it", "run": ["/bin/sh", "-c", "read line; printf '{\"tagged\":%s}' \"$line\""]}
+  ],
+  "links": [{"from": "inbox", "to": "tag"}]
+}
+"#;
+
+/// A file with a source and an `entry` and `exit`: fed and called.
+const FED_AND_CALLED: &str = r#"{
+  "version": 0,
+  "name": "both",
+  "neurons": [
+    {"id": "inbox", "description": "what arrives", "source": true},
+    {"id": "tag", "description": "tags it", "run": ["/bin/sh", "-c", "read line; printf '{\"tagged\":%s}' \"$line\""]}
+  ],
+  "links": [{"from": "inbox", "to": "tag"}],
+  "entry": "tag",
+  "exit": "tag"
+}
+"#;
+
+/// A hosted file with a source is fed over the wire: an `inject` line is a
+/// root signal at the source, with no reply, and the worker's own stream has
+/// the trace it started, as a live run's stream would. A file with no `entry`
+/// cannot be called, and says so.
+#[test]
+fn a_hosted_file_is_fed_at_its_source() {
+    let temp = Temp::new("graph-fed");
+    let file = temp.write("fed.network.json", FED);
+    let stream = temp.path("stream.jsonl");
+    let port = free_port();
+    let _peer = start_worker(
+        port,
+        TOKEN,
+        "b",
+        &[],
+        &[
+            "--network",
+            file.to_str().expect("a path"),
+            "--stream",
+            stream.to_str().expect("a path"),
+        ],
+    );
+    let (mut sock, mut reader) = wire(port);
+    line(&mut sock, r#"{"type":"inject","source":"inbox","payload":{"n":1}}"#);
+    line(&mut sock, r#"{"type":"inject","source":"inbox","payload":{"n":2}}"#);
+    let events = stream_until(&stream, "finished", 2);
+    let kinds: Vec<&str> = events.iter().map(|e| field(e, "type")).collect();
+    assert_eq!(count(&kinds.join(" "), "signal"), 2, "each injection is one signal: {kinds:?}");
+    assert_eq!(count(&kinds.join(" "), "answer"), 2, "each was answered: {kinds:?}");
+    assert!(
+        events.iter().any(|e| field(e, "type") == "signal" && field(e, "from") == "inbox"),
+        "the injection is a signal from the source: {events:?}"
+    );
+    let text = std::fs::read_to_string(&stream).expect("the stream");
+    assert!(text.contains("{\"tagged\":{\"n\":1}}"), "the first answer: {text}");
+    assert!(text.contains("{\"tagged\":{\"n\":2}}"), "the second answer: {text}");
+
+    // Nothing came back for the injections; a call is answered that the file
+    // has nothing to be called through.
+    line(
+        &mut sock,
+        r#"{"type":"call","id":7,"node":"x","argv":[],"env":[],"input":"{}","timeout":5000}"#,
+    );
+    let mut done = String::new();
+    reader.read_line(&mut done).expect("the call replies");
+    let done = json::parse(done.trim()).expect("the reply is JSON");
+    assert_eq!(
+        done.get("id").and_then(Value::as_i64),
+        Some(7),
+        "the first line back is the call's: {done:?}"
+    );
+    assert_eq!(
+        done.get("out").and_then(|o| o.get("kind")).and_then(Value::as_str),
+        Some("inner"),
+        "a file with no entry cannot be called: {done:?}"
+    );
+}
+
+/// One hosted file is both called and fed: the call is answered on the wire
+/// with the first reply of `exit`, the injection is answered to nobody, and
+/// the worker's stream has both traces, the call's from the caller's door.
+#[test]
+fn a_hosted_file_is_called_and_fed() {
+    let temp = Temp::new("graph-both");
+    let file = temp.write("both.network.json", FED_AND_CALLED);
+    let stream = temp.path("stream.jsonl");
+    let port = free_port();
+    let _peer = start_worker(
+        port,
+        TOKEN,
+        "b",
+        &[],
+        &[
+            "--network",
+            file.to_str().expect("a path"),
+            "--stream",
+            stream.to_str().expect("a path"),
+        ],
+    );
+    let (mut sock, mut reader) = wire(port);
+    line(&mut sock, r#"{"type":"inject","source":"inbox","payload":{"fed":1}}"#);
+    line(
+        &mut sock,
+        r#"{"type":"call","id":3,"node":"x","argv":[],"env":[],"input":"{\"called\":1}","timeout":5000}"#,
+    );
+    let mut done = String::new();
+    reader.read_line(&mut done).expect("the call replies");
+    let done = json::parse(done.trim()).expect("the reply is JSON");
+    let out = done.get("out").expect("an outcome");
+    assert_eq!(out.get("kind").and_then(Value::as_str), Some("answer"), "the call: {done:?}");
+    assert_eq!(
+        json::write(out.get("payload").expect("a payload")),
+        "{\"tagged\":{\"called\":1}}",
+        "the call is answered with its own payload, not the injection's"
+    );
+
+    let events = stream_until(&stream, "finished", 2);
+    let roots: Vec<&str> = events
+        .iter()
+        .filter(|e| field(e, "type") == "signal" && e.get("hops").and_then(Value::as_i64) == Some(0))
+        .map(|e| field(e, "from"))
+        .collect();
+    assert!(roots.contains(&"inbox"), "a trace from the source: {events:?}");
+    assert!(roots.contains(&"__call"), "a trace from the caller's door: {events:?}");
+    let answers = events.iter().filter(|e| field(e, "type") == "answer").count();
+    assert_eq!(answers, 2, "each trace has its answer in the worker's stream: {events:?}");
+    let traces: std::collections::HashSet<&str> = events
+        .iter()
+        .filter(|e| field(e, "type") != "note")
+        .map(|e| field(e, "trace"))
+        .collect();
+    assert_eq!(traces.len(), 2, "two traces, each its own: {events:?}");
+    // The work that answered the call was not cut: nothing in the worker's
+    // stream says a neuron was dropped or cancelled.
+    assert!(
+        !events.iter().any(|e| field(e, "type") == "drop" || field(e, "type") == "note"),
+        "the answering work is over, not cut: {events:?}"
+    );
+}
+
+/// An injection the engine cannot take is refused on the worker's stderr and
+/// nothing else changes: the connection stays, and the next one is taken.
+#[test]
+fn a_refused_injection_is_a_line_on_the_workers_stderr() {
+    let temp = Temp::new("graph-refused");
+    let file = temp.write("fed.network.json", FED);
+    let stream = temp.path("stream.jsonl");
+    let port = free_port();
+    let mut peer = start_worker(
+        port,
+        TOKEN,
+        "b",
+        &[],
+        &[
+            "--network",
+            file.to_str().expect("a path"),
+            "--stream",
+            stream.to_str().expect("a path"),
+        ],
+    );
+    let (mut sock, _reader) = wire(port);
+    line(&mut sock, r#"{"type":"inject","source":"inbox","payload":{},"at":5}"#);
+    let said = peer.stderr_line();
+    assert!(said.contains("refused an injection") && said.contains("`at`"), "an `at`: {said}");
+    line(&mut sock, r#"{"type":"inject","source":"nowhere","payload":{}}"#);
+    let said = peer.stderr_line();
+    assert!(
+        said.contains("refused an injection") && said.contains("nowhere"),
+        "an unknown source: {said}"
+    );
+    line(&mut sock, r#"{"type":"inject","source":"inbox","payload":{"n":9}}"#);
+    let events = stream_until(&stream, "finished", 1);
+    assert_eq!(
+        events.iter().filter(|e| field(e, "type") == "finished").count(),
+        1,
+        "only the injection that was taken ran: {events:?}"
+    );
+}
+
+/// A file nothing can reach is not hosted, and a stream belongs to a hosted
+/// file: the worker refuses its own invocation for both.
+#[test]
+fn a_worker_refuses_a_file_nothing_can_reach() {
+    let temp = Temp::new("graph-unreachable");
+    let file = temp.write(
+        "alone.network.json",
+        r#"{
+  "version": 0,
+  "name": "alone",
+  "neurons": [{"id": "tag", "description": "tags it", "run": ["/bin/cat"]}],
+  "links": []
+}
+"#,
+    );
+    let out = Command::new(engine())
+        .args(["peer", "--listen", "127.0.0.1:0", "--token", TOKEN, "--network"])
+        .arg(&file)
+        .output()
+        .expect("the engine runs");
+    assert_eq!(out.status.code(), Some(1), "refused: {}", stderr(&out));
+    assert!(stderr(&out).contains("nothing can reach it"), "the reason: {}", stderr(&out));
+
+    let out = Command::new(engine())
+        .args(["peer", "--listen", "127.0.0.1:0", "--token", TOKEN, "--stream", "s.jsonl"])
+        .output()
+        .expect("the engine runs");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "a stream with no hosted file is a usage error: {}",
+        stderr(&out)
+    );
 }

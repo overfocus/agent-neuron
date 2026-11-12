@@ -28,10 +28,10 @@
 // as the http client's is; a peer that stops answering fails its call at the
 // call's timeout, never retried. P0 carries `run` neurons only, and the worker
 // holds a call's connection until its own backstop: the `cancel` message is P1.
-use crate::engine::{Engine, GraphOut, HostedCall};
+use crate::engine::{Engine, GraphOut, HostedCall, HostedReq};
 use crate::host::{self, L0Out};
 use crate::json::{self, Obj, Value};
-use crate::net::{Kind, NetFile, Network, Node};
+use crate::net::{Kind, NetFile, Network};
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
@@ -150,9 +150,9 @@ pub struct Graph {
 }
 
 impl Graph {
-    /// Load the file a worker hosts. It must be composed-shaped: an `entry`
-    /// to inject at and an `exit` to answer from (2.6), no `source` (the
-    /// input comes from the call), no `ground` (2.6).
+    /// Load the file a worker hosts: an `entry` and an `exit` to be called
+    /// through (2.6), a `source` to be fed at, or both; no `ground` yet
+    /// (decision 0020).
     pub fn open(file: &str, peers: Option<&str>) -> Result<Graph, String> {
         let path = std::path::Path::new(file);
         let abs = if path.is_absolute() {
@@ -163,18 +163,18 @@ impl Graph {
                 .join(path)
         };
         let (net, files) = crate::runner::load_network_tree(&abs).map_err(|e| format!("{}: {}", file, e.join("; ")))?;
-        if net.entry.is_none() {
-            return Err(format!("{}: has no `entry`, so a call has nowhere to enter", file));
-        }
-        if net.exit.is_none() {
+        // Called, fed, or both (decision 0020, S4c): `entry` and `exit` are
+        // what a call needs (2.6), a `source` is what an injection needs.
+        let fed = net.nodes.iter().any(|n| matches!(n.kind, Kind::Source));
+        if net.entry.is_some() != net.exit.is_some() {
             return Err(format!(
-                "{}: has no `exit`, so the one answer a call takes has nowhere declared to leave (2.6)",
+                "{}: declares only one of `entry` and `exit`; a call enters at one and is answered from the other (2.6)",
                 file
             ));
         }
-        if net.nodes.iter().any(|n| matches!(n.kind, Kind::Source)) {
+        if net.entry.is_none() && !fed {
             return Err(format!(
-                "{}: has a `source`; a network hosted as one neuron takes its input from the call",
+                "{}: has no `entry` and `exit` to be called through and no `source` to be fed at, so nothing can reach it",
                 file
             ));
         }
@@ -205,7 +205,7 @@ impl Graph {
 /// traces do in a run. This is the handle a connection holds.
 #[derive(Clone)]
 struct Hosted {
-    calls: std::sync::mpsc::Sender<HostedCall>,
+    reqs: std::sync::mpsc::Sender<HostedReq>,
     /// Ends the engine's wait so it looks: after a call is sent, and when a
     /// cancel is in or a connection is gone. `None` when the plant refused
     /// (nothing waits on a host then).
@@ -220,59 +220,16 @@ impl Hosted {
     /// here and nothing runs yet: the serve programs start with the first
     /// call, and a file this route cannot host is an `inner` refusal of
     /// every call.
-    fn boot(g: Graph) -> Hosted {
-        // The boundary's id is one no network file can declare (the engine's
-        // id rule bars a leading underscore), so no answer of the inside can
-        // be mistaken for the boundary's.
-        let mut boundary = "__hosted".to_string();
-        while g.net.node(&boundary).is_some() {
-            boundary.push('_');
-        }
-        let mut key = "__hosted.network.json".to_string();
-        while g.files.contains_key(&key) {
-            key.insert(0, '_');
-        }
-        let mut files = g.files.clone();
-        files.insert(
-            key.clone(),
-            NetFile {
-                net: g.net.clone(),
-                dir: g.base.clone(),
-            },
-        );
-        // The placement rides the boundary's path: the file's plain node ids
-        // plant under `<boundary>/`, so the keys shift with them before the
-        // plant reads them — and a peers file that will not load is the
-        // instance's refusal from the first call.
+    fn boot(g: Graph, stream: Option<crate::run::StreamSink>) -> Hosted {
+        // A peers file that will not load is the instance's refusal from the
+        // first call. The placement's keys are the file's own node paths: the
+        // file is this engine's outer network.
         let (out, mut refused) = match &g.peers {
             None => (None, None),
             Some(file) => match Peers::load(file) {
-                Ok(mut p) => {
-                    let prefix = format!("{}/", boundary);
-                    let keyed = p.placement.into_iter().map(|(k, v)| (format!("{}{}", prefix, k), v)).collect();
-                    p.placement = keyed;
-                    (Some(p), None)
-                }
+                Ok(p) => (Some(p), None),
                 Err(e) => (None, Some(format!("the graph's peers: {}", e))),
             },
-        };
-        // Instance 0: one composed boundary, no links — its answer is the
-        // call's answer, and its calls are the wire's calls.
-        let wrapper = Network {
-            name: g.net.name.clone(),
-            description: "the peer's own composed boundary (decision 0013)".to_string(),
-            budget: None,
-            ground: None,
-            entry: Some(boundary.clone()),
-            exit: Some(boundary.clone()),
-            nodes: vec![Node {
-                id: boundary.clone(),
-                desc: "the hosted file, as one neuron".to_string(),
-                at: None,
-                kind: Kind::Network(key),
-                opts: Default::default(),
-            }],
-            links: Vec::new(),
         };
         let mut engine = None;
         if refused.is_none() {
@@ -284,7 +241,10 @@ impl Hosted {
             if let Some(peers) = out {
                 eng.set_peers(peers);
             }
-            match eng.plant(&wrapper, &files, Some(&g.base)) {
+            if let Some(sink) = stream {
+                eng.set_stream(sink);
+            }
+            match eng.plant_hosted(&g.net, &g.files, Some(&g.base)) {
                 Ok(()) => engine = Some(eng),
                 Err(e) => {
                     eng.kill_leftovers();
@@ -292,26 +252,42 @@ impl Hosted {
                 }
             }
         }
-        let (calls, taken) = std::sync::mpsc::channel::<HostedCall>();
+        let (reqs, taken) = std::sync::mpsc::channel::<HostedReq>();
         let post = engine.as_mut().map(|eng| eng.post_handle());
         host::spawn_thread("hosted-graph", move || match engine {
             Some(mut eng) => {
-                eng.serve_calls(&boundary, taken, BACKSTOP_MS);
+                eng.serve_calls(taken, BACKSTOP_MS);
                 // The worker's ending any other way than a signal (which has
                 // the host's teardown): what the instance kept running stops.
                 eng.kill_leftovers();
             }
             None => {
                 let why = refused.unwrap_or_else(|| "the graph cannot be hosted".to_string());
-                for call in taken {
-                    let _ = call.reply.send(GraphOut::Failed(Some(why.clone())));
+                for req in taken {
+                    match req {
+                        HostedReq::Call(call) => {
+                            let _ = call.reply.send(GraphOut::Failed(Some(why.clone())));
+                        }
+                        HostedReq::Inject(_) => {
+                            let _ = writeln!(std::io::stderr(), "refused an injection: {}", why);
+                        }
+                    }
                 }
             }
         });
         Hosted {
-            calls,
+            reqs,
             post,
             net_name: g.net.name.clone(),
+        }
+    }
+
+    /// One injection at a source of the file (SPEC 4.1), taken when the
+    /// engine reads it. Nothing comes back: a refused one is a line on the
+    /// worker's stderr, as a live producer's is.
+    fn inject(&self, input: crate::fixture::Input) {
+        if self.reqs.send(HostedReq::Inject(Box::new(input))).is_ok() {
+            self.nudge();
         }
     }
 
@@ -332,7 +308,7 @@ impl Hosted {
             cancelled,
             reply,
         };
-        if self.calls.send(call).is_err() {
+        if self.reqs.send(HostedReq::Call(call)).is_err() {
             return GraphOut::Failed(Some("the graph's engine is gone".to_string()));
         }
         self.nudge();
@@ -949,6 +925,7 @@ pub fn main(args: &[String]) {
     let mut name = "peer".to_string();
     let mut network: Option<String> = None;
     let mut peers: Option<String> = None;
+    let mut stream: Option<String> = None;
     let mut serve_host = false;
     let mut i = 0;
     while i < args.len() {
@@ -967,6 +944,7 @@ pub fn main(args: &[String]) {
             "--name" => name = args[i + 1].clone(),
             "--network" => network = Some(args[i + 1].clone()),
             "--peers" => peers = Some(args[i + 1].clone()),
+            "--stream" => stream = Some(args[i + 1].clone()),
             _ => usage(),
         }
         i += 2;
@@ -981,13 +959,30 @@ pub fn main(args: &[String]) {
     if serve_host && network.is_some() {
         usage();
     }
+    // The stream is a hosted file's own events; a worker that hosts none has
+    // none to write.
+    if stream.is_some() && network.is_none() {
+        usage();
+    }
     // A peer without `--network` runs programs; with it, the peer *is* one
     // neuron whose inside is a graph — one engine for the process's life
     // (finding 3, 0014), its instance shared by every call the worker takes.
     let graph: Option<Hosted> = match &network {
         None => None,
         Some(file) => match Graph::open(file, peers.as_deref()) {
-            Ok(g) => Some(Hosted::boot(g)),
+            Ok(g) => {
+                // The file's own events, one line each as they happen, on
+                // this machine (decision 0020): what a live run's `--stream`
+                // writes. Fail-open, as a run's is (9.1).
+                let sink: Option<crate::run::StreamSink> = stream.as_ref().and_then(|path| match crate::trace::Stream::open(path) {
+                    Ok(mut s) => Some(Box::new(move |ev: &Value| s.emit(ev)) as crate::run::StreamSink),
+                    Err(why) => {
+                        eprintln!("{}", why);
+                        None
+                    }
+                });
+                Some(Hosted::boot(g, sink))
+            }
             Err(why) => {
                 eprintln!("peer {}: cannot host the network: {}", name, why);
                 std::process::exit(1);
@@ -1036,7 +1031,7 @@ pub fn main(args: &[String]) {
 
 fn usage() -> ! {
     eprintln!("usage: neuron-engine peer --listen <host:port> --token <hex> [--name <name>] [--serve]");
-    eprintln!("       neuron-engine peer --listen <host:port> --token <hex> --network <file> [--peers <json>]");
+    eprintln!("       neuron-engine peer --listen <host:port> --token <hex> --network <file> [--peers <json>] [--stream <path>]");
     std::process::exit(2);
 }
 
@@ -1106,6 +1101,7 @@ fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Hosted>) {
     // A hosted graph's engine waits on its own queue, so a cancel or a dead
     // wire ends that wait for it to look (decision 0020, S4c).
     let reader_graph = graph.clone();
+    let inject_graph = graph.clone();
     let nudge = move || {
         if let Some(g) = &reader_graph {
             g.nudge();
@@ -1127,6 +1123,22 @@ fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Hosted>) {
                         }
                         nudge();
                         let _ = tx.send(Msg::Cancel);
+                    }
+                    // An injection at a source of the hosted file (decision
+                    // 0020, S4c): the object a live producer writes, taken
+                    // when the engine reads it, with no reply. One the
+                    // engine cannot take is a line on the worker's stderr.
+                    Ok(msg) if msg.get("type").and_then(Value::as_str) == Some("inject") && inject_graph.is_some() => {
+                        let fields = match msg {
+                            Value::Obj(members) => Value::Obj(members.into_iter().filter(|(k, _)| k != "type").collect()),
+                            other => other,
+                        };
+                        match crate::run::live_input_of(fields) {
+                            Ok(input) => inject_graph.as_ref().expect("checked").inject(input),
+                            Err(why) => {
+                                let _ = writeln!(std::io::stderr(), "refused an injection: {}", why);
+                            }
+                        }
                     }
                     _ => {
                         reader_dead.store(true, Ordering::SeqCst);
