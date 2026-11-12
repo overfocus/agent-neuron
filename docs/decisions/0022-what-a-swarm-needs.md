@@ -1,6 +1,6 @@
 # Decision record 0022: what a swarm needs (2026-11-12)
 
-**Status: decided 2026-11-12, every recommendation accepted. Built: S1 (`--result`), S2 (`each`), S3 (effects in a composed file), S4 (`args`), S5 (`retry`), S6 (a neuron's own settings): every step. Not done: the template job as one file.** A real job was put
+**Status: decided 2026-11-12, every recommendation accepted. Built: S1 (`--result`), S2 (`each`), S3 (effects in a composed file), S4 (`args`), S5 (`retry`), S6 (a neuron's own settings): every step, and the template job as one file (on `feat/template-swarm`, not yet run against GitHub).** A real job was put
 to the engine: give each of 21 business types a private template repository, one neuron doing one
 type and another handing out the list. It ran (the branch `feat/template-swarm`, kept unmerged), and
 it showed six things missing between the contract and a swarm. One of them, a limit on calls at
@@ -496,3 +496,49 @@ What the build settled that point 5 left loose. **All are for the maintainer to 
 Not done: a demo and its row in DEMOS.md (the template job is to be it); `retry` on an `http` neuron,
 on a neuron placed on a peer and in a hosted file are untested; the trace header's `options` and MCP
 `describe_network` do not carry `retry` (nor `maxInflight` or `each`, as before).
+
+## The template job, as one file (2026-11-12)
+
+On `feat/template-swarm`, `examples/templates/`: `all.network.json` is `list`, `dispatch` with `each`,
+and `template`, the one-type network (`template.network.json`: `plan`, `create`, `verify`) as a
+composed neuron with `effect`, `maxInflight` 4 and `retry` (2 more times, 2000 ms apart). `create`
+applies only when given `--apply`, which `template.apply.network.json` adds with `args`;
+`all.apply.network.json` runs over that file. The self-link, `maxHops` 80 and the second naming of the
+three neurons are gone, and `dispatch.mjs` is one line of work.
+
+| What was wanted (the table at the top) | Now |
+|---|---|
+| One answer, a list, becomes one call per item | `each` on `dispatch` |
+| The one-type network as a neuron of the all-types network | `template`, a composed neuron that states `effect` |
+| At most a few `create` calls at once | `maxInflight` 4 on `template` |
+| To know from the run whether it worked | `--result -`, exit 3 |
+| A failed call tried again | `retry` on `template` |
+| One program used two ways (dry, real) | `args` on the entry of `create` |
+
+Run against a local stand-in for GitHub's four API calls (not against GitHub: `create` and `verify`
+have no token yet), with six types, one whose generation fails once and one that is no slug:
+
+| Check | Result |
+|---|---|
+| the dry run | five answers of `"action": "create"`, nothing created; exit 3 for the bad type |
+| the real run | five repos created and verified; at most 3 generations at once |
+| the type that fails once inside `create` | `unknown`, code `inner` (an effect had started), then a retry, then its answer |
+| the type that is no slug | `error`, code `inner`, three times (`plan` fails before any effect); the last is the call's |
+| the result | `ok` false, `errors` 1, `retried` 3, five answers; exit 3 |
+| the same run again | every answer `"action": "none"` |
+
+Three findings.
+
+1. **The dry run costs a second pair of files.** `args` reaches a neuron's entry, and that entry is
+   inside the composed file, which takes no parameter ("parameters for a composed file", not decided
+   above). So the dry and the real job are `template.network.json` and `template.apply.network.json`,
+   which differ in one argument, and two outer files that differ in the name of the inner one.
+2. **The result does not say which type failed.** With `each` every item is in one trace, and a
+   failure in the result names the neuron, the code and the message. The `error` event in the trace
+   has the payload; the result leaves it out.
+3. **Why a type failed stays inside.** Sealing gives the outside `no answer: an inner neuron failed`
+   for a bad slug and for a GitHub error alike; the program's own words are on no surface of a run
+   (the inner trace is not written).
+
+`create` and `verify` take an optional `GITHUB_API` setting (another base address), which is what let
+a stand-in answer for GitHub.

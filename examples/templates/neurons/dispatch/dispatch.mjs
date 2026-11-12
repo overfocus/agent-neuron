@@ -1,12 +1,9 @@
-// Hands out a list one item per call. It answers the first type and the rest of the list; the network
-// links that answer to the worker (which reads `type`) and back to this neuron (which reads `types`).
+// Answers a list as an array, one item per type. The neuron has `each`, so the engine forwards each
+// item as a signal of its own (SPEC 2.4): this program hands nothing out and keeps no loop.
 // In:  { types: [slug, ...] }
-// Out: { type, types: [the rest] }, or quiet when the list is empty: the loop ends there.
+// Out: [{ type }, ...]        an empty list is an empty array, and nothing is forwarded
 import { readFileSync } from 'node:fs';
 
 const p = JSON.parse(readFileSync(0, 'utf8'));
 if (!Array.isArray(p?.types)) { console.error('dispatch: types is not a list'); process.exit(1); }
-if (p.types.length > 0) {
-  const [type, ...types] = p.types;
-  console.log(JSON.stringify({ type, types }));
-}
+console.log(JSON.stringify(p.types.map((type) => ({ type }))));

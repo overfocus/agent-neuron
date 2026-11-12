@@ -2,20 +2,15 @@
   "$schema": "../../spec/network.schema.json",
   "version": 0,
   "name": "all-templates",
-  "description": "A list of business types, one template repo each. The list enters at `list`; `dispatch` answers the first type and the rest, and that answer goes two ways: to `plan` (the same three neurons as one.network.json, named by their files) and back to `dispatch`, which hands out the next. The loop ends when the list is empty, at maxHops, or when the budget of repos is spent.",
+  "description": "A list of business types, as a dry run: nothing is created. The list enters at `list`; `dispatch` answers it as an array and `each` sends one type per signal to `template`, the one-type network as one neuron, which answers what it would do for that type. all.apply.network.json is the same network over the file that applies.",
   "budget": { "repos": 30 },
   "neurons": [
-    { "id": "list", "description": "Where the list enters: { types: [slug, ...] }.", "source": true },
-    { "id": "dispatch", "description": "Hands out the list one type per call (neurons/dispatch/dispatch.mjs) and answers quiet when it is empty. Two hops a turn, so maxHops 80 is forty types at most.", "run": ["node", "neurons/dispatch/dispatch.mjs"], "timeout": 10000, "maxHops": 80, "may": { "read": ["."] }, "cost": { "repos": 0 } },
-    { "id": "plan", "neuron": "neurons/plan/plan.neuron.json", "cost": { "repos": 0 } },
-    { "id": "create", "neuron": "neurons/create/create.neuron.json", "cost": { "repos": 1 } },
-    { "id": "verify", "neuron": "neurons/verify/verify.neuron.json", "cost": { "repos": 0 } }
+    {"id": "list", "description": "Where the list enters: { types: [slug, ...] }.", "source": true},
+    {"id": "dispatch", "description": "Answers the list as an array of { type } (neurons/dispatch/dispatch.mjs); `each` forwards one signal per item.", "run": ["node", "neurons/dispatch/dispatch.mjs"], "each": true, "timeout": 10000, "may": {"read": ["."]}, "cost": {"repos": 0}},
+    {"id": "template", "description": "One type's whole job, the network in template.network.json: plan, create, verify. It states `effect` because `create` inside is one: once that has started, the call is never cut and a failure is `unknown`. `retry` starts a failed type again, which is safe because `create` is idempotent by the repo's name.", "network": "template.network.json", "effect": true, "maxInflight": 4, "retry": {"times": 2, "wait": 2000}, "timeout": 180000, "may": {"connect": ["api.github.com:443"], "read": ["."]}, "cost": {"repos": 1}}
   ],
   "links": [
-    { "from": "list", "to": "dispatch" },
-    { "from": "dispatch", "to": "plan" },
-    { "from": "dispatch", "to": "dispatch" },
-    { "from": "plan", "to": "create" },
-    { "from": "create", "to": "verify" }
+    {"from": "list", "to": "dispatch"},
+    {"from": "dispatch", "to": "template"}
   ]
 }

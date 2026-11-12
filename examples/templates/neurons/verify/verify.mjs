@@ -12,9 +12,11 @@ const setting = (name) => {
   return v;
 };
 
-// GitHub's API, asked directly: no command-line tool.
+// GitHub's API, asked directly: no command-line tool. GITHUB_API names another base address (a GitHub
+// Enterprise host, or a stand-in for a test); without it, it is GitHub's own.
+const base = (process.env.GITHUB_API || 'https://api.github.com').replace(/\/+$/, '');
 async function api(method, path, body) {
-  const res = await fetch(`https://api.github.com${path}`, {
+  const res = await fetch(`${base}${path}`, {
     method,
     headers: {
       accept: 'application/vnd.github+json',

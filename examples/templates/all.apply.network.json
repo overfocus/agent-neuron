@@ -1,0 +1,16 @@
+{
+  "$schema": "../../spec/network.schema.json",
+  "version": 0,
+  "name": "all-templates-apply",
+  "description": "A list of business types, one private template repo each. The list enters at `list`; `dispatch` answers it as an array and `each` sends one type per signal to `template`, the one-type network as one neuron. At most four types are worked on at once, a type that fails is tried twice more, and the budget is one repo per attempt.",
+  "budget": { "repos": 30 },
+  "neurons": [
+    {"id": "list", "description": "Where the list enters: { types: [slug, ...] }.", "source": true},
+    {"id": "dispatch", "description": "Answers the list as an array of { type } (neurons/dispatch/dispatch.mjs); `each` forwards one signal per item.", "run": ["node", "neurons/dispatch/dispatch.mjs"], "each": true, "timeout": 10000, "may": {"read": ["."]}, "cost": {"repos": 0}},
+    {"id": "template", "description": "One type's whole job, the network in template.apply.network.json: plan, create, verify. It states `effect` because `create` inside is one: once that has started, the call is never cut and a failure is `unknown`. `retry` starts a failed type again, which is safe because `create` is idempotent by the repo's name.", "network": "template.apply.network.json", "effect": true, "maxInflight": 4, "retry": {"times": 2, "wait": 2000}, "timeout": 180000, "may": {"connect": ["api.github.com:443"], "read": ["."]}, "cost": {"repos": 1}}
+  ],
+  "links": [
+    {"from": "list", "to": "dispatch"},
+    {"from": "dispatch", "to": "template"}
+  ]
+}

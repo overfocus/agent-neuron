@@ -1,0 +1,18 @@
+{
+  "$schema": "../../spec/network.schema.json",
+  "version": 0,
+  "name": "one-template-apply",
+  "description": "One business type gets its template repo: `plan` names it, `create` makes it through GitHub's API (the effect; `--apply` is this network's argument to it), `verify` reads it back, and its record is the reply. Used as a composed neuron: a type enters at `plan`.",
+  "budget": { "repos": 1 },
+  "neurons": [
+    {"id": "plan", "neuron": "neurons/plan/plan.neuron.json", "cost": {"repos": 0}},
+    {"id": "create", "neuron": "neurons/create/create.neuron.json", "cost": {"repos": 1}, "args": ["--apply"]},
+    {"id": "verify", "neuron": "neurons/verify/verify.neuron.json", "cost": {"repos": 0}}
+  ],
+  "links": [
+    {"from": "plan", "to": "create"},
+    {"from": "create", "to": "verify"}
+  ],
+  "entry": "plan",
+  "exit": "verify"
+}

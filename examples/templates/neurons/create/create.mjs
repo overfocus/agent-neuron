@@ -2,7 +2,8 @@
 // In:  { id, repo, template, type }
 // Out: { ...in, action: 'create' | 'mark' | 'none', applied }
 //
-// It does nothing unless TEMPLATES_APPLY=1: without it, it reads GitHub and answers what it would do.
+// It does nothing unless it is given the argument --apply: without it, it reads GitHub and answers what it
+// would do. The network that uses it adds the argument (`args` on its entry, SPEC 2.10).
 // Idempotent by the repo's name: a repo that is already there and right is left alone ('none'), one that
 // is there but not yet a template is only marked ('mark'). A repo of that name that is public, or that
 // was not generated from this template, is somebody else's: it is refused, never changed.
@@ -15,9 +16,11 @@ const setting = (name) => {
   return v;
 };
 
-// GitHub's API, asked directly: no command-line tool.
+// GitHub's API, asked directly: no command-line tool. GITHUB_API names another base address (a GitHub
+// Enterprise host, or a stand-in for a test); without it, it is GitHub's own.
+const base = (process.env.GITHUB_API || 'https://api.github.com').replace(/\/+$/, '');
 async function api(method, path, body) {
-  const res = await fetch(`https://api.github.com${path}`, {
+  const res = await fetch(`${base}${path}`, {
     method,
     headers: {
       accept: 'application/vnd.github+json',
@@ -55,7 +58,7 @@ async function markTemplate(repo) {
 }
 
 const p = JSON.parse(readFileSync(0, 'utf8'));
-const apply = process.env.TEMPLATES_APPLY === '1';
+const apply = process.argv.slice(2).includes('--apply');
 const stop = (what) => { console.error(`create: ${what}`); process.exit(1); };
 
 try {
