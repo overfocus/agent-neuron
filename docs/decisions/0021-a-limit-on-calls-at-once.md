@@ -1,6 +1,6 @@
 # Decision record 0021: a limit on calls at once (2026-11-11)
 
-**Status: proposed, nothing decided, nothing built.** [Decision 0020](0020-one-loop-fed-from-outside.md)
+**Status: decided 2026-11-12, every recommendation accepted; nothing built yet.** [Decision 0020](0020-one-loop-fed-from-outside.md)
 left this open twice (its point 5, and the burst it reported). A run that stays up and a file that
 other engines call both take work at a rate somebody else chooses, so the question is no longer
 academic. Nothing here changes the SPEC, the schema or a fixture until a contract commit of its own.
@@ -136,14 +136,13 @@ it is right.
   `run` neuron with `maxInflight` 1 and 2 (order, a stale queued call, the budget reserved when the
   call starts), each refusal, and narrowing from a neuron's file.
 
-## Decisions wanted
+## Decided (2026-11-12)
 
-1. **Both limits** (recommended), or the engine cap only, or the option only.
-2. **The cap is a command-line flag, `--at-once <n>`** (recommended), or a member of a side file as
-   `--confine`'s `tools` is.
-3. **The option reuses the word `maxInflight`** (recommended), or a new word, since on `serve` it is
-   the program that says it.
-4. **Over a limit, a call waits** (recommended), or it is refused with an error.
-5. **No bound on a queue yet** (recommended), or a bound now.
-6. **The engine cap first** (recommended: it answers the measured failure and changes no contract),
-   or the option first.
+Every recommendation was accepted.
+
+1. **Both limits**: the engine cap and the option.
+2. **The cap is a command-line flag, `--at-once <n>`**, on `run` and `peer`.
+3. **The option reuses the word `maxInflight`.**
+4. **Over a limit, a call waits.** It is not refused.
+5. **No bound on a queue yet.**
+6. **The engine cap first** (L1), then the option as its own contract commit (L2).
