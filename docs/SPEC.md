@@ -636,7 +636,9 @@ Each neuron on a path adds **two hops** (reply, then forward). A neuron at depth
 count, not on neurons deep: a limit of 4 lets a chain reach its third neuron.
 
 A run's result is not a return value: read the answers of neurons with no
-outgoing links from the trace.
+outgoing links from the trace. An engine MAY also write them out when the run ends, with each
+trace's failures and drops, as one object read off the trace and adding nothing to it (Appendix C,
+[decision 0022](decisions/0022-what-a-swarm-needs.md)).
 
 ### 4.5 The ground (normative)
 
@@ -1328,7 +1330,7 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
 - Passive and active channels (open; no field reserved); link attributes.
 - `http` authentication and headers; a `human` wait that survives a restart, several people and who may answer
   ([decision 0008](decisions/0008-human-neurons-on-a-page.md)); Wasm neurons;
-  Windows; concurrency limits at level 0; a run-level result; inspecting inside
+  Windows; concurrency limits at level 0; inspecting inside
   a composed neuron; byte-level fixtures and real-process fixtures; hot reload.
 - Distribution: the engine will ship as a binary inside the npm and pip
   packages (the esbuild and ruff pattern).
@@ -1395,6 +1397,10 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
   ends in the same millisecond its input goes stale can go either way.
 - **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` only for a scripted observer;
   `reserve` and `commit` with a budget.
+- **A run-level result** (4.4): not written by this engine, nor by the Python one. The Rust engine writes one
+  when asked (`run --result <path | ->`, [decision 0022](decisions/0022-what-a-swarm-needs.md)): each trace's
+  answers, failures and drops and the totals, read off the events; with it the run exits 3 when a call ended
+  in an error or an unknown.
 - **Effects** (section 11): all of it. `unknown` is a separate event type; the `forwarded` mark is on the `answer` event.
 - **A live producer** (4.1): not taken by this engine, nor by the Python one. The Rust engine takes one on
   standard input (`run --inputs -`, `rust-engine/README.md`), writing its events to the stream as they happen

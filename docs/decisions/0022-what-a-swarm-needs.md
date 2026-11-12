@@ -1,6 +1,6 @@
 # Decision record 0022: what a swarm needs (2026-11-12)
 
-**Status: decided 2026-11-12, every recommendation accepted. Built: nothing yet.** A real job was put
+**Status: decided 2026-11-12, every recommendation accepted. Built: S1, `--result`. Not built: S2 to S5.** A real job was put
 to the engine: give each of 21 business types a private template repository, one neuron doing one
 type and another handing out the list. It ran (the branch `feat/template-swarm`, kept unmerged), and
 it showed six things missing between the contract and a swarm. One of them, a limit on calls at
@@ -220,3 +220,28 @@ Kevin accepted every recommendation, and extending the field budget.
    by Kevin for a neuron that can stand alone as a daemon; accepted the same day.
 6. **The order**: `maxInflight` (0021 L2), `--result`, `each`, effects in a composed file, `args`,
    `retry`.
+
+## S1 as built (2026-11-12)
+
+`run --result <path | ->` in the Rust engine (`rust-engine/README.md`, `src/result.rs`), one
+informative sentence in SPEC 4.4, and Appendix B no longer lists a run-level result. No schema,
+fixture or normative text changed.
+
+| Check | Result |
+|---|---|
+| Two traces, one whose call exits 7, with `--result -` | exit 3; the object is the last line of standard output |
+| The same run without the flag | exit 0, and the output of before |
+| A run with no failure, `--result res.json` | exit 0; the file holds the answer under its trace |
+| An answer of 3000 characters | whole in the result (the trace cuts it at 2000) |
+| A live run with one failing injection | exit 3; `network`, `ok` and `totals`, no `traces` |
+
+Three things the build settled.
+
+1. **The object's shape**: `network`, `ok`, `totals` (`traces`, `answers`, `errors`, `unknowns`,
+   `drops`) and `traces`, each with `trace`, `source`, `replaces` when it has one, `status`,
+   `answers`, `failures` and `drops`.
+2. **A drop does not fail a run.** Replaced work and a refused hop are the network doing what its
+   file says; only an `error` or an `unknown` makes `ok` false.
+3. **The result is folded from the events as they are reported**, beside the stream, so a run asked
+   for one hears every event whether or not `--stream` was given. The engine itself is unchanged
+   but for handing out the whole answers with their neurons.

@@ -94,7 +94,7 @@ RUN MODES
   batch   run <f> --inputs <jsonl> [--trace] [--stream]   inputs at `at` ms; ends when nothing left; trace at end
   live    run <f> --inputs - --stream <p>                  stdin lines injected when read; ends at EOF + nothing left; keeps nothing; refuses --trace
   hosted  peer --network                                   never ends; serve programs persist; events only to --stream
-  flags   --ping --grants --peers --confine (not with --peers) --at-once <n>
+  flags   --ping --grants --peers --confine (not with --peers) --at-once <n> --result <path | -> (one object at the end; exit 3 on any error or unknown)
   exit    1 = run refused/failed to start, 2 = usage
 
 GLOBALS the driver holds for everyone (SPEC App. E.2 G1-G8 + 0020 S4d table)

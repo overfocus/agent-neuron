@@ -13,6 +13,7 @@ pub mod mcp;
 pub mod net;
 pub mod peers;
 pub mod proxy;
+pub mod result;
 pub mod run;
 pub mod runner;
 pub mod trace;
