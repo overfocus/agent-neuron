@@ -1,0 +1,9 @@
+{
+  "version": 0,
+  "run": [
+    "neuron-work"
+  ],
+  "retry": {
+    "times": 2
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "version": 0,
+  "name": "each-in-the-neurons-own-file",
+  "description": "`each` is the neuron's own (2.10): written in its file, it makes the neuron fan out in every network that names it, as each/an-array-of-three-is-three-forwards has it inline.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json"
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

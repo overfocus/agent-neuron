@@ -1,0 +1,23 @@
+{
+  "fixture": 0,
+  "description": "Each attempt is a call: it reserves its cost when it starts and commits when it ends. Nothing is reserved during the wait. Two attempts at 3 credits leave 4 of 10.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "work": {"calls":[{"after":10,"reply":{"error":"boom"}},{"after":10,"reply":{"answer":"ok"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["work"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"work","what":"reserve","units":{"credits":3}},
+    {"type":"note","t":10,"neuron":"work","what":"commit","units":{"credits":3},"ms":10,"basis":"estimated"},
+    {"type":"error","t":10,"id":"#1","from":"s","to":["work"],"trace":"#1","hops":0,"neuron":"work","message":"exit 1: boom","code":"exit","payload":{"type":"json","data":1}},
+    {"type":"note","t":10,"neuron":"work","what":"retry","trigger":"#1","attempt":2,"wait":50},
+    {"type":"note","t":60,"neuron":"work","what":"reserve","units":{"credits":3}},
+    {"type":"note","t":70,"neuron":"work","what":"commit","units":{"credits":3},"ms":10,"basis":"estimated"},
+    {"type":"answer","t":70,"id":"#2","from":"work","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"ok"}},
+    {"type":"finished","t":70,"trace":"#1","status":"done","remaining":{"credits":4}}
+  ]
+}

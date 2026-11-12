@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "A `network` neuron with `each` (2.4, 2.6): the first reply of its `exit` is its answer, an array, and the outer network forwards one signal per item.",
+  "inputs": [
+    {"at":0,"source":"s","payload":"go"}
+  ],
+  "script": {
+    "c/e": {"calls":[{"after":10,"reply":{"answer":"mid"}}]},
+    "c/x": {"calls":[{"when":"mid","after":10,"reply":{"answer":["p","q"]}}]},
+    "b": {"calls":[{"when":"p","after":5,"reply":{"answer":"bp"}},{"when":"q","after":5,"reply":{"answer":"bq"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["c"],"trace":"#1","hops":0,"payload":{"type":"text","text":"go"}},
+    {"type":"answer","t":20,"id":"#2","from":"c","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":["p","q"]}},
+    {"type":"signal","t":20,"id":"#3","from":"c","to":["b"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"p"}},
+    {"type":"signal","t":20,"id":"#4","from":"c","to":["b"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"q"}},
+    {"type":"answer","t":25,"id":"#5","from":"b","to":["c"],"trace":"#1","replyTo":"#3","hops":3,"payload":{"type":"text","text":"bp"}},
+    {"type":"answer","t":25,"id":"#6","from":"b","to":["c"],"trace":"#1","replyTo":"#4","hops":3,"payload":{"type":"text","text":"bq"}}
+  ]
+}

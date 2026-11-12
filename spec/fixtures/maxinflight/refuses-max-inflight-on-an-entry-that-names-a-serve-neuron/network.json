@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "refuses-max-inflight-on-an-entry-that-names-a-serve-neuron",
+  "description": "An entry may restate an option only where it is one on an inline neuron of the file's kind (2.10): `maxInflight` on an entry whose file is a `serve` neuron is refused by check, and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json",
+      "maxInflight": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

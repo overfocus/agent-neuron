@@ -95,6 +95,8 @@ were set (SPEC 6.2 rule 1), with these fixed points so that engines agree:
   go before every wake-up the run sets itself, and among themselves in listed order.
 - Calls started by one event (the targets of one signal, in `to` order) set their wake-ups in
   that order, so their scripted replies at one instant are processed in that order.
+- The forwards of one `each` answer (SPEC 4.4) are delivered one after another, in the array's order: the
+  calls of the first item set their wake-ups (in `to` order) before those of the second.
 - Held inputs set their `within` wake-up when they are held.
 - **A call's timeout is an ordinary wake-up**, set when the call starts: at level 0 after the program's own
   wake-ups (hence the last point of this list), at level 1 when the `signal` line is written. At an instant it has no place of
@@ -108,6 +110,11 @@ were set (SPEC 6.2 rule 1), with these fixed points so that engines agree:
 - A scripted process that ends (by its own script or by a signal) is known to the engine at
   that same instant, without a wake-up of its own: the exit is processed inside the step that
   ended it.
+- **A call that waited for a place under `maxInflight` starts at the end of a step** (SPEC 6.2 rule 9),
+  where a step is the processing of one wake-up and everything it causes. The start is not a wake-up:
+  it follows the step's last event and goes before the next wake-up, at the same instant or not. The
+  call sets its own wake-ups then (its scripted reply, then its timeout), so they go after every
+  wake-up already set for their instants.
 
 Fixtures avoid the one tie the specification does not decide: a ping due at the instant of an
 injection.
@@ -171,6 +178,8 @@ A **call** entry answers one call of the program:
 Each call uses **the first entry not yet used** that matches. A call no entry matches is a
 **harness failure**: the fixture fails and says so. (So a call that must not happen is
 "pinned" by leaving no entry for it.)
+
+A call that `retry` starts again (SPEC 2.4) is a call each time: every attempt takes the next entry of `calls`.
 
 ### 5.2 Replies
 
@@ -306,7 +315,12 @@ then a last line `N passed, M failed, K pending`. The exit status is 0 if no fix
 1 if one did (a harness failure counts), 2 for a usage error or if `<dir>` holds no fixture.
 The wording of the difference is the engine's.
 
-The reference engine: `npm run engine -- conform spec/fixtures` (about 1 s with the build).
+The reference engine is the Rust engine in `rust-engine/`: `neuron-engine conform spec/fixtures`
+(`npm run conform` builds it first, and runs the probes in `spec/probes/` after the fixtures). Until
+[decision 0023](decisions/0023-one-engine.md) the runner was a TypeScript engine's, a Python engine written
+from the text alone passed the same fixtures, and a mutant test (a hundred deliberately broken engines that
+each had to fail a fixture) measured whether the fixtures pin the rules; those are deleted, and one engine
+runs the fixtures now.
 
 ## 9. What the fixtures do not cover
 

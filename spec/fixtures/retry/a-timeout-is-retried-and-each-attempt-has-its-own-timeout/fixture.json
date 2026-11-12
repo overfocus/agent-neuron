@@ -1,0 +1,19 @@
+{
+  "fixture": 0,
+  "description": "The first attempt hangs and times out at 50: the error, the retry note, then the notes of the cancel. The second attempt starts at 50 with a timeout of its own (to 100) and answers at 80.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "work": {"calls":[{"reply":{"hang":true}},{"after":30,"reply":{"answer":"ok"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["work"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":50,"id":"#1","from":"s","to":["work"],"trace":"#1","hops":0,"neuron":"work","message":"timed out after 50 ms","code":"timeout","payload":{"type":"json","data":1}},
+    {"type":"note","t":50,"neuron":"work","what":"retry","trigger":"#1","attempt":2,"wait":0},
+    {"type":"note","t":50,"neuron":"work","what":"cancel"},
+    {"type":"note","t":50,"neuron":"work","what":"term"},
+    {"type":"answer","t":80,"id":"#2","from":"work","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"ok"}}
+  ]
+}

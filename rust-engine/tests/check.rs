@@ -70,25 +70,58 @@ fn check_refusal_an_uncosted_composed_neuron() {
         .all(|d| d.file.as_deref().map(|f| f.ends_with(".json")).unwrap_or(false)));
 }
 
-/// A composed file may not contain an effect neuron (11.5): the error is the
-/// inner file's, at its own position; the outer file itself checks clean.
+/// A composed neuron states `effect` exactly when its file has an effect
+/// neuron (11.5). Leaving it out is the entry's error, at its `network` key;
+/// the inner file itself checks clean.
 #[test]
-fn check_refusal_an_effect_inside_a_composed_file() {
-    let path = fixture_network("effect/refuses-an-effect-inside-a-composed-file");
+fn check_refusal_a_composed_neuron_that_does_not_state_the_effect_inside() {
+    let path = fixture_network("effect/refuses-a-composed-neuron-that-does-not-state-the-effect-inside");
     let diags = check::tree(path.to_string_lossy().as_ref());
     let errs = err_lines(&diags);
     assert_eq!(errs.len(), 1, "{}", errs.join("\n"));
     assert!(
-        errs[0].contains("a composed file contains a neuron with effect (11.5)"),
+        errs[0].contains("'box' does not state effect and its file has an effect neuron: 'notify' (11.5)"),
         "{}",
         errs[0]
     );
     let error = diags.iter().find(|d| d.error).unwrap();
     assert!(
-        error.file.as_deref().unwrap().ends_with("inner.network.json"),
-        "the finding is the inner file's"
+        error.file.as_deref().unwrap().ends_with("network.json") && !error.file.as_deref().unwrap().ends_with("inner.network.json"),
+        "the finding is the outer file's"
     );
-    assert_eq!(error.pos.map(|p| p.line), Some(10), "the effect neuron's own line");
+    assert_eq!(error.pos.map(|p| p.line), Some(12), "the entry's network key");
+}
+
+/// The other way round: `effect` stated over a file with no effect neuron,
+/// reported at the entry's `effect` key.
+#[test]
+fn check_refusal_effect_on_a_composed_neuron_whose_file_has_none() {
+    let path = fixture_network("effect/refuses-effect-on-a-composed-neuron-whose-file-has-none");
+    let diags = check::tree(path.to_string_lossy().as_ref());
+    let errs = err_lines(&diags);
+    assert_eq!(errs.len(), 1, "{}", errs.join("\n"));
+    assert!(
+        errs[0].contains("'box' states effect and its file has no effect neuron (11.5)"),
+        "{}",
+        errs[0]
+    );
+    let error = diags.iter().find(|d| d.error).unwrap();
+    assert_eq!(error.pos.map(|p| p.line), Some(13), "the entry's effect key");
+}
+
+/// A composed neuron inside counts by its own `effect`: the middle file is
+/// in order (its neuron states it), and the outer entry is the one refused.
+#[test]
+fn check_refusal_a_composed_neuron_whose_inside_states_effect_and_it_does_not() {
+    let path = fixture_network("effect/refuses-a-composed-neuron-over-an-unstated-effect-two-levels-in");
+    let diags = check::tree(path.to_string_lossy().as_ref());
+    let errs = err_lines(&diags);
+    assert_eq!(errs.len(), 1, "{}", errs.join("\n"));
+    assert!(
+        errs[0].contains("'box' does not state effect and its file has an effect neuron: 'mid' (11.5)"),
+        "{}",
+        errs[0]
+    );
 }
 
 /// The spec examples check clean: no errors (the whole run set of the demos).
@@ -672,5 +705,87 @@ fn check_takes_a_valid_ground() {
         let path = fixture_network(fixture);
         let diags = check::tree(path.to_string_lossy().as_ref());
         assert!(err_lines(&diags).is_empty(), "{}: {}", fixture, err_lines(&diags).join("\n"));
+    }
+}
+
+#[test]
+fn check_takes_each_and_refuses_it_where_it_is_not_an_option() {
+    // `each` (SPEC 2.4, decision 0022): `true` on run, serve, http and
+    // network neurons, and in the file of a run, serve or http neuron.
+    for fixture in [
+        "each/an-array-of-three-is-three-forwards",
+        "each/a-level-1-reply-that-names-to-sends-every-item-there",
+        "each/a-composed-neuron-with-each",
+        "each/each-inside-a-composed-neuron-and-the-first-exit-reply",
+        "each/each-in-the-neurons-own-file",
+        "each/a-stale-effect-answer-forwards-none-of-its-items",
+    ] {
+        let path = fixture_network(fixture);
+        let diags = check::tree(path.to_string_lossy().as_ref());
+        assert!(err_lines(&diags).is_empty(), "{}: {}", fixture, err_lines(&diags).join("\n"));
+    }
+    for (fixture, want) in [
+        ("each/refuses-each-on-a-human-neuron", "option 'each' is not allowed here"),
+        ("each/refuses-each-on-a-source", "each"),
+        ("each/refuses-an-each-that-is-not-true", "each is true"),
+        (
+            "each/refuses-each-on-an-entry-that-names-a-neurons-file",
+            "'each' is the neuron's own: it is written in the neuron's file (2.10)",
+        ),
+        (
+            "each/refuses-each-in-the-file-of-a-human-neuron",
+            "'each' is not the neuron's own (2.10)",
+        ),
+    ] {
+        let path = fixture_network(fixture);
+        let diags = check::tree(path.to_string_lossy().as_ref());
+        let errs = err_lines(&diags);
+        assert_eq!(errs.len(), 1, "{}: {}", fixture, errs.join("\n"));
+        assert!(errs[0].contains(want), "{}: {}", fixture, errs[0]);
+    }
+}
+
+/// `retry` (2.4, 2.10): each refusal fires on its own rule, and on that rule
+/// alone.
+#[test]
+fn check_refusals_of_retry_each_on_its_own_rule() {
+    for (fixture, message) in [
+        ("retry/refuses-retry-on-a-human-neuron", "option 'retry' is not allowed here"),
+        ("retry/refuses-retry-on-a-source", "option 'retry' is not allowed on a source"),
+        (
+            "retry/refuses-a-retry-of-zero-times",
+            "retry is an object of times (an integer at least 1)",
+        ),
+        (
+            "retry/refuses-a-retry-without-times",
+            "retry is an object of times (an integer at least 1)",
+        ),
+        (
+            "retry/refuses-a-retry-with-a-member-it-does-not-have",
+            "retry is an object of times",
+        ),
+        ("retry/refuses-a-retry-that-is-not-an-object", "retry is an object of times"),
+        (
+            "retry/refuses-retry-times-wider-than-the-neurons-own",
+            "retry times 3 (over 2) is wider than the neuron's own",
+        ),
+        (
+            "retry/refuses-retry-on-an-entry-whose-neurons-file-has-none",
+            "retry times 1 (the file has no retry) is wider than the neuron's own",
+        ),
+        (
+            "retry/refuses-a-wait-on-an-entry-that-names-a-neurons-file",
+            "the wait of 'retry' is the neuron's own",
+        ),
+        (
+            "retry/refuses-retry-in-the-file-of-a-human-neuron",
+            "'retry' is not the neuron's own (2.10)",
+        ),
+    ] {
+        let path = fixture_network(fixture);
+        let diags = check::tree(path.to_string_lossy().as_ref());
+        let errs = err_lines(&diags);
+        assert_eq!(errs.len(), 1, "{fixture}: {}", errs.join("\n"));
+        assert!(errs[0].contains(message), "{fixture}: {}", errs[0]);
     }
 }

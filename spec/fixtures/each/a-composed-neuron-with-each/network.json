@@ -1,0 +1,32 @@
+{
+  "version": 0,
+  "name": "a-composed-neuron-with-each",
+  "description": "A `network` neuron with `each` (2.4, 2.6): the first reply of its `exit` is its answer, an array, and the outer network forwards one signal per item.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "c",
+      "network": "inner.network.json",
+      "each": true
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "c"
+    },
+    {
+      "from": "c",
+      "to": "b"
+    }
+  ]
+}

@@ -898,3 +898,263 @@ fn make_fifo(path: &Path) {
 extern "C" {
     fn mkfifo(path: *const i8, mode: u32) -> i32;
 }
+
+// -- `each` (SPEC 2.4, 4.4, decision 0022) -----------------------------------
+
+/// A source, `list` (a level 0 program that prints the file `printed.json`,
+/// with `each`) and `one` (cat), which `list` forwards to.
+fn each_network(temp: &Temp, printed: &str) -> PathBuf {
+    let file = temp.write("printed.json", printed);
+    temp.write(
+        "network.json",
+        &format!(
+            r#"{{
+  "version": 0,
+  "name": "test",
+  "neurons": [
+    {{"id": "src", "source": true}},
+    {{"id": "list", "run": ["/bin/cat", "{}"], "each": true}},
+    {{"id": "one", "run": ["/bin/cat"]}}
+  ],
+  "links": [{{"from": "src", "to": "list"}}, {{"from": "list", "to": "one"}}]
+}}
+"#,
+            file.to_string_lossy()
+        ),
+    )
+}
+
+#[test]
+fn each_forwards_one_signal_per_item() {
+    // The program prints an array of three: one answer, three forwards with
+    // that answer as their cause, three calls of `one`, whose answers the
+    // run prints (it has no outgoing links).
+    let temp = Temp::new("each");
+    let net = each_network(&temp, "[1, \"two\", {\"n\": 3}]");
+    let inputs = inputs_file(&temp, &[("0", "src", "0")]);
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    let mut answers: Vec<&str> = text.lines().collect();
+    answers.sort();
+    assert_eq!(answers, vec!["1", "two", "{\"n\":3}"], "{}", text);
+    let trace = std::fs::read_to_string(temp.path("t.json")).expect("the trace");
+    assert_eq!(
+        count(&trace, "\"type\":\"answer\""),
+        4,
+        "one answer of list, three of one: {}",
+        trace
+    );
+    assert_eq!(count(&trace, "\"from\":\"list\",\"to\":[\"one\"]"), 3, "{}", trace);
+    assert!(
+        has(&trace, "\"data\":[1,\"two\",{\"n\":3}]"),
+        "the answer carries the whole array: {}",
+        trace
+    );
+}
+
+#[test]
+fn each_fails_an_answer_that_is_not_an_array_and_forwards_nothing_for_an_empty_one() {
+    let temp = Temp::new("each-not");
+    let net = each_network(&temp, "{\"items\": [1, 2]}");
+    let inputs = inputs_file(&temp, &[("0", "src", "0")]);
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "", "nothing was forwarded");
+    let trace = std::fs::read_to_string(temp.path("t.json")).expect("the trace");
+    assert!(has(&trace, "\"code\":\"output\""), "{}", trace);
+    assert!(has(&trace, "\"message\":\"not an array"), "{}", trace);
+    assert!(!has(&trace, "\"type\":\"answer\""), "{}", trace);
+
+    let temp = Temp::new("each-empty");
+    let net = each_network(&temp, "[]");
+    let inputs = inputs_file(&temp, &[("0", "src", "0")]);
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "");
+    let trace = std::fs::read_to_string(temp.path("t.json")).expect("the trace");
+    assert_eq!(count(&trace, "\"type\":\"answer\""), 1, "{}", trace);
+    assert!(!has(&trace, "\"from\":\"list\",\"to\":[\"one\"]"), "{}", trace);
+    assert!(!has(&trace, "\"type\":\"error\""), "{}", trace);
+}
+
+// -- An effect inside a composed neuron (11.5) --------------------------------
+
+/// A composed effect neuron whose one inner neuron is the effect: `sh` reads
+/// the input, waits, appends it to `sent.log` beside the file and answers it.
+fn composed_effect_network(temp: &Temp, inner_neurons: &str, inner_links: &str, entry: &str, exit: &str, opts: &str) -> PathBuf {
+    temp.write(
+        "inner.network.json",
+        &format!(
+            "{{\n  \"version\": 0,\n  \"name\": \"inner\",\n  \"neurons\": [{inner_neurons}],\n  \"links\": [{inner_links}],\n  \"entry\": \"{entry}\",\n  \"exit\": \"{exit}\"\n}}\n"
+        ),
+    );
+    temp.write(
+        "network.json",
+        &network("", &[("box", "\"network\"", "\"inner.network.json\"", opts)]),
+    )
+}
+
+const SEND: &str = r#"{"id": "send", "description": "the effect", "run": ["/bin/sh", "-c", "read -r x; sleep 0.8; echo \"$x\" >> sent.log; echo \"$x\""], "effect": true}"#;
+
+/// A newer input does not cut a composed call whose effect has started
+/// (11.5): both effects happen, nothing is dropped, the older answer is
+/// recorded and not forwarded.
+#[test]
+fn a_composed_call_is_not_cut_once_its_effect_has_started() {
+    let temp = Temp::new("composed-effect-stale");
+    let net = composed_effect_network(&temp, SEND, "", "send", "send", ", \"effect\": true, \"timeout\": 5000");
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": 1, \"replaces\": \"k\"}\n{\"at\": 300, \"source\": \"src\", \"payload\": 2, \"replaces\": \"k\"}\n",
+    );
+    let trace_path = temp.path("trace.json");
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &trace_path.to_string_lossy()]);
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    let sent = std::fs::read_to_string(temp.path("sent.log")).unwrap_or_default();
+    assert_eq!(sent, "1\n2\n", "both effects happened");
+    let trace = std::fs::read_to_string(&trace_path).expect("the trace");
+    assert!(!has(&trace, "\"type\":\"drop\""), "the stale call was cut: {trace}");
+    assert_eq!(count(&trace, "\"forwarded\":false"), 1, "the older answer is marked: {trace}");
+    assert!(!has(&trace, "\"send\""), "the inside is sealed: {trace}");
+}
+
+/// The timeout of a composed effect call is `unknown` once its effect has
+/// started, and it ends the effect call inside (11.5): the program is
+/// killed before it writes, and the run does not wait for it.
+#[test]
+fn a_composed_effect_call_that_times_out_is_unknown_and_its_effect_is_killed() {
+    let temp = Temp::new("composed-effect-timeout");
+    let net = composed_effect_network(&temp, SEND, "", "send", "send", ", \"effect\": true, \"timeout\": 300");
+    let inputs = inputs_file(&temp, &[("0", "src", "1")]);
+    let trace_path = temp.path("trace.json");
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &trace_path.to_string_lossy()]);
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    assert_eq!(stdout(&out), "", "a timed-out call answers nothing");
+    let trace = std::fs::read_to_string(&trace_path).expect("the trace");
+    assert!(
+        has(&trace, "\"type\":\"unknown\"") && has(&trace, "\"code\":\"timeout\""),
+        "the trace reads: {trace}"
+    );
+    assert!(!has(&trace, "\"type\":\"error\""), "the timeout is not an error: {trace}");
+    assert!(!temp.path("sent.log").exists(), "the effect was killed at the timeout");
+}
+
+/// `exit` replies while the effect inside still runs (11.5): the reply is
+/// the composed neuron's at once, the effect is not cancelled, and the run
+/// ends only when it has: its line is in the log, and the trace's `finished`
+/// comes after the effect's 800 ms.
+#[test]
+fn an_effect_inside_outlives_the_reply_of_exit() {
+    let temp = Temp::new("composed-effect-exit");
+    let neurons = format!(
+        "{}, {}, {}",
+        r#"{"id": "entry", "description": "in", "run": ["/bin/cat"]}"#,
+        r#"{"id": "exit", "description": "answers first", "run": ["/bin/sh", "-c", "printf '{\"fast\":1}'"]}"#,
+        SEND
+    );
+    let links = r#"{"from": "entry", "to": "exit"}, {"from": "entry", "to": "send"}"#;
+    let net = composed_effect_network(&temp, &neurons, links, "entry", "exit", ", \"effect\": true, \"timeout\": 5000");
+    let inputs = inputs_file(&temp, &[("0", "src", "7")]);
+    let trace_path = temp.path("trace.json");
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &trace_path.to_string_lossy()]);
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "{\"fast\":1}", "the composed answer: {}", stdout(&out));
+    let sent = std::fs::read_to_string(temp.path("sent.log")).unwrap_or_default();
+    assert_eq!(sent, "7\n", "the effect ran to its end");
+    let trace = std::fs::read_to_string(&trace_path).expect("the trace");
+    let finished = trace.find("\"type\":\"finished\"").expect("a finished event");
+    let t: u64 = trace[finished..]
+        .split("\"t\":")
+        .nth(1)
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|n| n.parse().ok())
+        .expect("the finished event's t");
+    assert!(t >= 700, "the trace finished before the effect ended, at {t}: {trace}");
+}
+
+// -- retry (SPEC 2.4) ---------------------------------------------------------
+
+/// A program that fails the first time it is called and answers the second:
+/// it leaves a file beside the network to know.
+const FLAKY: &str =
+    r#"["/bin/sh", "-c", "read -r x; if [ -f tried ]; then echo '\"ok\"'; else : > tried; echo 'not yet' >&2; exit 3; fi"]"#;
+
+/// A failed call is started again after the wait (2.4): the error and its
+/// `retry` note are in the trace, the answer is the second attempt's, and
+/// with `--result` the retried failure does not fail the run.
+#[test]
+fn retry_starts_a_failed_call_again() {
+    let temp = Temp::new("retry");
+    let net = temp.write(
+        "network.json",
+        &network("", &[("work", "\"run\"", FLAKY, ", \"retry\": {\"times\": 2, \"wait\": 300}")]),
+    );
+    let inputs = inputs_file(&temp, &[("0", "src", "1")]);
+    let trace_path = temp.path("trace.json");
+    let result_path = temp.path("result.json");
+    let out = run_cli(
+        &temp,
+        &net,
+        &inputs,
+        &["--trace", &trace_path.to_string_lossy(), "--result", &result_path.to_string_lossy()],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "a retried failure does not fail the run: {}",
+        stderr(&out)
+    );
+    assert_eq!(stdout(&out).trim(), "ok", "the second attempt's answer: {}", stdout(&out));
+    let trace = std::fs::read_to_string(&trace_path).expect("the trace");
+    assert_eq!(count(&trace, "\"type\":\"error\""), 1, "one failed attempt: {trace}");
+    assert!(
+        has(&trace, "\"what\":\"retry\"") && has(&trace, "\"attempt\":2") && has(&trace, "\"wait\":300"),
+        "the retry note: {trace}"
+    );
+    let answer = trace.find("\"type\":\"answer\"").expect("an answer");
+    let t: u64 = trace[answer..]
+        .split("\"t\":")
+        .nth(1)
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|n| n.parse().ok())
+        .expect("the answer's t");
+    assert!(t >= 300, "the second attempt came before its wait was over, at {t}: {trace}");
+    let result = std::fs::read_to_string(&result_path).expect("the result");
+    assert!(has(&result, "\"ok\":true"), "the result: {result}");
+    assert!(
+        has(&result, "\"errors\":0") && has(&result, "\"retried\":1") && has(&result, "\"retried\":true"),
+        "the retried failure is listed and not counted as an error: {result}"
+    );
+}
+
+/// With the attempts used up the last failure is the call's (2.4): two
+/// errors in the trace, one note, and `--result` exits 3.
+#[test]
+fn retry_used_up_fails_the_call() {
+    let temp = Temp::new("retry-used-up");
+    let net = temp.write(
+        "network.json",
+        &network(
+            "",
+            &[(
+                "work",
+                "\"run\"",
+                "[\"/bin/sh\", \"-c\", \"exit 3\"]",
+                ", \"retry\": {\"times\": 1}",
+            )],
+        ),
+    );
+    let inputs = inputs_file(&temp, &[("0", "src", "1")]);
+    let trace_path = temp.path("trace.json");
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &trace_path.to_string_lossy(), "--result", "-"]);
+    assert_eq!(out.status.code(), Some(3), "the last failure fails the run: {}", stderr(&out));
+    let trace = std::fs::read_to_string(&trace_path).expect("the trace");
+    assert_eq!(count(&trace, "\"type\":\"error\""), 2, "two failed attempts: {trace}");
+    assert_eq!(count(&trace, "\"what\":\"retry\""), 1, "one retry: {trace}");
+    let result = stdout(&out);
+    assert!(
+        has(&result, "\"ok\":false") && has(&result, "\"errors\":1") && has(&result, "\"retried\":1"),
+        "the result: {result}"
+    );
+}

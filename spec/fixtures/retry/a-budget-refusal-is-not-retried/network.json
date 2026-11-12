@@ -1,0 +1,32 @@
+{
+  "version": 0,
+  "name": "a-budget-refusal-is-not-retried",
+  "description": "The injection lowers its trace's pool to 2 and the call costs 3: it is refused, code budget, and no retry follows. The pool will not grow.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 2
+      },
+      "cost": {
+        "credits": 3
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

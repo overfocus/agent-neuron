@@ -1,0 +1,34 @@
+{
+  "version": 0,
+  "name": "a-later-answer-on-the-key-replaces-every-item",
+  "description": "The items of one answer are one emission (5.4): the three keyed forwards of the first answer all run at b, none making another stale. The later answer of a on the same key makes every one of them stale at its first forward (three drops, in the order the work was created), and its own two items replace them together: both run and answer.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "each": true
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

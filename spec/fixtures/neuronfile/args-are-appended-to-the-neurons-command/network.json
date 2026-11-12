@@ -1,0 +1,38 @@
+{
+  "version": 0,
+  "name": "args-are-appended-to-the-neurons-command",
+  "description": "SPEC 8.4's worked fixture with both programs named by a file of their own, each entry adding `args` to the file's command (2.10, decision 0022): a level 0 neuron and a level 1 neuron. `args` changes the command started and no rule: the events are those of the same network with each neuron written inline with the longer command, which are those of routing/chain-forward-with-cause. The scripted programs stand in for the processes, so a fixture cannot see the arguments themselves.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json",
+      "args": [
+        "--apply"
+      ]
+    },
+    {
+      "id": "b",
+      "neuron": "kit/b.neuron.json",
+      "args": [
+        "--level",
+        "2",
+        "--level",
+        "2"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

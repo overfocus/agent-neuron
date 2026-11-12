@@ -3,7 +3,7 @@ name = "agent-neuron-engine-rs"
 version = "0.0.0"
 edition = "2021"
 publish = false
-description = "The agent-neuron engine, second implementation (M0: sans-IO core on the virtual host, conformance only)."
+description = "The agent-neuron engine: conformance on the virtual host, real runs, the desk, peers and the MCP server."
 default-run = "neuron-engine"
 
 [lib]

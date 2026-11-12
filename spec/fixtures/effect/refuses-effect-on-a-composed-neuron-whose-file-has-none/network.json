@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "refuses-effect-on-a-composed-neuron-whose-file-has-none",
+  "description": "A composed neuron states effect only when its file has an effect neuron: check refuses one that states it over a file with none, so the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json",
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    }
+  ]
+}

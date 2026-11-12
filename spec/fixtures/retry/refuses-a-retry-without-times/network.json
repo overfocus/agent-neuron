@@ -1,0 +1,26 @@
+{
+  "version": 0,
+  "name": "refuses-a-retry-without-times",
+  "description": "retry must say how many times (2.4): a wait alone is refused by check, and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "wait": 10
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

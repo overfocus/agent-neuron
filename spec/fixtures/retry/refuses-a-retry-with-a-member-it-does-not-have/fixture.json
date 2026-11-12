@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "retry is a closed object of times and wait (2.4): a wait that grows is not in version 0.1. Check refuses the unknown member and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

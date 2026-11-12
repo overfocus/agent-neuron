@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "refuses-max-inflight-on-a-human-neuron",
+  "description": "`maxInflight` is not an option of a `human` neuron (2.4): a person's queue is the desk's. Check refuses it and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "human": true,
+      "maxInflight": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

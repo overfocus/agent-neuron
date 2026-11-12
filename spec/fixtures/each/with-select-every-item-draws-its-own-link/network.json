@@ -1,0 +1,58 @@
+{
+  "version": 0,
+  "name": "with-select-every-item-draws-its-own-link",
+  "description": "With the ground's `select` (4.5) each item is a forward of a reply that names no `to`, so each draws its own link: with seed 35 the three items take words 1, 2 and 3 (u = 0.0075.., 0.5055.., 0.7220.., as ground/select-draw-follows-the-seed has them for three replies) and go to b1, b2 and b3. One draw for the whole answer would send all three to b1.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "r",
+      "run": [
+        "neuron-r"
+      ],
+      "each": true
+    },
+    {
+      "id": "b1",
+      "run": [
+        "neuron-b1"
+      ]
+    },
+    {
+      "id": "b2",
+      "run": [
+        "neuron-b2"
+      ]
+    },
+    {
+      "id": "b3",
+      "run": [
+        "neuron-b3"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "r"
+    },
+    {
+      "from": "r",
+      "to": "b1"
+    },
+    {
+      "from": "r",
+      "to": "b2"
+    },
+    {
+      "from": "r",
+      "to": "b3"
+    }
+  ],
+  "ground": {
+    "select": true,
+    "seed": 35
+  }
+}

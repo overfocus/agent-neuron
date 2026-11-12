@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "an-effect-inside-waiting-for-a-place-has-not-started",
+  "description": "The effect neuron inside takes one call at a time, and the instance shares that place. The second call's effect waits behind the first call's, so nothing of it has started: the input that replaces it at 40 cuts it (a drop and a cancel note). The third call's effect starts when the place frees at 100.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json",
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    }
+  ]
+}

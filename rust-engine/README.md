@@ -1,4 +1,10 @@
-# agent-neuron engine, second implementation (Rust, M3)
+# agent-neuron engine (Rust)
+
+**Since [decision 0023](../docs/decisions/0023-one-engine.md) (2026-11-12) this is the only engine in the
+repository, and the reference.** It began as the second implementation, beside a TypeScript reference engine and a
+Python engine that are now deleted. The sections below were written milestone by milestone and keep their dates and
+their measurements; where one names the TypeScript or Python engine, `node dist/engine/cli.js` or `py/probes`, it
+describes the tree of its day (the probes are in `spec/probes/` now).
 
 This crate is the Rust engine of [`agent-neuron`](../), milestones M0-M3: the
 M0 sans-IO conformance core, the process layer (real `run`, the `check`
@@ -8,7 +14,7 @@ Context Protocol's stable core subset. It is written from
 [SPEC.md](../docs/SPEC.md), [CONFORMANCE.md](../docs/CONFORMANCE.md),
 [spec/network.schema.json](../spec/network.schema.json), the fixtures
 themselves and [TRACE.md](../docs/TRACE.md)
-([conformance-python.md](../docs/conformance-python.md) is an engine's
+(`docs/conformance-python.md`, the Python engine's account, since deleted with it, was an engine's
 documentation, not engine source). The TypeScript and Python engines were used
 only as black boxes: `node dist/engine/cli.js conform <dir>` and probe fixtures
 of my own, written into a scratch directory outside the repository.
@@ -63,7 +69,7 @@ of my own, written into a scratch directory outside the repository.
   this engine's minimal reading of an optional v1 field, added (not renamed),
   set down here because the trace format's doc lives outside this crate's
   tree; the values name the family's schemes (the TypeScript recorder's ids
-  are random UUIDs, the reference engine's are numbered per scope: decision
+  were random UUIDs, the TypeScript reference engine's were numbered per scope: decision
   0001).
 - The live stream (`--stream <path>`): a file or a pipe fed one event per line
   as they happen, never holding the run up. A pipe with no reader is off,
@@ -72,7 +78,8 @@ of my own, written into a scratch directory outside the repository.
   (duplicate ids, a link naming an unknown id with the nearest-id suggestion,
   a duplicated link, a link into a source, the composed-file rules —
   missing/invalid file, entry/exit pairing and existence, a source inside, an
-  exit with outgoing links, effect inside a composed file), a cycle in which
+  exit with outgoing links, a composed neuron that states `effect` over a file with
+  none or leaves it out over a file with one), a cycle in which
   no neuron has `maxHops`, the budget rules (whole numbers 0..2^53-1, a cost
   unit the file's budget lacks, an empty `budget` or `cost`, a budget
   demanding a cost on every non-source, composed included), and the warnings
@@ -100,9 +107,9 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 123: mcp 22, real 29, check 16, desk 17, http 11, peers 26, unit 2
-cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 224, 0, 0
-cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
+cargo test                                          # 191: mcp 22, real 31, check 20, confine 22, desk 17, http 13, live 5, peers 43, result 5, settings 7, args 4, unit 2
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 344, 0, 0
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/probes     # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
 target/debug/neuron-engine run spec/examples/alerts-python-serve.network.json --inputs spec/examples/alerts.inputs.jsonl
 target/debug/neuron-engine run spec/examples/alerts-budget.network.json --inputs spec/examples/alerts.inputs.jsonl
@@ -159,7 +166,7 @@ end-to-end one.
   neuron names 'https://…', and this engine has no TLS").
 - `check` keeps its `http` warning (2.7's table; an engine cannot reach the
   network without asking for it), and `run` now RUNS it — the M2 choice,
-  where Appendix C's reference engine still refuses.
+  where the TypeScript reference engine of the day refused.
 - Covered by `tests/http.rs` (11): answers, quiet, errors, refusal,
   timeout/error and timeout/`unknown` for an effect, staleness cancel with
   the late reply discarded, the threshold body shape, a composed instance,
@@ -432,7 +439,10 @@ event, and a graph spread over two engines answers as a wholly local run does.
 `env` and `may`, and hands the rest of the validator the neuron as it would be written inline, its
 working directory written whole (the file's relative paths are the file's own). Nothing after the
 loader knows the kind: the engine, the trace, the peers and confinement see an ordinary neuron.
-Findings are anchored at the entry and name the file. Covered by the 14 fixtures of
+Findings are anchored at the entry and name the file. The entry's `args` (decision 0022) are appended
+to the file's command there too, where the file is a `run` or `serve` neuron, and are gone from the
+neuron handed on; `tests/args.rs` starts real programs that answer with the arguments they received.
+Covered by the 19 fixtures of
 `spec/fixtures/neuronfile/`, `tests/check.rs` (each refusal's message) and two real-process tests in
 `tests/confine.rs`.
 
@@ -512,6 +522,88 @@ engine are on the machine at once, across every neuron. Without the flag there i
   a hosted file is a composed call, whose timeout has always covered everything inside it.
 - A cap that is not an integer of at least 1 is a usage error (exit 2).
 
+## A neuron's own limit — the `maxInflight` option (decision 0021, L2)
+
+`"maxInflight": <n>` on a `run`, `http` or `network` neuron (SPEC 2.4): at most *n* calls of that
+neuron at once, the rest waiting in the order they arrived, on the real host and the scripted one
+alike. Waiting is level 1's queued, as under the cap.
+
+- **`start_new_call` is the gate**: a neuron whose places are taken queues the call in `waiting`
+  (one arrival-ordered list for every neuron); `places` holds the calls that have a place.
+- **`place_drain` runs at the end of every step** (SPEC 6.2 rule 9), before `cap_drain`: it gives
+  back the places of the calls whose records are done and starts the oldest waiting call whose
+  neuron has room, one at a time. On the scripted host it follows `wake_composed_calls`.
+- **Both limits**: a call takes its neuron's place first and keeps it while it waits for the
+  engine's cap. A placed neuron's limit is held here, by the driver; the worker's `--at-once`
+  still counts the process.
+- Covered by `spec/fixtures/maxinflight/` (26, on the scripted host), four tests in
+  `tests/peers.rs` and one in `tests/http.rs` (real processes and a real request).
+
+## Fan-out — the `each` option (decision 0022, S2)
+
+`"each": true` on a `run`, `serve`, `http` or `network` neuron (SPEC 2.4, 4.4): its answer is a JSON
+array, reported once, and each item is forwarded as a signal of its own, in the array's order.
+
+- **`call_replied` is where the array is required**: an answer of an `each` neuron that is not an
+  array becomes the failure `output` ("not an array") before anything is reported, whatever the
+  kind, so an effect neuron's is `unknown` and an inner `exit`'s is its composed call's `inner`.
+- **`forward_answer` loops `forward_one`**, one per item: the targets (a reply's `to`, or one draw of
+  the ground per item) and the key are the reply's. `fanning` holds the trace open between items, so
+  `finished` cannot come before the last one.
+- **One emission**: a keyed signal's `StaleEnt` carries its `emission` (the answer that caused it,
+  else itself), and `new_signal` and `stale_and_cut` cut the work of other emissions only.
+- No join, no group: an item is a forward like any other from then on.
+- Covered by `spec/fixtures/each/` (26, on the scripted host), two tests in `tests/real.rs`, one in
+  `tests/http.rs` (an `http` neuron, which no fixture reaches) and one in `tests/check.rs` (each
+  refusal on its own rule). Not tested: `each` on a neuron placed on a peer, or on a hosted file.
+
+## Retry — the `retry` option (decision 0022, S5)
+
+`"retry": { "times": 2, "wait": 1000 }` on a `run`, `serve`, `http` or `network` neuron (SPEC 2.4): a
+call that fails is started again with the same input, at most `times` more times, `wait` ms apart.
+
+- **`emit_failure` is the one place**: every failure of a call is reported there, and
+  `arrange_retry` then writes the `retry` note and makes the next attempt, unless the code is
+  `budget` or `start`, the call was marked stale, or the attempts are used up.
+- **An attempt is a work record of its own** for the same signal (a threshold call's with the same
+  inputs), `Queued` until `Wake::Retry` fires `wait` ms later. So it is waiting work with no special
+  case: staleness drops it, the trace stays open, and it reserves nothing. When it fires it goes
+  through `start_new_call` like a new call: a place under `maxInflight`, the engine's cap, a slot.
+- **A retried attempt inside a composed neuron does not mark its call failed**; the last one does.
+- **`--result`** reads the note: see above.
+- **The entry that names a neuron's file** may state `retry` as `{ "times": n }` only, `n` at most
+  the file's; the loader keeps the file's `wait`.
+- Covered by `spec/fixtures/retry/` (26, on the scripted host), two tests in `tests/real.rs` (real
+  processes, with `--result`) and one in `tests/check.rs` (each refusal on its own rule). Not tested:
+  `retry` on an `http` neuron, on a neuron placed on a peer, and in a hosted file; a threshold call
+  retried.
+
+## An effect inside a composed file (decision 0022, S3)
+
+A `network` neuron states `"effect": true` exactly when its file has an effect neuron (SPEC 11.5);
+`net::effect_fold_error` is the check, beside the `may` fold, in `check` and in every load of a tree.
+
+- **`effect_started` on a composed call's work record** is the one new fact. `effect_begun` sets it
+  when a call of an effect neuron starts (the program spawned, the `signal` line written, the question
+  on the desk, the request begun), on the composed call that owns it and on every one around that,
+  outwards. A call that waits for a slot or a place sets nothing.
+- **`cut_work`** cuts a composed effect call while the flag is off, and marks it once it is on.
+  **`emit_failure`** makes its failures `unknown` only when it is on.
+- **A timeout forces the cut** (`cut_work_how(.., true)`): the started effect calls inside are
+  cancelled with the rest, by the same term and kill a staleness cut gives any other program.
+- **`exit`'s reply cancels without force**, so a started effect call inside is marked and runs on.
+  `held_by_inner_effects` keeps the outer trace from `finished`, and the run from ending, until it is
+  over; it reads nothing unless some composed file of the network has an effect neuron.
+- **A composed effect neuron placed on a peer** counts as started when it is dispatched: what the
+  peer's file has started cannot be seen from here. It is never cut by staleness, and every failure
+  after the peer was reached is `unknown`.
+- **An inner neuron's answer is never printed.** A neuron of a composed file that is not `exit` and
+  has no outgoing links used to put its answer among the run's printed answers; it does not now.
+- Covered by 16 fixtures in `spec/fixtures/effect/` (on the scripted host), three tests in
+  `tests/real.rs` (real processes: not cut, killed at the timeout, outliving `exit`'s reply) and
+  three in `tests/check.rs` (each refusal's message and position). Not tested: a composed effect
+  neuron on a peer, an inner effect that is a `serve`, `http` or `human` neuron, and a hosted file.
+
 ## Confinement — `run --confine` (decision 0018, S2a and S2b)
 
 `run <file> --confine <confine.json>` starts every `run` and `serve` program of the tree under
@@ -570,7 +662,7 @@ status is as before.
 
 ```json
 {"network":"name","ok":false,
- "totals":{"traces":2,"answers":1,"errors":1,"unknowns":0,"drops":0},
+ "totals":{"traces":2,"answers":1,"errors":1,"unknowns":0,"drops":0,"retried":0},
  "traces":[
   {"trace":"1","source":"s","replaces":"k1","status":"done",
    "answers":[{"neuron":"b","payload":{"got":1}}],"failures":[],"drops":[]},
@@ -582,12 +674,14 @@ status is as before.
   no outgoing links (SPEC 4.4), each payload whole (an event cuts one at 2000 characters);
   `failures` are the trace's `error` and `unknown` events; `drops` its `drop` events (the neuron,
   the reason, the phase).
-- **`ok`** is true when no call ended in an error or an unknown. A drop is not a failure.
+- **`ok`** is true when no call ended in an error or an unknown. A drop is not a failure, and neither
+  is a failed attempt that `retry` started again (S5): it is listed in `failures` with
+  `"retried": true`, counted in `totals.retried`, and left out of `errors` and `unknowns`.
 - **With the flag the run exits 3 when `ok` is false.** 1 and 2 keep their meaning (a run that was
   refused or could not start; usage).
 - **A live run** (`--inputs -`) keeps nothing, so its result holds `network`, `ok` and `totals` and
   no `traces`.
-- Covered by `tests/result.rs` (5).
+- Covered by `tests/result.rs` (5), and two tests of `retry` in `tests/real.rs`.
 
 ## Where it stands, and the roadmap (2026-11-09)
 
@@ -786,7 +880,7 @@ outcome path, the placed-instance guard, the host-event check), `run.rs` 201,
 `main.rs` 202, `lib.rs` 16 (the ground's earlier growth included: `net.rs` 1298,
 `trace.rs` 249).
 
-For scale: the TypeScript reference engine (`src/engine/`) is 1353 by
+For scale: the TypeScript reference engine (`src/engine/`, deleted by decision 0023) was 1353 by
 `wc -l` (decision 0005's table). This crate is larger for the same honest
 reasons as at M0 — the std-only JSON layer and the conformance runner — plus
 the M1 process layer (host, run, trace, check) and the M3 std-only MCP server

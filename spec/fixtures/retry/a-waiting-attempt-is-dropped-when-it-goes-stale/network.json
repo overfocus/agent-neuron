@@ -1,0 +1,27 @@
+{
+  "version": 0,
+  "name": "a-waiting-attempt-is-dropped-when-it-goes-stale",
+  "description": "The first attempt fails at 10 and the second is due at 110. The input that replaces it at 50 finds the call waiting: it is dropped, phase waiting, with no cancel note, its trace is finished, and no second attempt starts (the script has two entries).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 2,
+        "wait": 100
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

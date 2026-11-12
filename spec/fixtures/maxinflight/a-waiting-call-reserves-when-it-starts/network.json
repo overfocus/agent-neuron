@@ -1,0 +1,30 @@
+{
+  "version": 0,
+  "name": "a-waiting-call-reserves-when-it-starts",
+  "description": "A call waiting for a place reserves nothing (10.3): the second call's `reserve` note comes at 10, when the first is over and after that trace's `finished`, and its commit counts 5 ms from its start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "maxInflight": 1,
+      "cost": {
+        "credits": 3
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ],
+  "budget": {
+    "credits": 5
+  }
+}

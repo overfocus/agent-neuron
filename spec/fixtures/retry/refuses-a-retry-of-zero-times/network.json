@@ -1,0 +1,26 @@
+{
+  "version": 0,
+  "name": "refuses-a-retry-of-zero-times",
+  "description": "times is at least 1 (2.4): a neuron that retries nothing leaves retry out. Check refuses it and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 0
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

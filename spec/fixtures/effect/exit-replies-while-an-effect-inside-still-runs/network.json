@@ -1,0 +1,32 @@
+{
+  "version": 0,
+  "name": "exit-replies-while-an-effect-inside-still-runs",
+  "description": "exit replies at 15 while the effect neuron inside, started at 5, runs until 105. The reply is the composed neuron's and is forwarded at once; the started effect call is not cancelled, and the trace is finished only when it has ended.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json",
+      "effect": true
+    },
+    {
+      "id": "after",
+      "run": [
+        "neuron-after"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    },
+    {
+      "from": "box",
+      "to": "after"
+    }
+  ]
+}

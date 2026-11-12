@@ -1,0 +1,24 @@
+{
+  "fixture": 0,
+  "description": "The answer of a neuron with `each` MUST be a JSON array (2.4): an object, a string and null are each a failure of the call, code `output` (6.1), an error for the input, with no answer event and nothing forwarded.",
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":10,"source":"s","payload":2},
+    {"at":20,"source":"s","payload":3}
+  ],
+  "script": {
+    "a": {"calls":[{"when":1,"after":5,"reply":{"answer":{"items":[1,2]}}},{"when":2,"after":5,"reply":{"answer":"one"}},{"when":3,"after":5,"reply":{"answer":null}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":5,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"neuron":"a","message":"not an array","code":"output","payload":{"type":"json","data":1}},
+    {"type":"finished","t":5,"trace":"#1","status":"done"},
+    {"type":"signal","t":10,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"error","t":15,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"neuron":"a","message":"not an array","code":"output","payload":{"type":"json","data":2}},
+    {"type":"finished","t":15,"trace":"#2","status":"done"},
+    {"type":"signal","t":20,"id":"#3","from":"s","to":["a"],"trace":"#3","hops":0,"payload":{"type":"json","data":3}},
+    {"type":"error","t":25,"id":"#3","from":"s","to":["a"],"trace":"#3","hops":0,"neuron":"a","message":"not an array","code":"output","payload":{"type":"json","data":3}},
+    {"type":"finished","t":25,"trace":"#3","status":"done"}
+  ]
+}

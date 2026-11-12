@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "`maxInflight` limits the neuron that states it and no other: a (1) runs its two calls one after the other while b, with no limit, runs both at once.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":0,"source":"s","payload":2}
+  ],
+  "script": {
+    "a": {"calls":[{"when":1,"after":30,"reply":{"answer":"a1"}},{"when":2,"after":30,"reply":{"answer":"a2"}}]},
+    "b": {"calls":[{"when":1,"after":30,"reply":{"answer":"b1"}},{"when":2,"after":30,"reply":{"answer":"b2"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a","b"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"signal","t":0,"id":"#2","from":"s","to":["a","b"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"answer","t":30,"id":"#3","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"a1"}},
+    {"type":"answer","t":30,"id":"#4","from":"b","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"b1"}},
+    {"type":"answer","t":30,"id":"#5","from":"b","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"b2"}},
+    {"type":"answer","t":60,"id":"#6","from":"a","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"a2"}}
+  ]
+}

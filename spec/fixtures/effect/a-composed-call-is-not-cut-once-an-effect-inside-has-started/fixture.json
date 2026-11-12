@@ -1,0 +1,25 @@
+{
+  "fixture": 0,
+  "description": "The effect neuron inside started at 10. The newer input at 40 does not cut the composed call: no drop, no cancel note. The call answers at its own time, the answer is recorded with forwarded false and not forwarded, and its trace is finished only then.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":"old","replaces":"k"},
+    {"at":40,"source":"s","payload":"new","replaces":"k"}
+  ],
+  "script": {
+    "box/e": {"calls":[{"after":10,"reply":{"answer":1}},{"after":10,"reply":{"answer":2}}]},
+    "box/notify": {"calls":[{"after":100,"reply":{"answer":"sent-old"}},{"after":10,"reply":{"answer":"sent-new"}}]},
+    "after": {"calls":[{"after":1,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"text","text":"old"}},
+    {"type":"signal","t":40,"id":"#2","from":"s","to":["box"],"trace":"#2","hops":0,"replaces":"k","payload":{"type":"text","text":"new"}},
+    {"type":"answer","t":60,"id":"#3","from":"box","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"sent-new"}},
+    {"type":"signal","t":60,"id":"#4","from":"box","to":["after"],"trace":"#2","cause":"#3","hops":2,"replaces":"k","payload":{"type":"text","text":"sent-new"}},
+    {"type":"quiet","t":61,"id":"#5","from":"after","to":["box"],"trace":"#2","replyTo":"#4","hops":3},
+    {"type":"finished","t":61,"trace":"#2","status":"done"},
+    {"type":"answer","t":110,"id":"#6","from":"box","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"forwarded":false,"payload":{"type":"text","text":"sent-old"}},
+    {"type":"finished","t":110,"trace":"#1","status":"done"}
+  ]
+}

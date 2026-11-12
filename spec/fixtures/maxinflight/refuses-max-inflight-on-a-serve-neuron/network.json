@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "refuses-max-inflight-on-a-serve-neuron",
+  "description": "`maxInflight` is an option of `run`, `http` and `network` neurons (2.4): a `serve` program says its own in `ready` (3.2), so the option on one is refused by check and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "serve": [
+        "neuron-a"
+      ],
+      "maxInflight": 2
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

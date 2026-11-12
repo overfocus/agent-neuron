@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "an-effect-two-levels-down-is-stated-at-each-level",
+  "description": "The effect neuron is in the file of mid, which is in the file of box: both composed neurons state effect. Once it has started, the newer input does not cut the outer call either: no drop, and the answer at 110 is recorded with forwarded false.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "mid.network.json",
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    }
+  ]
+}

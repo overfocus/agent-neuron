@@ -1,4 +1,4 @@
-// The engine, second implementation: the sans-IO core on the virtual host
+// The engine: the sans-IO core on the virtual host
 // (conformance), the real host with `run` (M1), the http client and the desk
 // (M2), the MCP surface (M3).
 pub mod check;

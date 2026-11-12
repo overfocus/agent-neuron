@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "a-timeout-after-an-effect-started-is-unknown-and-cancels-it",
+  "description": "The effect neuron inside started at 10 and hangs. The composed call's timeout at 100 is unknown, and it cancels the inside, the started effect call too: that call held the neuron's one place, and the second call's effect at 160 finds it free.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json",
+      "effect": true,
+      "timeout": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    }
+  ]
+}

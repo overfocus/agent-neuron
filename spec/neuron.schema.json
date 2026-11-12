@@ -27,8 +27,14 @@
         "timeout": {
           "$ref": "#/$defs/ms"
         },
+        "maxInflight": {
+          "$ref": "#/$defs/inflight"
+        },
         "effect": {
           "const": true
+        },
+        "each": {
+          "$ref": "#/$defs/each"
         },
         "env": {
           "type": "array",
@@ -43,6 +49,9 @@
         },
         "may": {
           "$ref": "#/$defs/may"
+        },
+        "retry": {
+          "$ref": "#/$defs/retry"
         }
       }
     },
@@ -72,6 +81,9 @@
         "effect": {
           "const": true
         },
+        "each": {
+          "$ref": "#/$defs/each"
+        },
         "env": {
           "type": "array",
           "uniqueItems": true,
@@ -85,6 +97,9 @@
         },
         "may": {
           "$ref": "#/$defs/may"
+        },
+        "retry": {
+          "$ref": "#/$defs/retry"
         }
       }
     },
@@ -118,8 +133,17 @@
         "timeout": {
           "$ref": "#/$defs/ms"
         },
+        "maxInflight": {
+          "$ref": "#/$defs/inflight"
+        },
         "effect": {
           "const": true
+        },
+        "each": {
+          "$ref": "#/$defs/each"
+        },
+        "retry": {
+          "$ref": "#/$defs/retry"
         }
       }
     },
@@ -178,6 +202,15 @@
       "maximum": 86400000,
       "description": "A human neuron's timeout: up to a day (decision 0008); every other kind is capped at an hour."
     },
+    "inflight": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The most calls of the neuron at once; the rest wait in arrival order (SPEC 2.4, decision 0021). Absent: no limit."
+    },
+    "each": {
+      "const": true,
+      "description": "The answer is a JSON array, and each item is forwarded as a signal of its own, in order (SPEC 2.4, 4.4, decision 0022). Absent: one answer, one forward."
+    },
     "hostPort": {
       "description": "A host or address and a port, `host:port`: lower-case letters, digits, dots and hyphens, then a port from 1 to 65535. No wildcard.",
       "allOf": [
@@ -234,6 +267,25 @@
           }
         }
       }
+    },
+    "retry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "times"
+      ],
+      "properties": {
+        "times": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "wait": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600000
+        }
+      },
+      "description": "A failed call is started again with the same input, at most `times` more times, each after `wait` ms (default 0). On an effect neuron it covers `unknown` too: the file says the program is idempotent (SPEC 2.4, 11.3, decision 0022). Absent: no retry."
     }
   }
 }

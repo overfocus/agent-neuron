@@ -1,0 +1,15 @@
+{
+  "fixture": 0,
+  "description": "`each` on a neuron inside a composed neuron fans out inside it, and there is no join: the first reply of `exit` is the composed neuron's reply (2.6 step 2), here the second item's, and the calls for the other items are cancelled without reports.",
+  "inputs": [
+    {"at":0,"source":"s","payload":"go"}
+  ],
+  "script": {
+    "c/e": {"calls":[{"after":10,"reply":{"answer":[1,2,3]}}]},
+    "c/x": {"calls":[{"when":1,"after":30,"reply":{"answer":"x1"}},{"when":2,"after":10,"reply":{"answer":"x2"}},{"when":3,"after":20,"reply":{"answer":"x3"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["c"],"trace":"#1","hops":0,"payload":{"type":"text","text":"go"}},
+    {"type":"answer","t":20,"id":"#2","from":"c","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"x2"}}
+  ]
+}

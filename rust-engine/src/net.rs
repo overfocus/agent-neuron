@@ -46,6 +46,15 @@ pub struct Opts {
     /// What the program is allowed to touch (SPEC 2.4, decision 0016).
     /// Checked, not yet enforced: nothing that runs a program reads it.
     pub may: Option<May>,
+    /// The most calls of the neuron at once (SPEC 2.4, decision 0021): on a
+    /// `run`, `http` or `network` neuron; `None` is no limit.
+    pub max_inflight: Option<u64>,
+    /// `each` (SPEC 2.4, decision 0022): the answer is an array, forwarded
+    /// one signal per item.
+    pub each: bool,
+    /// `retry` (SPEC 2.4, decision 0022): `times` more attempts of a failed
+    /// call, each after `wait` ms.
+    pub retry: Option<(u64, u64)>,
 }
 
 /// A `may` (SPEC 2.4): four lists, each as the file wrote it. A member the
@@ -99,6 +108,20 @@ pub fn may_fold_error(outer: &Node, inner: &Network) -> Option<String> {
         }
     }
     None
+}
+
+/// The other fold (SPEC 11.5, decision 0022): a composed neuron states
+/// `effect` exactly when a neuron of its file has it. A composed neuron
+/// inside counts by its own `effect`, as it does by its own `may`.
+pub fn effect_fold_error(outer: &Node, inner: &Network) -> Option<String> {
+    match (outer.opts.effect, inner.nodes.iter().find(|n| n.opts.effect)) {
+        (false, Some(n)) => Some(format!(
+            "'{}' does not state effect and its file has an effect neuron: '{}' (11.5)",
+            outer.id, n.id
+        )),
+        (true, None) => Some(format!("'{}' states effect and its file has no effect neuron (11.5)", outer.id)),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -466,8 +489,8 @@ fn bare(message: String, out: &mut Vec<Diag>) {
 
 /// Parse and validate a network file (SPEC section 2, the errors of 2.7).
 /// `used_as_composed` adds the composed restrictions of 2.6: the file MUST
-/// have `entry` and `exit`, MUST NOT contain a `source` or a neuron with
-/// `effect`, and `exit` MUST NOT have outgoing links. The strings keep their
+/// have `entry` and `exit`, MUST NOT contain a `source`, and `exit` MUST NOT
+/// have outgoing links. The strings keep their
 /// `path: message` shape for the runner.
 pub fn load(path: &str, used_as_composed: bool) -> Result<Network, Vec<String>> {
     let text = std::fs::read_to_string(path).map_err(|e| vec![format!("{}: cannot read ({})", path, e)])?;
@@ -903,10 +926,12 @@ fn link(lv: &Value, i: usize, scan: &Scan, span: Span, out: &mut Vec<Diag>) -> L
 /// when the entry or the file is wrong; the findings are in `out`, anchored
 /// to the entry, and name the file.
 ///
-/// What is the neuron's sits in its file (the kind, `cwd`, `effect`, and
+/// What is the neuron's sits in its file (the kind, `cwd`, `effect`, `each`, and
 /// `may`, `env`, `timeout`); what is the network's sits on the entry (`id`,
 /// `at`, `threshold`, `within`, `maxHops`, `cost`). The entry may restate
-/// `timeout`, `env` and `may` only to narrow them.
+/// `timeout`, `env`, `may` and `maxInflight` only to narrow them. Its `args` (decision 0022)
+/// are appended to the file's command, after its own arguments, and are gone
+/// from the neuron returned: nothing after this knows of them.
 fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out: &mut Vec<Diag>) -> Option<Value> {
     let before = out.len();
     let id = nv.get("id").and_then(|v| v.as_str()).unwrap_or("");
@@ -916,7 +941,19 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
             push(span, scan, k, &format!("{}: a neuron has exactly one kind field", what), out);
         } else if !matches!(
             k,
-            "id" | "description" | "at" | "neuron" | "threshold" | "within" | "maxHops" | "cost" | "timeout" | "env" | "may"
+            "id" | "description"
+                | "at"
+                | "neuron"
+                | "args"
+                | "threshold"
+                | "within"
+                | "maxHops"
+                | "cost"
+                | "timeout"
+                | "env"
+                | "may"
+                | "maxInflight"
+                | "retry"
         ) {
             push(
                 span,
@@ -971,10 +1008,17 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
         return None;
     }
     let program = matches!(kinds[0], "run" | "serve");
+    // `maxInflight` (2.4): a serve program says its own in `ready`, and a
+    // person's queue is the desk's.
+    let limited = matches!(kinds[0], "run" | "http");
     for k in of.keys() {
         let own = matches!(k, "$schema" | "version" | "description" | "timeout" | "effect")
             || k == kinds[0]
-            || (program && matches!(k, "env" | "cwd" | "may"));
+            || (program && matches!(k, "env" | "cwd" | "may"))
+            || (limited && k == "maxInflight")
+            // `each` (2.4): how the program's answer goes on, so the neuron's
+            // own; a person answers one thing.
+            || (kinds[0] != "human" && matches!(k, "each" | "retry"));
         if !own {
             push(
                 span,
@@ -1001,6 +1045,64 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
             push(span, scan, "timeout", &wider(format!("timeout {} (over {})", t, limit)), out);
         }
     }
+    if nv.has("maxInflight") && !limited {
+        push(
+            span,
+            scan,
+            "maxInflight",
+            &format!(
+                "{}: 'maxInflight' is an option of run, http and network neurons, and '{}' is a {} neuron",
+                what, rel, kinds[0]
+            ),
+            out,
+        );
+    }
+    // A file that states no limit has none, so any limit on the entry
+    // narrows it.
+    if let (Some(mine), Some(theirs)) = (
+        nv.get("maxInflight").and_then(|v| v.as_u64()),
+        of.get("maxInflight").and_then(|v| v.as_u64()),
+    ) {
+        if mine > theirs {
+            push(
+                span,
+                scan,
+                "maxInflight",
+                &wider(format!("maxInflight {} (over {})", mine, theirs)),
+                out,
+            );
+        }
+    }
+    // `retry` (2.4) is the neuron's own: the entry may lower `times`, and
+    // nothing else. A file without it retries nothing, so there is nothing
+    // to lower.
+    if let Some(mine) = nv.get("retry") {
+        let times = mine.get("times").and_then(|v| v.as_u64());
+        let theirs = of.get("retry").and_then(|r| r.get("times")).and_then(|v| v.as_u64());
+        if mine.has("wait") {
+            push(
+                span,
+                scan,
+                "retry",
+                &format!(
+                    "{}: the wait of 'retry' is the neuron's own: the entry that names a neuron may only lower its times (2.10)",
+                    what
+                ),
+                out,
+            );
+        }
+        match (times, theirs) {
+            (Some(t), Some(limit)) if t > limit => push(span, scan, "retry", &wider(format!("retry times {} (over {})", t, limit)), out),
+            (Some(t), None) => push(
+                span,
+                scan,
+                "retry",
+                &wider(format!("retry times {} (the file has no retry)", t)),
+                out,
+            ),
+            _ => {}
+        }
+    }
     for key in ["env", "may"] {
         if nv.has(key) && !program {
             push(
@@ -1013,6 +1115,33 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
                 ),
                 out,
             );
+        }
+    }
+    // `args` adds to a command: a non-empty array of literal strings, and
+    // only where the file has a command to add to.
+    let mut args: Vec<Value> = Vec::new();
+    if let Some(av) = nv.get("args") {
+        match av.as_arr() {
+            _ if !program => push(
+                span,
+                scan,
+                "args",
+                &format!(
+                    "{}: 'args' adds to a command, and '{}' is not a run or serve neuron: it has none (2.10)",
+                    what, rel
+                ),
+                out,
+            ),
+            Some(items) if !items.is_empty() && items.iter().all(|x| x.as_str().is_some_and(is_literal)) => {
+                args = items.to_vec();
+            }
+            _ => push(
+                span,
+                scan,
+                "args",
+                &format!("{}: args must be a non-empty array of literal strings", what),
+                out,
+            ),
         }
     }
     let strings = |v: Option<&Value>| -> Vec<String> {
@@ -1050,11 +1179,24 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
         );
     }
     if let Value::Obj(entries) = nv {
-        for (k, v) in entries.iter().filter(|(k, _)| k != "neuron") {
+        for (k, v) in entries.iter().filter(|(k, _)| k != "neuron" && k != "args") {
             match merged.iter_mut().find(|(mk, _)| mk == k) {
+                // The entry's `times` in the file's `retry`: its wait stays.
+                Some((_, Value::Obj(own))) if k == "retry" => {
+                    if let (Some(slot), Some(times)) = (own.iter_mut().find(|(f, _)| f == "times"), v.get("times")) {
+                        slot.1 = times.clone();
+                    }
+                }
                 Some(slot) => slot.1 = v.clone(),
                 None => merged.push((k.clone(), v.clone())),
             }
+        }
+    }
+    if !args.is_empty() {
+        // Appended, after the file's own arguments. A command that is not an
+        // array is left as it is, for the inline check to refuse.
+        if let Some((_, Value::Arr(command))) = merged.iter_mut().find(|(k, _)| k == kinds[0]) {
+            command.extend(args);
         }
     }
     if program {
@@ -1185,9 +1327,11 @@ fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out
         let allowed = match k {
             "threshold" | "within" => !is_network,
             "maxHops" | "timeout" | "cost" => true,
-            "effect" => !is_network,
+            "effect" => true,
             "env" | "cwd" => is_command,
             "may" => is_command || is_network,
+            "maxInflight" => matches!(kind, Kind::Run(_) | Kind::Http(_) | Kind::Network(_)),
+            "each" | "retry" => matches!(kind, Kind::Run(_) | Kind::Serve(_) | Kind::Http(_) | Kind::Network(_)),
             _ => false,
         };
         if !allowed {
@@ -1249,6 +1393,18 @@ fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out
             }
         }
     }
+    if let Some(x) = nv.get("maxInflight") {
+        match x.as_u64() {
+            Some(n) if n >= 1 => opts.max_inflight = Some(n),
+            _ => push(
+                span,
+                scan,
+                "maxInflight",
+                &format!("{}: maxInflight is an integer at least 1", what),
+                out,
+            ),
+        }
+    }
     if let Some(x) = nv.get("env") {
         match x.as_arr() {
             Some(items) => {
@@ -1283,6 +1439,33 @@ fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out
         match x.as_bool() {
             Some(true) => opts.effect = true,
             _ => push(span, scan, "effect", &format!("{}: effect is true", what), out),
+        }
+    }
+    if let Some(x) = nv.get("retry") {
+        let times = x.get("times").and_then(|v| v.as_u64()).filter(|n| *n >= 1);
+        let wait = match x.get("wait") {
+            None => Some(0),
+            Some(v) => v.as_u64().filter(|n| *n <= 3_600_000),
+        };
+        let closed = x.is_obj() && x.keys().iter().all(|k| matches!(*k, "times" | "wait"));
+        match (times, wait, closed) {
+            (Some(times), Some(wait), true) => opts.retry = Some((times, wait)),
+            _ => push(
+                span,
+                scan,
+                "retry",
+                &format!(
+                    "{}: retry is an object of times (an integer at least 1) and, optionally, wait (ms, 0 to 3600000)",
+                    what
+                ),
+                out,
+            ),
+        }
+    }
+    if let Some(x) = nv.get("each") {
+        match x.as_bool() {
+            Some(true) => opts.each = true,
+            _ => push(span, scan, "each", &format!("{}: each is true", what), out),
         }
     }
     if let Some(x) = nv.get("cost") {
@@ -1623,10 +1806,6 @@ fn composed_rules(net: &Network, used_as_composed: bool, scan: &Scan, out: &mut 
         let first = net.nodes.iter().position(|n| n.kind == Kind::Source).unwrap_or(0);
         let span = neuron_spans.get(first).copied().unwrap_or(NONE_SPAN);
         push(span, scan, "source", "a composed file contains a source", out);
-    }
-    if let Some((i, _)) = net.nodes.iter().enumerate().find(|(_, n)| n.opts.effect) {
-        let span = neuron_spans.get(i).copied().unwrap_or(NONE_SPAN);
-        push(span, scan, "effect", "a composed file contains a neuron with effect (11.5)", out);
     }
     match (&net.entry, &net.exit) {
         (Some(e), Some(x)) => {

@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "name": "each-attempt-reserves-and-commits-its-cost",
+  "description": "Each attempt is a call: it reserves its cost when it starts and commits when it ends. Nothing is reserved during the wait. Two attempts at 3 credits leave 4 of 10.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 2,
+        "wait": 50
+      },
+      "cost": {
+        "credits": 3
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

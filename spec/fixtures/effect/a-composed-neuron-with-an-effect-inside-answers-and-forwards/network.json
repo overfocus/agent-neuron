@@ -1,0 +1,32 @@
+{
+  "version": 0,
+  "name": "a-composed-neuron-with-an-effect-inside-answers-and-forwards",
+  "description": "A composed neuron that states effect over a file with an effect neuron is accepted, and a call nothing disturbs is a composed call like any other: one answer, forwarded.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json",
+      "effect": true
+    },
+    {
+      "id": "after",
+      "run": [
+        "neuron-after"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    },
+    {
+      "from": "box",
+      "to": "after"
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "version": 0,
+  "name": "a-threshold-call-waits-as-one-call",
+  "description": "threshold 2 with `maxInflight` 1: the second trace's inputs cross at 5 and leave their group (no `within` expiry at 15), and their one call waits for the place and starts at 20 with both inputs.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "p",
+      "run": [
+        "neuron-p"
+      ]
+    },
+    {
+      "id": "q",
+      "run": [
+        "neuron-q"
+      ]
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "threshold": 2,
+      "within": 10,
+      "maxInflight": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "p"
+    },
+    {
+      "from": "s",
+      "to": "q"
+    },
+    {
+      "from": "p",
+      "to": "a"
+    },
+    {
+      "from": "q",
+      "to": "a"
+    }
+  ]
+}

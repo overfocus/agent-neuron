@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "`each` is `true` or absent (2.4): `false` is refused by check, and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

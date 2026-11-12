@@ -196,6 +196,12 @@ struct Work {
     inner_root: Option<u64>,
     fail_inner: bool,
     exit_replied: bool,
+    /// Composed effect call (11.5): an effect inside it has started. From
+    /// then on staleness marks the call and never cuts it, and its failures
+    /// are `unknown`.
+    effect_started: bool,
+    /// Which attempt of its call this is, from 1 (`retry`, SPEC 2.4).
+    attempt: u64,
     /// `http`: the request's index in the engine's `https`.
     http: Option<usize>,
     /// `human` on the real host: the desk item of the question.
@@ -338,6 +344,10 @@ struct SigRec {
 
 struct StaleEnt {
     sig: u64,
+    /// The emission the signal belongs to (SPEC 5.4): the answer that caused
+    /// it, or itself. The forwards of one `each` answer share one, and none
+    /// makes another stale.
+    emission: u64,
     works: Vec<usize>,
 }
 
@@ -361,7 +371,15 @@ struct INode {
     within: u64,
     max_hops: Option<u64>,
     timeout: u64,
+    /// The most calls of this neuron at once (SPEC 2.4): `None` is no limit.
+    max_inflight: Option<u64>,
     effect: bool,
+    /// `each` (SPEC 2.4): the answer is an array, forwarded one signal per
+    /// item (4.4).
+    each: bool,
+    /// `retry` (SPEC 2.4): how many more attempts a failed call gets, and
+    /// the wait before each, in ms.
+    retry: Option<(u64, u64)>,
     cost: Option<Units>,
     out: Vec<usize>,
     prog: String,
@@ -432,21 +450,67 @@ struct ObsInject {
 enum Wake {
     Inject(usize),
     ObserverInject(usize),
-    CallEnd { work: usize },
-    CallTimeout { work: usize },
-    Within { work: usize },
-    L1Reply { work: usize },
-    CancelReply { work: usize },
-    EndAt { server: usize, gen: usize },
-    StartDeadline { server: usize, gen: usize },
-    ReadyAt { server: usize, gen: usize },
-    L0Grace { proc: usize },
-    ServeGrace { server: usize, gen: usize },
-    RestartDue { server: usize },
-    PingTick { server: usize, gen: usize },
-    PongArrive { server: usize, gen: usize, n: u64 },
-    PongDeadline { server: usize, gen: usize, n: u64 },
-    SlotDeadline { server: usize, gen: usize, re: u64 },
+    CallEnd {
+        work: usize,
+    },
+    CallTimeout {
+        work: usize,
+    },
+    Within {
+        work: usize,
+    },
+    L1Reply {
+        work: usize,
+    },
+    CancelReply {
+        work: usize,
+    },
+    EndAt {
+        server: usize,
+        gen: usize,
+    },
+    StartDeadline {
+        server: usize,
+        gen: usize,
+    },
+    ReadyAt {
+        server: usize,
+        gen: usize,
+    },
+    L0Grace {
+        proc: usize,
+    },
+    ServeGrace {
+        server: usize,
+        gen: usize,
+    },
+    RestartDue {
+        server: usize,
+    },
+    PingTick {
+        server: usize,
+        gen: usize,
+    },
+    PongArrive {
+        server: usize,
+        gen: usize,
+        n: u64,
+    },
+    PongDeadline {
+        server: usize,
+        gen: usize,
+        n: u64,
+    },
+    SlotDeadline {
+        server: usize,
+        gen: usize,
+        re: u64,
+    },
+    /// The wait before another attempt of a failed call is over (`retry`,
+    /// SPEC 2.4).
+    Retry {
+        work: usize,
+    },
 }
 
 pub struct RunOutcome {
@@ -660,6 +724,22 @@ pub struct Engine {
     cap_live: u64,
     /// The calls waiting for a place, in the order they arrived.
     cap_queue: std::collections::VecDeque<usize>,
+    /// A neuron's own limit (SPEC 2.4 `maxInflight`, decision 0021): the
+    /// calls that hold a place at each neuron that states one. A place is
+    /// taken when the call passes its neuron's gate and given back at the end
+    /// of the step in which the call's record became `done` (`place_drain`),
+    /// never inside the step.
+    places: BTreeMap<usize, Vec<usize>>,
+    /// The calls waiting for a place at their own neuron, in the order they
+    /// arrived: every neuron's in one list, so the order of starts is one
+    /// order for the whole engine.
+    waiting: std::collections::VecDeque<usize>,
+    /// The traces whose answer is being forwarded item by item (`each`,
+    /// SPEC 4.4): not finished while an item is still to come (7.2).
+    fanning: Vec<u64>,
+    /// Some composed file of the network has an effect neuron (11.5): only
+    /// then can a trace be held open from inside a call that has replied.
+    inner_effects: bool,
     /// The node a hosted file's callers enter through (`plant_hosted`).
     caller: Option<usize>,
 }
@@ -733,6 +813,10 @@ impl Engine {
             at_once: None,
             cap_live: 0,
             cap_queue: std::collections::VecDeque::new(),
+            places: BTreeMap::new(),
+            waiting: std::collections::VecDeque::new(),
+            fanning: Vec::new(),
+            inner_effects: false,
             caller: None,
         }
     }
@@ -1039,7 +1123,10 @@ impl Engine {
             within: 10_000,
             max_hops: None,
             timeout: 30_000,
+            max_inflight: None,
             effect: false,
+            each: false,
+            retry: None,
             cost: None,
             out: Vec::new(),
             prog: id,
@@ -1125,6 +1212,9 @@ impl Engine {
                 }
                 _ => cmd,
             };
+            if inst != 0 && n.opts.effect {
+                self.inner_effects = true;
+            }
             self.nodes.push(INode {
                 inst,
                 peer,
@@ -1134,7 +1224,10 @@ impl Engine {
                 within: n.opts.within.unwrap_or(10_000),
                 max_hops: n.opts.max_hops,
                 timeout: n.opts.timeout.unwrap_or(30_000),
+                max_inflight: n.opts.max_inflight,
                 effect: n.opts.effect,
+                each: n.opts.each,
+                retry: n.opts.retry,
                 cost: n.opts.cost.clone(),
                 out: Vec::new(),
                 prog,
@@ -1333,6 +1426,7 @@ impl Engine {
             let Some(w) = self.pop() else { break };
             self.fire(w);
             self.wake_composed_calls();
+            self.place_drain();
         }
         if self.is_real() {
             self.end_run_quietly();
@@ -1408,6 +1502,7 @@ impl Engine {
             (t, d) => t.or(d),
         };
         if self.host_step(cap) {
+            self.place_drain();
             self.cap_drain();
             self.wake_composed_calls();
             return Step::Advanced;
@@ -1429,6 +1524,7 @@ impl Engine {
             // can move things on. The pump waits to the deadline when one is
             // set, and to nothing at all when none is.
             if self.host_step(self.deadline) {
+                self.place_drain();
                 self.cap_drain();
                 self.wake_composed_calls();
                 return Step::Advanced;
@@ -1439,6 +1535,7 @@ impl Engine {
             return Step::Idle;
         };
         self.fire(w);
+        self.place_drain();
         self.cap_drain();
         self.wake_composed_calls();
         Step::Advanced
@@ -1609,6 +1706,7 @@ impl Engine {
             Wake::PongArrive { server, gen, n } => self.fire_pong_arrive(server, gen, n),
             Wake::PongDeadline { server, gen, n } => self.fire_pong_deadline(server, gen, n),
             Wake::SlotDeadline { server, gen, re } => self.fire_slot_deadline(server, gen, re),
+            Wake::Retry { work } => self.fire_retry(work),
         }
     }
 
@@ -1918,7 +2016,10 @@ impl Engine {
                 if let Some(l0) = self.works[work].l0 {
                     self.terminate_l0(l0);
                 } else {
-                    self.composed_cancel_inner(work);
+                    // The timeout of a composed effect call ends its started
+                    // effects too (11.3, 11.5). A hosted file's caller is no
+                    // effect neuron: its effects are the worker's own.
+                    self.composed_cancel_inner(work, self.nodes[node].effect);
                     self.commit_call(work);
                     self.works[work].done = true;
                 }
@@ -2017,7 +2118,11 @@ impl Engine {
 
     fn emit_failure(&mut self, work: usize, code: &str, msg: &str, unknown: bool) {
         let node = self.works[work].node;
-        let what = if self.nodes[node].effect && unknown { "unknown" } else { "error" };
+        // A composed effect call is an effect call once an effect inside it
+        // has started (11.5): before that nothing happened, and its failure
+        // is an error.
+        let effect = self.nodes[node].effect && (self.works[work].kind != WKind::Composed || self.works[work].effect_started);
+        let what = if effect && unknown { "unknown" } else { "error" };
         let drop_sig = self.fail_sig_of(work);
         let sigrec = self.sigs[&drop_sig].clone();
         self.emit(
@@ -2030,6 +2135,11 @@ impl Engine {
                 .build(),
         );
         self.works[work].reported = true;
+        if self.arrange_retry(work, code) {
+            // Not the call's outcome yet (2.4): a composed call it is inside
+            // has no failed neuron until the last attempt fails.
+            return;
+        }
         {
             if let Some(cw) = sigrec.owner_call {
                 // The wording the peer's worker logs when this instance's
@@ -2044,6 +2154,57 @@ impl Engine {
                 self.works[cw].fail_inner = true;
             }
         }
+    }
+
+    /// `retry` (SPEC 2.4): after a failed attempt that leaves attempts, the
+    /// `retry` note and a new attempt of the same call, waiting work until
+    /// its wait is over. Never after a `budget` or `start` failure, and never
+    /// for a call that went stale.
+    fn arrange_retry(&mut self, work: usize, code: &str) -> bool {
+        let node = self.works[work].node;
+        let Some((times, wait)) = self.nodes[node].retry else {
+            return false;
+        };
+        let w = &self.works[work];
+        if matches!(code, "budget" | "start") || w.stale_marked || w.cut || w.attempt > times {
+            return false;
+        }
+        let (sig, inputs, attempt) = (w.sig, w.inputs.clone(), w.attempt + 1);
+        let note = Obj::new()
+            .str("type", "note")
+            .int("t", self.now_t())
+            .str("neuron", self.nodes[node].display.clone())
+            .str("what", "retry")
+            .str("trigger", self.fail_sig_of(work).to_string())
+            .int("attempt", attempt as i64)
+            .int("wait", wait as i64)
+            .build();
+        self.emit(self.nodes[node].inst, note);
+        let next = self.make_call(node, sig, WSt::Queued);
+        self.works[next].attempt = attempt;
+        for &h in &inputs {
+            // A threshold call: stale when any of its inputs is (5.4).
+            let held = self.works[h].sig;
+            let Some(skey) = self.stale_key_of(held) else { continue };
+            if let Some(ent) = self.stale.get_mut(&skey).and_then(|list| list.iter_mut().find(|e| e.sig == held)) {
+                ent.works.push(next);
+            }
+        }
+        self.works[next].inputs = inputs;
+        self.arm(self.now + wait, Wake::Retry { work: next });
+        true
+    }
+
+    /// The wait is over: the attempt starts as any call does, behind the
+    /// calls already waiting for a place (2.4). One dropped while it waited
+    /// starts nothing.
+    fn fire_retry(&mut self, work: usize) {
+        if self.works.get(work).is_none_or(|w| w.done || w.st != WSt::Queued) {
+            return;
+        }
+        self.works[work].st = WSt::Running;
+        self.start_new_call(work);
+        self.finish_check(None);
     }
 
     /// The signal an error or drop describes: for a threshold call, the
@@ -2086,10 +2247,11 @@ impl Engine {
     }
 
     fn finish_check(&mut self, excl: Option<u64>) {
+        let held = self.held_by_inner_effects();
         let pending: Vec<(u64, bool)> = self
             .traces
             .iter()
-            .filter(|(trace, info)| !info.finished && Some(*trace) != excl)
+            .filter(|(trace, info)| !info.finished && Some(*trace) != excl && !self.fanning.contains(trace) && !held.contains(trace))
             .filter(|(trace, _)| {
                 !self.works[self.low..].iter().any(|w| w.trace == *trace && !w.done)
                     && !self
@@ -2265,10 +2427,16 @@ impl Engine {
         self.emit_signal_event(id);
         if let Some(key) = &replaces {
             let sender = self.disp(from);
+            let emission = cause.unwrap_or(id);
             let list = self.stale.entry((scope, sender, key.clone())).or_default();
-            let doomed: Vec<usize> = list.iter().flat_map(|e| e.works.clone()).collect();
+            let doomed: Vec<usize> = list
+                .iter()
+                .filter(|e| e.emission != emission)
+                .flat_map(|e| e.works.clone())
+                .collect();
             list.push(StaleEnt {
                 sig: id,
+                emission,
                 works: Vec::new(),
             });
             for work in doomed {
@@ -2292,10 +2460,15 @@ impl Engine {
         let Some((scope, sender, key)) = self.stale_key_of(sig) else {
             return;
         };
+        // Every entry of another emission is older: the forwards of one
+        // `each` answer are one emission, and none makes another stale (5.4).
         let doomed: Vec<usize> = match self.stale.get(&(scope, sender, key)) {
             Some(list) => {
-                let cut_len = list.len() - 1;
-                list[..cut_len].iter().flat_map(|e| e.works.clone()).collect()
+                let emission = list.iter().find(|e| e.sig == sig).map(|e| e.emission);
+                list.iter()
+                    .filter(|e| Some(e.emission) != emission)
+                    .flat_map(|e| e.works.clone())
+                    .collect()
             }
             None => Vec::new(),
         };
@@ -2329,6 +2502,13 @@ impl Engine {
     /// cancel. An effect call is marked, never cut (11.2). A threshold call
     /// reports one drop, for the crossing input.
     fn cut_work(&mut self, work: usize) {
+        self.cut_work_how(work, false);
+    }
+
+    /// `force` is the timeout of a composed call reaching its inside (11.5):
+    /// a started effect call is cut too, as its own timeout would cut it
+    /// (11.3).
+    fn cut_work_how(&mut self, work: usize, force: bool) {
         if self.works[work].done || self.works[work].cut {
             return;
         }
@@ -2349,16 +2529,17 @@ impl Engine {
                     s.queue.retain(|&w| w != work);
                 }
                 self.cap_queue.retain(|&w| w != work);
+                self.waiting.retain(|&w| w != work);
             }
             WSt::Running => {
                 let node = self.works[work].node;
-                if self.nodes[node].effect {
+                // A composed effect call with no effect started inside is cut
+                // as any composed call is (11.5).
+                let started = self.works[work].kind != WKind::Composed || self.works[work].effect_started;
+                if self.nodes[node].effect && started && !force {
                     // No drop, no cancel: the call is marked and runs to its
                     // own end (11.2). Never `cut`: its reply is delivered and
                     // the forward alone is suppressed.
-                    if self.works[work].stale_marked {
-                        return; // already marked, once per call
-                    }
                     self.works[work].stale_marked = true;
                     return;
                 }
@@ -2415,7 +2596,7 @@ impl Engine {
                         if let Some(l0) = self.works[work].l0 {
                             self.terminate_l0(l0);
                         } else {
-                            self.composed_cancel_inner(work);
+                            self.composed_cancel_inner(work, force);
                             self.commit_call(work);
                             self.works[work].done = true;
                         }
@@ -2423,6 +2604,46 @@ impl Engine {
                 }
             }
         }
+    }
+
+    /// An effect call has started (11.2): every composed call it is inside
+    /// has an effect started (11.5), outwards to the outer network.
+    fn effect_begun(&mut self, work: usize) {
+        let node = self.works[work].node;
+        if !self.nodes[node].effect {
+            return;
+        }
+        let mut sig = self.works[work].sig;
+        while let Some(cw) = self.sigs.get(&sig).and_then(|rec| rec.owner_call) {
+            if self.works[cw].effect_started {
+                break;
+            }
+            self.works[cw].effect_started = true;
+            sig = self.works[cw].sig;
+        }
+    }
+
+    /// The traces a started effect call still holds open from inside a
+    /// composed call that has replied (11.5): the call's own trace and those
+    /// of the composed calls around it.
+    fn held_by_inner_effects(&self) -> HashSet<u64> {
+        let mut held = HashSet::new();
+        if !self.inner_effects {
+            return held;
+        }
+        for w in &self.works[self.low..] {
+            if w.done || w.cut || w.st != WSt::Running || !self.nodes[w.node].effect || self.nodes[w.node].inst == 0 {
+                continue;
+            }
+            let mut sig = w.sig;
+            while let Some(cw) = self.sigs.get(&sig).and_then(|rec| rec.owner_call) {
+                if !held.insert(self.works[cw].trace) {
+                    break;
+                }
+                sig = self.works[cw].sig;
+            }
+        }
+        held
     }
 
     fn remove_from_group(&mut self, node: usize, trace: u64, work: usize) {
@@ -2554,6 +2775,8 @@ impl Engine {
             inner_root: None,
             fail_inner: false,
             exit_replied: false,
+            effect_started: false,
+            attempt: 1,
             http: None,
             desk: None,
         };
@@ -2569,9 +2792,60 @@ impl Engine {
 // ---------------------------------------------------------------------------
 
 impl Engine {
+    /// A call may start (SPEC 5.1). A neuron with `maxInflight` (2.4) whose
+    /// places are all taken keeps it waiting: queued with level 1's meaning,
+    /// so no check, no reserve and no timeout until `place_drain` starts it.
+    fn start_new_call(&mut self, work: usize) {
+        let node = self.works[work].node;
+        if let Some(limit) = self.nodes[node].max_inflight {
+            let held = self.places.entry(node).or_default();
+            if held.len() as u64 >= limit {
+                self.works[work].st = WSt::Queued;
+                self.waiting.push_back(work);
+                return;
+            }
+            held.push(work);
+        }
+        self.start_placed(work);
+    }
+
+    /// The end of a step (decision 0021): the places of the calls that ended
+    /// in it are free, and the call that has waited longest among those whose
+    /// neuron has a free place starts, one at a time, until none can. The
+    /// step's own events come first, as under the engine's cap; a call that
+    /// ends as it starts (a budget refusal, say) gives its place to the next.
+    fn place_drain(&mut self) {
+        if self.places.is_empty() {
+            return;
+        }
+        // The step's own last word first (2.6 step 3): the real host's loop
+        // makes this check after its drains, the scripted one before.
+        self.wake_composed_calls();
+        loop {
+            let works = &self.works;
+            for held in self.places.values_mut() {
+                held.retain(|&w| !works[w].done);
+            }
+            let next = self.waiting.iter().position(|&w| {
+                let node = works[w].node;
+                let limit = self.nodes[node].max_inflight.unwrap_or(u64::MAX);
+                (self.places.get(&node).map(|held| held.len()).unwrap_or(0) as u64) < limit
+            });
+            let Some(work) = next.and_then(|ix| self.waiting.remove(ix)) else {
+                break;
+            };
+            let node = self.works[work].node;
+            self.places.entry(node).or_default().push(work);
+            self.works[work].st = WSt::Running;
+            self.start_placed(work);
+            self.finish_check(None);
+            self.wake_composed_calls();
+        }
+    }
+
     /// A call starts (SPEC 5.1): the reserve check comes first, then the
     /// matched entry, the reserve, and the program.
-    fn start_new_call(&mut self, work: usize) {
+    fn start_placed(&mut self, work: usize) {
         let node = self.works[work].node;
         let kind = self.works[work].kind;
         match kind {
@@ -2787,6 +3061,7 @@ impl Engine {
                 self.finish_check(None);
             }
             if !self.works[work].done && (self.l0s[l0].gid.is_some() || self.l0s[l0].remote) {
+                self.effect_begun(work);
                 self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
             }
             return;
@@ -2825,6 +3100,7 @@ impl Engine {
             self.works[work].done = true;
             return;
         }
+        self.effect_begun(work);
         // The program's reply wake-up is armed before the call's timeout (6.2
         // rule 7); a `hang` never answers by itself.
         let hangs = reply_is_hang(&entry.reply);
@@ -2853,6 +3129,9 @@ impl Engine {
                 continue;
             }
             self.start_l0(work);
+            // A call refused as it starts (its budget) may have been the last
+            // work of its trace (6.2 rule 8).
+            self.finish_check(None);
         }
     }
 
@@ -3031,6 +3310,10 @@ impl Engine {
             // cleanup only, like any other late program outcome (finding 4,
             // 0014).
             if still_running && !self.works[work].done {
+                if !started {
+                    // The peer was never reached: nothing ran there (11.3).
+                    self.works[work].effect_started = false;
+                }
                 self.composed_remote_done(work, out);
                 return;
             }
@@ -3117,6 +3400,7 @@ impl Engine {
             self.works[work].desk = Some(id);
             self.reserve_call(work);
             self.works[work].st = WSt::Running;
+            self.effect_begun(work);
             self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
             return;
         }
@@ -3125,6 +3409,7 @@ impl Engine {
         self.works[work].entry = Some(entry.clone());
         self.reserve_call(work);
         self.works[work].st = WSt::Running;
+        self.effect_begun(work);
         let hangs = reply_is_hang(&entry.reply);
         if !hangs {
             self.arm(self.now + entry.after, Wake::CallEnd { work });
@@ -3156,6 +3441,7 @@ impl Engine {
         let post = self.host().post_handle();
         self.reserve_call(work);
         self.works[work].st = WSt::Running;
+        self.effect_begun(work);
         let cancel = crate::http::begin(post, idx, &url, input.as_bytes(), Duration::from_millis(timeout));
         self.https.push(cancel);
         self.works[work].http = Some(idx);
@@ -3275,6 +3561,21 @@ impl Engine {
     /// the queue drains. A reply of a composed neuron's `exit` completes its
     /// composed call instead (2.6 step 2): the first reply wins.
     fn call_replied(&mut self, work: usize, outcome: Outcome) {
+        // `each` (SPEC 2.4): the answer MUST be a JSON array; one that is not
+        // is a failure of the call, code `output` (6.1).
+        let outcome = match outcome {
+            Outcome::Answer { payload, .. } if self.nodes[self.works[work].node].each && !matches!(&payload, PVal::Json(Value::Arr(_))) => {
+                let shown = match &payload {
+                    PVal::Json(v) => json::write(v),
+                    PVal::Text(t) => json::write(&Value::Str(t.clone())),
+                };
+                Outcome::Fail {
+                    code: "output",
+                    msg: format!("not an array: {}", cut_chars(&shown, 80)),
+                }
+            }
+            other => other,
+        };
         if let Some(cw) = self.exit_owner_of(work) {
             self.composed_exit_replied(work, cw, outcome);
             return;
@@ -3317,7 +3618,9 @@ impl Engine {
                 // The run prints the answers of the neurons with no outgoing
                 // links (SPEC 4.4); the whole payload, the trace cuts long
                 // ones (TRACE.md).
-                if self.nodes[node].out.is_empty() && !self.hosting {
+                // Only of the outer network: an inner neuron's answer is
+                // sealed (2.6), also when it is not `exit` and links nowhere.
+                if self.nodes[node].out.is_empty() && !self.hosting && rec.inst == 0 {
                     match &mut self.answer_sink {
                         Some(sink) => sink(&printed(&payload)),
                         None => self.answers.push((self.disp(node), payload.clone())),
@@ -3377,6 +3680,39 @@ impl Engine {
     /// key or the input's, along the outgoing links in declaration order (or
     /// the subset the reply names).
     fn forward_answer(&mut self, work: usize, reply: u64, to: &Option<Vec<usize>>, replaces: &KeyThree, payload: PVal) {
+        let node = self.works[work].node;
+        // `each` (2.4, 4.4): one forward per item of the answer, in the
+        // array's order, each a signal of its own caused by the answer. The
+        // trace is not finished while an item is still to come.
+        let items: Vec<PVal> = match (&payload, self.nodes[node].each) {
+            (PVal::Json(Value::Arr(items)), true) => items.iter().cloned().map(payload_of).collect(),
+            _ => {
+                self.forward_one(work, reply, to, replaces, payload);
+                return;
+            }
+        };
+        let trace = self.sigs[&reply].trace;
+        let count = items.len();
+        self.fanning.push(trace);
+        for (i, item) in items.into_iter().enumerate() {
+            if i + 1 == count {
+                self.unfan(trace);
+            }
+            self.forward_one(work, reply, to, replaces, item);
+        }
+        self.unfan(trace); // an empty array
+    }
+
+    fn unfan(&mut self, trace: u64) {
+        if let Some(ix) = self.fanning.iter().rposition(|t| *t == trace) {
+            self.fanning.remove(ix);
+        }
+    }
+
+    /// One forward (4.4). With `each` it is one item's: the draw of 4.5 is
+    /// per forward, and the forwards of one answer are one emission (5.4,
+    /// `new_signal`).
+    fn forward_one(&mut self, work: usize, reply: u64, to: &Option<Vec<usize>>, replaces: &KeyThree, payload: PVal) {
         let node = self.works[work].node;
         let incoming_key = self.sigs[&self.works[work].sig].replaces.clone();
         let rec = self.sigs[&reply].clone();
@@ -3820,6 +4156,7 @@ impl Engine {
             let gen = l1.1;
             let line = json::write(&Value::Obj(fields));
             self.l1_write(node, gen, line);
+            self.effect_begun(work);
             self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
             return;
         }
@@ -3840,6 +4177,7 @@ impl Engine {
             r
         };
         self.works[work].re = re;
+        self.effect_begun(work);
         let after = entry.after;
         self.arm(self.now + after, Wake::L1Reply { work });
         self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
@@ -4959,6 +5297,14 @@ impl Engine {
                     self.finish_check(None);
                     return;
                 }
+                // What the peer's file has started cannot be seen from here:
+                // a dispatched effect call counts as one whose effect has
+                // started (11.5), so it is never cut and its failures are
+                // `unknown`.
+                if self.nodes[node].effect {
+                    self.works[work].effect_started = true;
+                    self.effect_begun(work);
+                }
                 self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
                 return;
             }
@@ -5081,7 +5427,9 @@ impl Engine {
         // The work that replied is over, not cut: it is done before the rest
         // of the call's inside is cancelled.
         self.works[work].done = true;
-        self.composed_cancel_inner(cw);
+        // A started effect inside is marked, not cut: it runs to its own end
+        // and keeps the trace open (11.5).
+        self.composed_cancel_inner(cw, false);
         let node = self.works[work].node;
         self.free_slot(work);
         self.drain_serve(node);
@@ -5129,7 +5477,7 @@ impl Engine {
         }
     }
 
-    fn composed_cancel_inner(&mut self, work: usize) {
+    fn composed_cancel_inner(&mut self, work: usize, force: bool) {
         let Some(root) = self.works[work].inner_root else { return };
         let doomed: Vec<usize> = self
             .works
@@ -5147,8 +5495,9 @@ impl Engine {
             // drops every inner event), and each work stays open until its
             // process or slot actually finishes (6.2 rule 6). A composed call
             // in the inside cascades to its own inside too (2.6 step 4) by
-            // the same path (finding 2, 0014).
-            self.cut_work(w);
+            // the same path (finding 2, 0014). A started effect call is
+            // marked and left to run, unless the cut is a timeout's (11.5).
+            self.cut_work_how(w, force);
         }
     }
 

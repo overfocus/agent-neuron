@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "a-stale-composed-effect-call-lets-its-whole-inside-run",
+  "description": "The effect neuron inside answered at 20 and x, which is no effect, is running when the call goes stale at 40. The call is marked and its inside runs to its end, x included: the answer comes at 100 with forwarded false.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json",
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    }
+  ]
+}

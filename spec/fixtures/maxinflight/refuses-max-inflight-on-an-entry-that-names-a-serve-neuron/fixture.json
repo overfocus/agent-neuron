@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "An entry may restate an option only where it is one on an inline neuron of the file's kind (2.10): `maxInflight` on an entry whose file is a `serve` neuron is refused by check, and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

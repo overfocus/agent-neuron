@@ -1,0 +1,45 @@
+{
+  "version": 0,
+  "name": "with-no-wait-the-attempt-follows-the-work-already-due",
+  "description": "work fails at 10 and other answers at 10, its reply scheduled before the failure was reported. The retry's wake-up is scheduled at the failure, so with a wait of 0 it comes after other's answer: the second attempt's reserve note follows that answer.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 1
+      },
+      "cost": {
+        "credits": 1
+      }
+    },
+    {
+      "id": "other",
+      "run": [
+        "neuron-other"
+      ],
+      "cost": {
+        "credits": 1
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    },
+    {
+      "from": "s",
+      "to": "other"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

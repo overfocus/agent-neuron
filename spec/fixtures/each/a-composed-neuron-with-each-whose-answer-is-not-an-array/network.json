@@ -1,0 +1,32 @@
+{
+  "version": 0,
+  "name": "a-composed-neuron-with-each-whose-answer-is-not-an-array",
+  "description": "A `network` neuron with `each` whose `exit` replies with something that is not an array: the composed call fails, code `output` (6.1), as a program's would.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "c",
+      "network": "inner.network.json",
+      "each": true
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "c"
+    },
+    {
+      "from": "c",
+      "to": "b"
+    }
+  ]
+}

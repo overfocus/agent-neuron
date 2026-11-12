@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "`each` is not an option of a `human` neuron (2.4): a person answers one thing. Check refuses it and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

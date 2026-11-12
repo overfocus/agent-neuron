@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "refuses-each-in-the-file-of-a-human-neuron",
+  "description": "`each` is not the own option of a `human` neuron (2.4, 2.10): its file may not state it, so check refuses and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "fixture": 0,
+  "description": "At 40 the first call is still in e, and its effect neuron has not started: the newer input cuts it as any composed call, with one drop (phase running) and the cancel note. The effect neuron inside is never called for it (its script has one entry).",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":"old","replaces":"k"},
+    {"at":40,"source":"s","payload":"new","replaces":"k"}
+  ],
+  "script": {
+    "box/e": {"calls":[{"after":100,"reply":{"answer":1}},{"after":10,"reply":{"answer":2}}]},
+    "box/notify": {"calls":[{"after":10,"reply":{"answer":"sent-new"}}]},
+    "after": {"calls":[{"after":1,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"text","text":"old"}},
+    {"type":"signal","t":40,"id":"#2","from":"s","to":["box"],"trace":"#2","hops":0,"replaces":"k","payload":{"type":"text","text":"new"}},
+    {"type":"drop","t":40,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"neuron":"box","reason":"replaced","phase":"running","payload":{"type":"text","text":"old"}},
+    {"type":"note","t":40,"neuron":"box","what":"cancel"},
+    {"type":"answer","t":60,"id":"#3","from":"box","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"sent-new"}},
+    {"type":"signal","t":60,"id":"#4","from":"box","to":["after"],"trace":"#2","cause":"#3","hops":2,"replaces":"k","payload":{"type":"text","text":"sent-new"}},
+    {"type":"quiet","t":61,"id":"#5","from":"after","to":["box"],"trace":"#2","replyTo":"#4","hops":3}
+  ]
+}

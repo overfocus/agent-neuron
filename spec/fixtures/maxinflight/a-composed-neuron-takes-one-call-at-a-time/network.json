@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "a-composed-neuron-takes-one-call-at-a-time",
+  "description": "`maxInflight` 1 on a `network` neuron: the second call enters the inside only when the first has its reply, so it answers at 40, not at 10.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "c",
+      "network": "inner.network.json",
+      "maxInflight": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "c"
+    }
+  ]
+}

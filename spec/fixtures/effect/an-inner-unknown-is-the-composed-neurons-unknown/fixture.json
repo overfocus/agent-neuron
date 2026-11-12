@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "The effect neuron inside crashes after it started and exit never replies: the composed neuron has one unknown, code inner, in place of the inner error, with its cost committed just before. Nothing of the inside is reported.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "box/e": {"calls":[{"after":10,"reply":{"answer":1}}]},
+    "box/notify": {"calls":[{"after":20,"reply":{"crash":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"box","what":"reserve","units":{"credits":3}},
+    {"type":"note","t":30,"neuron":"box","what":"commit","units":{"credits":3},"ms":30,"basis":"estimated"},
+    {"type":"unknown","t":30,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"neuron":"box","message":"no answer: an inner neuron failed","code":"inner","payload":{"type":"json","data":1}},
+    {"type":"finished","t":30,"trace":"#1","status":"done","remaining":{"credits":7}}
+  ]
+}

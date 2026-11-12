@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "refuses-a-max-inflight-that-is-not-an-integer",
+  "description": "`maxInflight` is an integer of at least 1 (2.4): 1.5 is refused by check and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "maxInflight": 1.5
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

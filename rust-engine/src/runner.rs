@@ -93,6 +93,9 @@ pub fn load_network_tree(path: &Path) -> std::result::Result<(Network, HashMap<S
                 if let Some(why) = files.get(rel).and_then(|inner| net::may_fold_error(n, &inner.net)) {
                     return Err(vec![format!("{}: {}", path.to_string_lossy(), why)]);
                 }
+                if let Some(why) = files.get(rel).and_then(|inner| net::effect_fold_error(n, &inner.net)) {
+                    return Err(vec![format!("{}: {}", path.to_string_lossy(), why)]);
+                }
             }
         }
     }

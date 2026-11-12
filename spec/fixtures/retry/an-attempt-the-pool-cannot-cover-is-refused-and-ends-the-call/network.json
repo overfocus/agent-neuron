@@ -1,0 +1,32 @@
+{
+  "version": 0,
+  "name": "an-attempt-the-pool-cannot-cover-is-refused-and-ends-the-call",
+  "description": "The pool of 5 covers the first attempt at 3 credits and not the second. The second attempt is refused when it starts, code budget, and a budget refusal is never retried: the call ends there, with one attempt unused.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 2
+      },
+      "cost": {
+        "credits": 3
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ],
+  "budget": {
+    "credits": 5
+  }
+}

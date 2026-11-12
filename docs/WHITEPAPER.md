@@ -4,6 +4,11 @@
 > descriptive `at`, the ground) — three engines on `main`, 224 fixtures, and the ant colony that drove
 > decision 0012. Places where the drafter was unsure are marked *(unsure)*. Nothing here is a release
 > announcement.
+>
+> **2026-11-12:** [decision 0023](decisions/0023-one-engine.md) deleted the TypeScript library, the TypeScript
+> reference engine and the Python engine; the Rust engine is the one engine and the reference. The evidence
+> below that the text stands alone (§5.2, §5.4, §5.5) is now history: it is true of the commit before that
+> decision's build, and is told in the past tense. The counts are those of 2026-11-08.
 
 # agent-neuron: firing rules on the wrapper, not in a controller
 
@@ -17,10 +22,11 @@ code, where it is tied to that code's language and can only be tested through it
 component's wrapper: a network file declares per neuron how many distinct senders must agree, how long an
 input may wait, what makes work stale, what a call may cost and whether it has an effect, and an engine
 enforces that around any program that reads and writes JSON on stdin and stdout. The specification is a draft at version 0.1, with 224 conformance fixtures that
-compare exact event lists on a virtual clock, and three engines written from that text — the TypeScript
-reference, a Python protocol test that passed the fixtures and found where the text says less than they
-do (its findings, in §5.4, are the paper's evidence that the text is readable alone), and a second complete engine in Rust (`rust-engine/`) that passes the same 224 fixtures and the ten
-Python probes. All three are on `main`, and all three implement the specification's first adaptive layer, the ground ([decision 0012](decisions/0012-the-ground.md); §4.6): strength kept per place, evaporated by the engine, and a seeded draw that routes replies. I present it as
+compare exact event lists on a virtual clock, and one engine, in Rust (`rust-engine/`), that passes them and the ten
+probes. Three engines were written from that text and passed the same fixtures — a TypeScript
+reference, a Python protocol test that found where the text says less than the fixtures
+do (its findings, in §5.4, are the paper's evidence that the text is readable alone), and the Rust engine — until
+[decision 0023](decisions/0023-one-engine.md) kept the Rust one alone. All three implemented the specification's first adaptive layer, the ground ([decision 0012](decisions/0012-the-ground.md); §4.6): strength kept per place, evaporated by the engine, and a seeded draw that routes replies. I present it as
 a small, checkable protocol for the agent and developer community to test, break and implement again.
 
 ## 2. The problem
@@ -211,7 +217,7 @@ An engine conforms when it passes every fixture in `spec/fixtures/` that is not 
 are 224, none pending, in 16 areas (counted on `main` at `def7a46`, 2026-11-08): failures 29, budget 26,
 level1 20, composed 19, routing 18, staleness 18, threshold 17, effect 15, ordering 13, ground 21,
 human 8, observer 6, runend 6, descriptive 2, hops 4, stream 2 — the 21 of `ground/` pin decision 0012's
-deposits, ageing, the seeded draw and its `check` refusals, and six new mutants must fail them
+deposits, ageing, the seeded draw and its `check` refusals, and six new mutants had to fail them
 (§5.2).
 
 Each fixture is a network file plus a `fixture.json`: timed injections, a script that stands in for
@@ -236,10 +242,12 @@ the same commit as the text it pins (SPEC 8). This one pins that a newer input c
 
 ### 5.2 Fixtures that bite
 
-`test/conformance.test.ts` builds 91 copies of the reference engine, each with one deliberate bug (for
+Until decision 0023, `test/conformance.test.ts` built 91 copies of the TypeScript reference engine, each with
+one deliberate bug (for
 example threshold counting the same sender twice, a cut call releasing its reservation, a stale input
 cutting an effect call, a ground write that does not age its value, or a ground draw in the reverse
-link order), and requires each to fail at least one fixture.
+link order), and required each to fail at least one fixture. That test went with the engine it mutated; a mutant
+run against the Rust engine is not decided, so nothing in the repository measures this today.
 
 ### 5.3 What "an agent-neuron engine" means
 
@@ -248,23 +256,25 @@ command-line contract `<engine> conform <dir>` (SPEC 8; CONFORMANCE.md 8), not b
 claim in a README. The fixtures test what an engine does with an outcome, not how it parses bytes; real
 process behaviour is each engine's own tests' business (CONFORMANCE.md introduction, 9).
 
-The reference engine is TypeScript (`src/engine/`). An earlier Rust engine was stopped as a no-go against
+The reference engine is the Rust one (`rust-engine/`; it was a TypeScript engine, `src/engine/`, until decision
+0023). An earlier Rust engine was stopped as a no-go against
 criteria agreed in advance, though its differential runs led to clearer text and new fixtures (decision
 0005); a second Rust engine restarted from the text under the terms 0005 set and is on `main` (section
 5.5; decision 0009).
 
 ### 5.4 A second engine
 
-A second engine, in Python, has been written from SPEC.md, CONFORMANCE.md, the fixtures and the decision
-records, without reading or porting `src/engine/` (merged to `main`; [conformance-python.md](conformance-python.md) and `py/agent_neuron/`; it
-landed with decision 0011 and grew with decision 0012). It uses the Python
-standard library only (3.11 or later) and is 1,729 lines by `wc -l`, comments and blank lines included,
-plus a 31-test standard-library unit suite beside it (`py/tests/`).
+A second engine, in Python, was written from SPEC.md, CONFORMANCE.md, the fixtures and the decision
+records, without reading or porting `src/engine/` (`py/agent_neuron/` and its account, `docs/conformance-python.md`,
+both in the tree before decision 0023, which deleted them; it
+landed with decision 0011 and grew with decision 0012). It used the Python
+standard library only (3.11 or later) and was 1,729 lines by `wc -l`, comments and blank lines included,
+plus a 31-test standard-library unit suite beside it (`py/tests/`). What follows is as it stood on 2026-11-08.
 
 **Result:** 224 of 224 fixtures pass (`spec/fixtures`, decision 0012's ground included) and 10 of 10
 probes, identically on five consecutive runs. Its first complete run passed 177; the
 failures were its own bugs and places where the fixtures pin more than the text says (conformance-python.md,
-"Result"). Ten probe fixtures (`py/probes/`), run against both engines, found two Python bugs no fixture covers.
+"Result"). Ten probe fixtures (`py/probes/` then, `spec/probes/` now), run against both engines, found two Python bugs no fixture covers.
 
 **Scope:** fixtures on a virtual clock with scripted programs. It starts no real process and has no
 `check`, `run`, trace or stream commands, so it tests the engine semantics, not the byte-level contract of
@@ -288,13 +298,13 @@ in the specification yet.
 ### 5.5 The second complete engine, in Rust
 
 A third engine followed the Python one, in Rust and on `main` (`rust-engine/`; [decision
-0009](decisions/0009-rust-engine.md)): written from SPEC.md, CONFORMANCE.md, the network schema, the
+0009](decisions/0009-rust-engine.md)), and since decision 0023 it is the only one: written from SPEC.md, CONFORMANCE.md, the network schema, the
 fixtures and TRACE.md alone — the TypeScript engine used as a black box, per the terms decision 0005 set
 down — with the standard library only (a one-package `Cargo.lock`, nothing fetched), rustfmt at width
 140 and `cargo clippy --all-targets -- -D warnings` clean.
 
 **Result:** every fixture passes, identically over five consecutive runs — 224 in `spec/fixtures/`
-(224 passed, 0 failed, 0 pending) and the ten probes in `py/probes/` (10 passed, 0 failed, 0 pending) —
+(224 passed, 0 failed, 0 pending) and the ten probes, then in `py/probes/` (10 passed, 0 failed, 0 pending) —
 plus 106 Rust tests on its own gates and 264 vitest tests on the merged tree, rerun for the record on
 2026-11-07 (decision 0009 records each gate and who reran it) and again on `main` at `def7a46`
 (2026-11-08, decision 0012 included).
@@ -358,7 +368,7 @@ function onFlag(detector, flag) {
 }
 ```
 
-The repository's own library version of the demo still forwards answers in a listener and keeps its
+The repository's own library version of the demo (deleted with the library, decision 0023) forwarded answers in a listener and kept its
 counts in maps; decision 0002 lists each piece of that caller code and where it went in the network file.
 
 ### After: the rule on the wrapper
@@ -397,8 +407,8 @@ Three cautions:
 - **The verdicts match by construction.** The invented topology makes `gateway` every service's root
   (`examples/alerts/topology.json`), so all 7 diagnoses agree. The example measures costly calls run and
   cut, not diagnostic quality.
-- **The numbers depend on timing.** The traces were recorded with the library demo (TRACE.md). Two engine
-  runs (`npm run demo:network`) on 2026-11-05 gave 17 calls with 10 cut, then 16 with 9 cut.
+- **The numbers depend on timing.** The traces were recorded with the library demo (TRACE.md). Two runs of
+  the TypeScript engine (`npm run demo:network`) on 2026-11-05 gave 17 calls with 10 cut, then 16 with 9 cut.
 
 ### The colony: the ground's driving case (2026-11-08)
 
@@ -416,8 +426,7 @@ What it taught the paper, each readable in one run's records:
 
 - **A statistical rule can still be conformed, but its determinism must be text.** The deposit rule
   and the ageing are deterministic; the selection is not, so SPEC 4.5 pins the generator as pseudocode
-  and the evaluation order. The ground fixtures (§5.1) pin exact draws, and six mutants (§5.2) would
-  catch a draw in reverse order or a value that never ages.
+  and the evaluation order. The ground fixtures (§5.1) pin exact draws, and six mutants (§5.2) caught a draw in reverse order or a value that never ages.
 - **Trails are winner-take-all.** An established trail keeps the traffic against a fresh patch; in
   five recorded takes across seeds, new drop sites drew 0–4 deliveries against trails the colony had
   spent thirty seconds laying. That is not a bug to fix but the mechanism being honest: coordination
@@ -491,20 +500,19 @@ has no OpenTelemetry equivalent; I would export it as status Error plus an attri
 
 - **Link strength and learning**: the in-run half is built — `ground`
   (decision 0012: deposits kept per place, evaporation, a seeded one-link
-  routing for replies that name no `to`; `weight()` chooses in the TS library,
-  the engines conform on `spec/fixtures/ground/`). Still planned: carry-over
+  routing for replies that name no `to`; the engine conforms on `spec/fixtures/ground/`). Still planned: carry-over
   between runs (durable run state, issue #30 item 1), per-link strength, and
   the caller-side strength file of Appendix B.
 - **`http` and `human` neurons** run from a network file in the Rust engine (SPEC 3.3, 3.4; the desk is
-  decision 0008's, section 5.5); the reference engine still `check`-warns and `run`-refuses them (SPEC
+  decision 0008's, section 5.5; SPEC
   Appendix C). The `http` failure row has no fixture (decision 0004).
 - **No model is called in any demo**; every "model" is a timed stand-in (README). A neuron can hold one,
   with its API key named in `env` (SPEC section 0): a design property, not a demo.
 - **POSIX only.** The engine runs on macOS and Linux (README "Development"; CONTRIBUTING.md). Windows is
   out of version 0.1 (SPEC Appendix B).
-- **Three engines, all on `main`.** The TypeScript reference, the Rust engine (section 5.5) and the
-  Python engine (section 5.4) are on `main`. The npm
-  package is private and unpublished (`package.json`).
+- **One engine.** The Rust engine (section 5.5) is on `main`; the TypeScript reference and the
+  Python engine (section 5.4) were until decision 0023. The npm
+  package is private and unpublished (`package.json`), and holds no library.
 - **Not in version 0.1:** usage reported by a neuron, spend per source or time window, retries, an
   engine-held `unknown`, effects inside a composed file, passive and active channels, `http`
   authentication (SPEC 10.8, Appendix B).
@@ -522,13 +530,12 @@ builder's choice 5). The level 1 protocol's `v` is `1`, bumped only by a change 
 **How to take part.**
 
 - **Implement an engine** in any language against the fixtures; `<engine> conform <dir>` is the contract
-  (CONFORMANCE.md 8). Decisions 0005 and 0009 and conformance-python.md record what three attempts
+  (CONFORMANCE.md 8). Decisions 0005 and 0009, and `docs/conformance-python.md` in the tree before decision 0023, record what three attempts
   found.
 - **Open an issue on any ambiguity in the specification**, at
   [github.com/overfocus/agent-neuron/issues](https://github.com/overfocus/agent-neuron/issues). Two earlier
   issues changed the spec: #16 (`phase` on drops) and #17 (any replaced input cuts a running threshold
-  call) (decisions 0001 and 0003). A fix to the text comes with a fixture, and a rule an engine could break
-  quietly comes with a mutant (CONTRIBUTING.md).
+  call) (decisions 0001 and 0003). A fix to the text comes with a fixture (CONTRIBUTING.md).
 - **Write a neuron.** SPEC section 0 is the quick start; `spec/examples/neurons/hypothesis_serve.py` is a
   level 1 neuron in standard-library Python.
 - **Propose a field** only with a decision record that says what it costs against the field budget
@@ -592,8 +599,9 @@ in the positioning note this draft was built from. Quotations are under 15 words
 Files in this repository cited above (read 2026-11-07 on `main`, re-read 2026-11-08 at `def7a46`): [SPEC.md](SPEC.md) (version 0.1),
 [CONFORMANCE.md](CONFORMANCE.md), [TRACE.md](TRACE.md), [DEMOS.md](DEMOS.md), [USE-CASES.md](USE-CASES.md), [MULTIPLAYER.md](MULTIPLAYER.md),
 [decisions/](decisions/) 0001 to 0012, `spec/network.schema.json`, `spec/examples/`, `spec/fixtures/`,
-`py/agent_neuron/`, `py/tests/`, `test/conformance.test.ts`, `traces/alerts.json`, `traces/alerts-threshold-1.json`,
-`traces/alerts-threshold-3.json`, `examples/alerts-demo.mjs`, `examples/alerts/topology.json`,
+`traces/alerts.json`, `traces/alerts-threshold-1.json`,
+`traces/alerts-threshold-3.json`, `examples/alerts/topology.json`, and, deleted since by decision 0023,
+`py/agent_neuron/`, `py/tests/`, `test/conformance.test.ts` and `examples/alerts-demo.mjs`,
 [rust-engine/README.md](../rust-engine/README.md), [README.md](../README.md),
 [CONTRIBUTING.md](../CONTRIBUTING.md). Outside the repository (read 2026-11-08 on their `main`s):
 [agent-neuron-demos](https://github.com/overfocus/agent-neuron-demos) (the demos series and the rendered

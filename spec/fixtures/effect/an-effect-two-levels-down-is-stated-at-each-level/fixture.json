@@ -1,0 +1,22 @@
+{
+  "fixture": 0,
+  "description": "The effect neuron is in the file of mid, which is in the file of box: both composed neurons state effect. Once it has started, the newer input does not cut the outer call either: no drop, and the answer at 110 is recorded with forwarded false.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":"old","replaces":"k"},
+    {"at":40,"source":"s","payload":"new","replaces":"k"}
+  ],
+  "script": {
+    "box/e": {"calls":[{"after":10,"reply":{"answer":1}},{"after":10,"reply":{"answer":2}}]},
+    "box/mid/notify": {"calls":[{"after":100,"reply":{"answer":"sent-old"}},{"after":10,"reply":{"answer":"sent-new"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"text","text":"old"}},
+    {"type":"signal","t":40,"id":"#2","from":"s","to":["box"],"trace":"#2","hops":0,"replaces":"k","payload":{"type":"text","text":"new"}},
+    {"type":"answer","t":60,"id":"#3","from":"box","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"sent-new"}},
+    {"type":"finished","t":60,"trace":"#2","status":"done"},
+    {"type":"answer","t":110,"id":"#4","from":"box","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"forwarded":false,"payload":{"type":"text","text":"sent-old"}},
+    {"type":"finished","t":110,"trace":"#1","status":"done"}
+  ]
+}

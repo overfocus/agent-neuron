@@ -1,0 +1,25 @@
+{
+  "version": 0,
+  "name": "refuses-a-wait-on-an-entry-that-names-a-neurons-file",
+  "description": "The wait of retry is the neuron's own: an entry that names a neuron's file may lower times and state nothing else (2.10). Check refuses the wait and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "neuron": "work.neuron.json",
+      "retry": {
+        "times": 1,
+        "wait": 5
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "refuses-a-retry-that-is-not-an-object",
+  "description": "retry is an object (2.4), not a number of times. Check refuses it and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": 2
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

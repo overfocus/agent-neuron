@@ -1,0 +1,23 @@
+{
+  "version": 0,
+  "name": "a-timeout-with-no-effect-started-is-an-error",
+  "description": "The composed call times out while e hangs and the effect neuron inside was never called: the timeout is an error, and the inside is cancelled (only the outer cancel note).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json",
+      "effect": true,
+      "timeout": 100
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    }
+  ]
+}

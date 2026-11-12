@@ -33,6 +33,11 @@ pub struct Tally {
     errors: u64,
     unknowns: u64,
     drops: u64,
+    /// The failed attempts another attempt followed (`retry`, SPEC 2.4):
+    /// they are not counted as errors or unknowns.
+    retried: u64,
+    /// The failure just seen: its kind, and where it sits when kept.
+    last: Option<(bool, Option<(usize, usize)>)>,
 }
 
 fn text(ev: &Value, key: &str) -> Option<String> {
@@ -69,6 +74,8 @@ impl Tally {
             errors: 0,
             unknowns: 0,
             drops: 0,
+            retried: 0,
+            last: None,
         }
     }
 
@@ -126,8 +133,31 @@ impl Tally {
                     self.unknowns += 1;
                 }
                 let item = pick(ev, &["type", "neuron", "code", "message"]);
-                if let Some(r) = self.rec(ev) {
-                    r.failures.push(item);
+                let mut at = None;
+                if self.detail {
+                    if let Some(i) = text(ev, "trace").and_then(|t| self.index.get(&t).copied()) {
+                        at = Some((i, self.recs[i].failures.len()));
+                        self.recs[i].failures.push(item);
+                    }
+                }
+                self.last = Some((kind == "error", at));
+                return;
+            }
+            "note" if text(ev, "what").as_deref() == Some("retry") => {
+                // The note follows the failure it is about (6.3): that
+                // attempt was not the call's outcome.
+                if let Some((error, at)) = self.last.take() {
+                    if error {
+                        self.errors -= 1;
+                    } else {
+                        self.unknowns -= 1;
+                    }
+                    self.retried += 1;
+                    if let Some((i, f)) = at {
+                        if let Value::Obj(fields) = &mut self.recs[i].failures[f] {
+                            fields.push(("retried".into(), Value::Bool(true)));
+                        }
+                    }
                 }
             }
             "drop" => {
@@ -145,6 +175,7 @@ impl Tally {
             }
             _ => {}
         }
+        self.last = None;
     }
 
     /// The whole payloads of the answers, in the order they happened (what
@@ -184,6 +215,7 @@ impl Tally {
                     ("errors".into(), n(self.errors)),
                     ("unknowns".into(), n(self.unknowns)),
                     ("drops".into(), n(self.drops)),
+                    ("retried".into(), n(self.retried)),
                 ]),
             ),
         ];

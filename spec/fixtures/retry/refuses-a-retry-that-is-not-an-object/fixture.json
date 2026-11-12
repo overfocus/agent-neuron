@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "retry is an object (2.4), not a number of times. Check refuses it and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

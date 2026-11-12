@@ -26,7 +26,7 @@ Contents
 11. Effects (normative)
 
 Appendices (informative): A. Walk-through: one alert. B. Out of version 0.1.
-C. How the TypeScript library differs. D. A page for `human` neurons. E. Where each rule lives.
+C. The engine in this repository. D. A page for `human` neurons. E. Where each rule lives.
 
 ## 0. Quick start for neuron authors (informative)
 
@@ -113,14 +113,14 @@ Rules you will hit:
   its input went stale, and if the call crashes or times out it records `unknown`, not
   an error: nobody can tell whether it happened. Make such a program idempotent by an id
   in its payload (section 11).
-- **Running a network.** `npm run engine -- check <file>` validates a network file
-  (schema and the findings of section 2.7, with line and column). `npm run engine --
+- **Running a network.** `neuron-engine check <file>` validates a network file
+  (schema and the findings of section 2.7, with line and column). `neuron-engine
   run <file> --inputs <jsonl> [--trace <out.json>]` runs it: the inputs file holds one
   JSON object per line, `{"at": ms, "source": id, "payload": ..., "replaces": key, "budget": units}`
   (`replaces` and `budget` optional), and the run prints the answers of the neurons with no
-  outgoing links. Try `npm run demo:network` (the alert storm below). The TypeScript
-  library does not read network files; the reference engine is `src/engine/`
-  (Appendix C). `http` and `human` neurons are not run yet.
+  outgoing links. Try `npm run demo:network` (the alert storm below). `neuron-engine` is the
+  engine in `rust-engine/`, built with `cargo build --release --manifest-path rust-engine/Cargo.toml`
+  (the binary is `rust-engine/target/release/neuron-engine`; Appendix C).
 - **Running a level 1 neuron.** Put the quick-start program above in a file,
   say `flag.py`, and name it in a network file as
   `{ "id": "flag", "serve": ["python3", "flag.py"] }`; the engine starts it with the
@@ -192,7 +192,8 @@ it was written; it may become a URL later.
 `id` (required, `^[A-Za-z][A-Za-z0-9_-]{0,63}$`, unique in the file),
 `description` (string; SHOULD be set, it reaches the trace), `at` (optional), exactly one kind
 field (2.3), and the options its kind allows (2.4). An entry whose kind field is `neuron` takes the kind
-and the rest from the neuron's own file (2.10).
+and the rest from the neuron's own file (2.10). Such an entry, and no other, may carry `args`: arguments
+added to that file's command (2.10). It is not an option.
 
 `at` is `[x, y, z]`, three numbers from -1000000 to 1000000 in any unit the author
 picks: where a drawing of the network puts the neuron. It is a **descriptive
@@ -230,8 +231,11 @@ program's working directory.
 | `env` | array of unique names | `[]` | run, serve | environment variables passed through: names only |
 | `cwd` | path | the directory of the file that declares the neuron | run, serve | working directory |
 | `cost` | units (10.1) | none | all but source | what one call reserves, and the most it may consume (10) |
-| `effect` | `true` | none | run, serve, http, human | a started call is never cut by staleness; its failures are `unknown` (11) |
+| `effect` | `true` | none | run, serve, http, human, network | a started call is never cut by staleness; its failures are `unknown` (11). On `network` it says that the file has an effect neuron, and it is required exactly then (11.5) |
 | `may` | object (below) | none: nothing | run, serve, network | what the neuron's program is allowed to touch |
+| `maxInflight` | integer, at least 1 | none: no limit | run, http, network | at most this many calls of the neuron at once; the rest wait in the order they arrived (below) |
+| `each` | `true` | none | run, serve, http, network | the answer is a JSON array, and each item is forwarded as a signal of its own (below) |
+| `retry` | `{ "times", "wait" }` | none: no retry | run, serve, http, network | a call that fails is started again with the same input, at most `times` more times (below) |
 
 A program's environment is empty except `PATH` and the `env` names (a name the
 engine lacks stays unset). `threshold` and `within` are not allowed on `network`.
@@ -274,6 +278,82 @@ members, each optional, each an array of unique literal strings:
   confine, or a run that did not ask it to, MUST NOT be described as confined. `may` changes
   nothing an engine reports: no event, no note, no field of the trace.
 
+**`maxInflight`** ([decision 0021](decisions/0021-a-limit-on-calls-at-once.md)) is the most calls of
+the neuron that run at once: a fact about the program (a script that takes a lock, an endpoint with a
+rate its owner knows), said by the file because a level 0 program has no `ready` to say it in. It is
+the word level 1 uses for the same thing (3.2), and it means the same.
+
+- **A call holds a place** from its start until its program is over: a `run` call until its process
+  group is gone (for a call that was cut, after the kill if it comes to that), an `http` call until
+  its request is over or cancelled, a `network` call until the composed neuron has replied or its call
+  was cut. It is where the call's `commit` note goes (6.3).
+- **A call that finds every place taken waits**, and it is **queued** as a level 1 call waiting for a
+  slot is queued: it has not started. It is dropped if it goes stale (5.4, reason `replaced`, phase
+  `waiting`, no `cancel` note); it reserves from the budget when it starts and not before (10.3); its
+  `timeout` counts from its start, so it waits for as long as it takes; it is never `unknown` (11); and
+  it keeps its trace and the run unfinished (6.2 rule 6). Nothing new is reported: no event, no note.
+  A threshold call (5.2) waits as one call: its inputs have left their group.
+- **Waiting calls start in the order they arrived** (6.2 rule 9 places the start).
+- **The limit is the neuron's own**, one per neuron per instance: a neuron inside a composed neuron
+  holds it across every call of that instance, as an inner level 1 neuron's slots are shared (2.6).
+  One neuron's waiting calls never hold up another's.
+- **Without it there is no limit**, and a neuron without it behaves exactly as before. It is not
+  allowed on `serve` (the program says its own in `ready`), on `human` (a person's queue is the
+  desk's) or on a `source`. There is no bound on how many calls may wait, or for how long (appendix B).
+
+An engine MAY also hold calls back for a limit of its own, about the machine and not the neuron (the
+Rust engine's `--at-once`, appendix C). A call then waits for both, and waiting means the same.
+
+**`each`** ([decision 0022](decisions/0022-what-a-swarm-needs.md)) is fan-out: one answer that is a list
+becomes one forward per item.
+
+- **The answer MUST be a JSON array.** An answer that is anything else (an object, a string, a number,
+  `null`) is a failure of the call, code `output` (6.1). Quiet is quiet, as for any neuron.
+- **One answer, one reply.** The reply (4.3) is one `answer` event with the whole array as its payload.
+  What changes is the forward (4.4): the engine emits one forward per item, in the array's order, each
+  with that item as its payload. An empty array forwards nothing.
+- **The items of one answer are one emission** for staleness (5.4): none makes another stale.
+- **Nothing waits for the items.** There is no join: no rule gathers what the items caused, and the
+  items of one answer are not told apart from any other forwards of the neuron. A threshold counts
+  senders (5.2), so the items of one answer do not add up at a threshold neuron. Inside a composed
+  neuron the first reply of `exit` is still the reply (2.6 step 2), whatever item it came from.
+- **Without it** a neuron behaves exactly as before, and an answer that is an array is one forward with
+  the array as its payload. It is not allowed on `human` (a person answers one thing) or on a `source`
+  (a producer that wants several signals injects several).
+
+**`retry`** ([decision 0022](decisions/0022-what-a-swarm-needs.md)) starts a failed call again:
+`"retry": { "times": 2, "wait": 1000 }`. `times` is an integer of at least 1, the most attempts after the
+first; `wait` is the ms before each of them, from 0 to 3600000, and 0 when left out.
+
+- **What is retried** is a failure of 6.1, with any code except `budget` and `start`: the pool of a trace
+  never grows (10.3), and a neuron that failed to start stays failed (3.2). A drop is no failure: a call that
+  was cut, and an input that `maxHops` refused, are not retried.
+- **Each failed attempt is reported as the `error` it was** (6.1), and a `retry` note follows it at once
+  (6.3), naming the attempt to come. After `wait` ms the engine starts the call again with the same input
+  (a threshold call with the same inputs, 5.2). The outcome of the last attempt is the call's: an answer or
+  quiet is the reply (4.3) and is forwarded as any other, and a failure with no attempt left is followed by
+  no note.
+- **Each attempt is a call.** It starts as any call starts (5.1: it takes a place under `maxInflight`, or a
+  level 1 slot, and waits for one behind the calls already waiting), reserves its cost when it starts and
+  commits it when it ends (10.3, 10.4), and has its own `timeout`. An attempt the pool cannot cover is
+  refused, code `budget`, and that ends the call.
+- **Between attempts the call is waiting work**, as a queued call is: it is dropped if it goes stale (5.4,
+  reason `replaced`, phase `waiting`, no `cancel` note), it holds no place and has reserved nothing, and it
+  keeps its trace and the run unfinished (6.2 rule 6).
+- **A call that went stale is not retried.** That is a failed attempt of an effect neuron's call that was
+  marked stale (11.2); any other stale call was cut and reported no failure.
+- **On an `effect` neuron `retry` covers `unknown` too** (11.3): a failed attempt is reported as the
+  `unknown` it was and started again. Writing `retry` there is the author's statement that the program is
+  idempotent by an id in its payload (11.4); the engine does not check it.
+- **Inside a composed neuron** a failed attempt that is followed by another is not an inner failure
+  (2.6 step 3); a failure of the last attempt is. On a `network` neuron `retry` starts the whole composed
+  call again, as a new call of the instance.
+- **It is the neuron's own** (2.10): the entry that names a neuron's file may lower `times`, never raise
+  it, and never states `wait`.
+- **Without it** nothing is retried, and a neuron without it behaves exactly as before. It is not allowed on
+  `human` or on a `source`. The wait is the same before every attempt, and it does not depend on the failure
+  (appendix B).
+
 ### 2.5 Links
 
 `{ "from": id, "to": id }` and nothing else. Both ids MUST exist; the same
@@ -289,7 +369,8 @@ MUST NOT contain a `source`, and `exit` MUST NOT have outgoing links.
 **One shared inner network per instance.** The inner network is started when
 the engine starts and is shared by every call to that instance: its level 1
 processes, their `maxInflight` slots and their state are shared; level 0
-programs still run once per call. Two `network` entries are two instances even
+programs still run once per call, and an inner neuron's `maxInflight` option (2.4)
+counts the calls of every call to the instance together. Two `network` entries are two instances even
 if they name one file; instances share nothing.
 
 Per call:
@@ -302,22 +383,25 @@ Per call:
 2. The first reply of `exit`, an answer or quiet, is the composed neuron's reply, with the
    `replaces` it carries: a string sets the key of the forward (4.4), `null` clears it, absent
    inherits the outer input's key.
-   Remaining inner work for the call is cancelled without reports.
+   Remaining inner work for the call is cancelled without reports, except an effect
+   call that has started, which runs to its own end (11.5).
 3. If the inner network has nothing running, queued or held for the call and
    `exit` has not replied, the composed neuron is quiet; if an inner neuron
-   failed meanwhile, it is an error, code `inner`.
+   failed meanwhile, it is an error, code `inner`, or an `unknown` with that code
+   when an effect inside had started (11.5).
 4. Calls are isolated: staleness inside an instance is scoped to one call, so
    one call can never cut another. A call is cut only when its outer work goes
-   stale or times out; then all its inner work is cancelled, recursively.
+   stale or times out; then all its inner work is cancelled, recursively. Staleness
+   does not cut a call in which an effect has started (11.5).
 5. `maxHops` and `timeout` apply at the outer boundary. Hops inside start at 0
    and do not add to the outer chain.
 6. The composed neuron's `cost` and the inner file's `budget` bound what the inside may spend (10.5).
-7. A composed neuron is never an `effect`, and its file contains none (11.5).
+7. A composed neuron states `effect` exactly when its file contains an effect neuron (11.5).
 
 **Sealing** (MUST): inner ids, signals, traces and error text never appear in
 anything reported about the outer network; from outside, a signal goes in and
 a reply comes out, and an inner failure is only the composed neuron's own
-error. A separate inspection tool for the inside, keyed by instance path, is an
+error or `unknown`. A separate inspection tool for the inside, keyed by instance path, is an
 operator's tool and is not in version 0.
 
 Sealing is between neurons, not against whoever holds the file. A composed network run from a
@@ -337,19 +421,28 @@ is missing, invalid, lacks `entry`/`exit`, has a source or an `exit` with
 outgoing links (errors); a cycle in which no neuron has `maxHops` (error); a `budget`
 or `cost` amount that is not a whole number from 0 to 2^53 - 1, a `cost` naming a unit the
 file's `budget` lacks, an empty `budget` or `cost`, or a non-source neuron with no `cost` in a file that
-has a `budget` (10.1) (errors); a `network` file that contains a neuron with `effect` (11.5) (error); a `cost` above the file's ceiling in some unit (the neuron can never run),
+has a `budget` (10.1) (errors); a `network` neuron that does not state `effect` and whose file contains a neuron with `effect`, or one that states it and whose file contains none (11.5) (errors); a `cost` above the file's ceiling in some unit (the neuron can never run),
 or a `network` neuron whose file has neurons costing a unit its `cost` does not name (those calls are always
 refused, 10.5) (warnings); an executable that cannot be found (warning); a `network` neuron whose `may` does not cover what the
 neurons of its file declare (2.4) (error); for an entry that names a neuron's file (2.10): a file that is
 missing or invalid, an option on the wrong side (one that is the network's in the file, or one that is the
-neuron's own on the entry), and a `timeout`, `env` or `may` on the entry that is wider than the file's (errors); a settings file of a neuron that lists `env` names with a line that is not `NAME=value` (2.4) (error, naming the file and the line, never the text).
+neuron's own on the entry), and a `timeout`, `env`, `may` or `maxInflight` on the entry that is wider than the file's (errors);
+a `maxInflight` that is not an integer of at least 1, or one on a `serve`, `human` or `source` neuron, in a network
+file or in a neuron's own file (2.4) (errors); an `each` that is not `true`, or one on a `human` or `source` neuron, in a network
+file or in a neuron's own file (2.4) (errors); a `retry` that is not an object of `times` (an integer of at least 1) and, optionally, `wait` (an
+integer from 0 to 3600000), or one on a `human` or `source` neuron, in a network file or in a neuron's own file (2.4); on an entry that names a
+neuron's file, a `retry` with a `wait`, with more `times` than the file's, or over a file that has no `retry` (2.10) (errors); a settings file of a neuron that lists `env` names with a line that is not
+`NAME=value` (2.4) (error, naming the file and the line, never the text); `args` on an entry whose file is an `http` or `human` neuron (error; on a neuron written
+inline `args` is an unknown field, and a string of it that is not a literal is a schema violation, 2).
 
 ### 2.8 Field budget (informative)
 
 10 top-level fields (`budget` is the ninth, `ground` the tenth — [decision
-0012](decisions/0012-the-ground.md)); per neuron `id`, `description`, `at`, one kind field, at most 9
+0012](decisions/0012-the-ground.md)); per neuron `id`, `description`, `at`, one kind field, at most 12
 options; 2 per link. The kinds are seven: `neuron` is the seventh, admitted by
-[decision 0019](decisions/0019-the-neuron-file.md) and costing no option. A new field must answer one question: does it say how
+[decision 0019](decisions/0019-the-neuron-file.md) and costing no option. `args` (2.10,
+[decision 0022](decisions/0022-what-a-swarm-needs.md)) is a field of the entry that names a neuron's file, not an
+option: it counts against none of the nine. A new field must answer one question: does it say how
 neurons connect, or how one decides? Deciders are programs. A second, closed
 class of field is descriptive (for people and tools, acted on by no engine):
 `description` and `at` are the only two, and another needs its own decision record
@@ -360,7 +453,14 @@ as `timeout` and `maxHops` ([decision 0006](decisions/0006-budgets.md)); whether
 and what a failure of it means, is likewise the engine's to apply, not something a program can do for itself
 ([decision 0007](decisions/0007-effects-and-the-live-stream.md)). `may` is the ninth, admitted when the budget was
 reopened for it: what a program may touch is a limit of the same class, since a program cannot be trusted to
-confine itself ([decision 0016](decisions/0016-the-self-describing-neuron.md)).
+confine itself ([decision 0016](decisions/0016-the-self-describing-neuron.md)). `maxInflight` is the tenth
+([decision 0021](decisions/0021-a-limit-on-calls-at-once.md)): how many calls of a program run at once is the
+engine's to hold, since the calls of a level 0 program do not know of each other, and it is a word the
+protocol already had (3.2). `each` is the eleventh, the budget extended for it by
+[decision 0022](decisions/0022-what-a-swarm-needs.md): whether one answer goes on as one signal or as one
+per item is how the neuron connects, and it reads the answer's shape (an array or not), never what is in it.
+`retry` is the twelfth, by the same decision: whether a failed call is started again is the engine's to apply,
+as `timeout` is, and it reads that the call failed, never what it said.
 
 ### 2.9 Confinement (normative)
 
@@ -441,19 +541,34 @@ written on the entry.
 
 | | In the neuron file | On the entry that names it |
 |---|---|---|
-| the kind and its command or URL; `cwd`; `effect` | yes | never |
-| `may`, `env`, `timeout` | yes | to narrow only |
+| the kind and its command or URL; `cwd`; `effect`; `each` | yes | never |
+| `may`, `env`, `timeout`, `maxInflight`, `retry` | yes | to narrow only |
 | `description` | yes | yes; the entry's is the neuron's when both have one |
 | `id`, `at`, `threshold`, `within`, `maxHops`, `cost` | never | yes |
+| `args` | never | yes, where the file is a `run` or `serve` neuron: added to its command |
 
 Each option is allowed only where it is on an inline neuron of the file's kind (2.4). An option on the
 wrong side is an error (2.7).
 
-**Narrowing.** The entry may restate three of the neuron's options, each only to ask for less:
+**Narrowing.** The entry may restate five of the neuron's options, each only to ask for less:
 `timeout` at most the file's (its default of 30000 when the file sets none); `env` a subset of the
 file's names; `may`, on a `run` or `serve` neuron, for each member a subset of the file's entries,
-compared as written. An option the entry leaves out stands as the file wrote it; one the entry states
+compared as written; `maxInflight`, on a `run` or `http` neuron, at most the file's (a file that
+states none has no limit, so any value on the entry asks for less); `retry`, on a `run`, `serve` or `http`
+neuron, as `{ "times": n }` with `n` at most the file's `times` (a file that states none retries nothing, so
+there is nothing to lower, and the entry may not state it; the `wait` is always the file's). An option the entry leaves out stands as the file wrote it; one the entry states
 replaces the file's. An entry that asks for more is an error (2.7), and the engine refuses to start.
+
+**`args`.** The entry may add arguments to the neuron's command:
+`{ "id": "create", "neuron": "create.neuron.json", "args": ["--apply"] }`. `args` is a non-empty array of
+literal strings (2), and the neuron's command is the file's command with them appended in order, after
+the file's own arguments, each passed verbatim (2.3). It can add and never remove or replace: the
+command is the neuron's, and what this network adds to it is the network's. It is allowed only where the
+file is a `run` or `serve` neuron; on an entry whose file is an `http` or `human` neuron, and on any
+neuron written inline, it is an error (2.7), and the engine refuses to start. It is a field of the entry,
+not an option (2.8), and it changes no rule an engine applies, only the command it starts: the run
+reports what a run with the neuron written inline, with the longer command, reports. A value known only
+when the run starts remains an `env` name ([decision 0022](decisions/0022-what-a-swarm-needs.md)).
 
 The fold of 2.4 reads the neuron as narrowed: a composed neuron's `may` covers what its neurons may
 touch after their own entries have narrowed them. A `network` neuron's own `may` is not narrowed by the
@@ -473,6 +588,7 @@ to stdin and closes it, ignoring write errors (a program need not read stdin).
 - **Output:** exit 0 and stdout empty or whitespace: quiet. Exit 0 and stdout
   one JSON value (whitespace around allowed): an answer. A level 0 program has
   no envelope: the answer goes to all outgoing links with the inherited key.
+  With `each` (2.4) the value MUST be a JSON array, and each item goes on as a forward of its own (4.4).
 - **Failures:** see 6.1 (non-zero exit, killed by signal, not JSON, over 1 MiB).
 - **Cancel:** SIGTERM to the process group; SIGKILL to it 2 seconds later if
   anything remains. Later output is discarded.
@@ -539,7 +655,9 @@ is sent only when nothing is running; no `pong` within `timeout` is a hang.
 
 **Reply `to`.** A set of neuron ids, each an outgoing link of the neuron; the
 forward lists them in link declaration order whatever the order given.
-`to: []` forwards nothing but the answer is still reported. With the network's
+`to: []` forwards nothing but the answer is still reported. On a neuron with `each` (2.4) the `payload`
+MUST be a JSON array (else the call fails, code `output`, 6.1), and the reply's `to` and `replaces`
+hold for the forward of every item. With the network's
 `ground` (4.5), an omitted `to` is the draw: one outgoing link by weight. A reply's `replaces`
 longer than 256 bytes, or a `to` that names a non-linked neuron, or an
 `answer` without `payload`, is an error (6.1, code `protocol`).
@@ -646,6 +764,13 @@ clears) or else *s*'s key, inherited. Quiet, an error, a refused input, stale
 work and a neuron with no outgoing links forward nothing. Forwarding along
 links is the only way a neuron reaches another neuron.
 
+**With `each`** (2.4) the engine emits, in place of the one forward, one forward per item of the answer, in
+the array's order: each as above, with its own id and that item as its `payload`, and the same `cause`,
+`trace`, `hops`, `to` and `replaces`. Each is a signal like any forward: it is delivered (4.2), its calls
+reserve from the trace's pool (10.2), and `maxHops` (5.3) and staleness (5.4) apply to it. An empty array
+forwards nothing, and, like a `to` of `[]`, makes nothing stale. With the draw of 4.5 each item draws its
+own link. The trace is not finished (7.2) while an item is still to be forwarded.
+
 Each neuron on a path adds **two hops** (reply, then forward). A neuron at depth
 `d` (the first neuron after the source is depth 1) receives hops `2(d-1)`; `maxHops` is a limit on that
 count, not on neurons deep: a limit of 4 lets a chain reach its third neuron.
@@ -684,7 +809,8 @@ composed network's inner file MUST NOT declare one; the scope question waits.
   (4.4). A reply that names a `to` never draws, nor does an injection (4.1).
 - **The generator is pinned.** The engine keeps one 32-bit state, started at
   `seed`, drawn exactly once per omitted-`to` reply — whatever the outcome,
-  however few the links. The word, with 32-bit wrap add and multiply and
+  however few the links (for a neuron with `each`, 2.4: once per item, in the
+  array's order, and not at all for an empty array). The word, with 32-bit wrap add and multiply and
   zero-fill right shifts:
 
       s := s + 0x6D2B79F5
@@ -702,7 +828,8 @@ composed network's inner file MUST NOT declare one; the scope question waits.
 
 For input *s* at *N*: the hops check (5.3); then, if `threshold` is more than 1,
 hold *s* (5.2); then, when the program may start, run it (queued first at
-level 1 if all slots are running). Threshold 1 or none: no hold.
+level 1 if all slots are running, or, on a neuron with `maxInflight` (2.4), if
+all its places are taken). Threshold 1 or none: no hold.
 
 ### 5.2 Threshold
 
@@ -736,6 +863,11 @@ with key *K* from sender *S* makes every older signal of the same (*S*, *K*)
 Finished work is unaffected, and so is what it forwarded: staleness does not
 travel down a chain. Each hop replaces on its own sender's key.
 
+**The forwards of one `each` answer are one emission** (2.4, 4.4). None of them is older than another:
+the first makes the older signals of its (*S*, *K*) stale, as above, and the others make stale nothing of
+their own answer. A later answer of the same sender on the same key makes every one of them stale at its
+first forward, and its own items replace them together.
+
 **A key reaches every outgoing link of its sender** ([decision 0017](decisions/0017-the-cut-a-link-carries-and-readiness.md)).
 The older signal may have gone where the newer one does not: a level 1 reply may name some of its
 links (3.2), and the ground forwards along one (4.5). The older work is stale all the same. So a
@@ -757,7 +889,11 @@ reported, for the crossing input (which may itself not have been replaced),
 phase `running`. The other inputs report nothing.
 
 **An effect call is not cut** (11.2): staleness marks it, and only its forward is suppressed. A waiting
-effect call (held or queued) has not started and is dropped as above.
+effect call (held or queued) has not started and is dropped as above. A call of a composed effect neuron is
+cut as any composed call is until an effect inside it has started, and is not cut after (11.5).
+
+**A call between two attempts** (`retry`, 2.4) is waiting work: it is dropped as a queued call is, reason
+`replaced`, phase `waiting`, and no further attempt starts.
 
 A 5.2 same-sender regroup replaces a *held* input only. It never cuts a running
 call by itself; only (sender, key) staleness does.
@@ -775,6 +911,7 @@ affected. Failures of stale work are not errors.
 | level 0 exit not 0, or killed by a signal | `exit` | `exit N:` or `signal S:`, then stderr | |
 | output over 1 MiB (level 0), line over 1 MiB (level 1) | `output` | `output too large` | process group killed |
 | level 0 stdout not empty and not one JSON value | `junk` | `not JSON` | |
+| an answer of a neuron with `each` that is not a JSON array (2.4), whatever the neuron's kind | `output` | `not an array` | no answer is reported |
 | level 1 junk line while exactly one call runs | `junk` | `junk on stdout` | note |
 | http: non-2xx, connection failure, non-JSON body | `http` | `http` | |
 | level 1 reply with bad shape, bad `to`, bad `replaces`, key over 256 bytes, no `payload`, or `ready.v` differing from `hello.v` | `protocol` | `protocol:` and the cause | reply unused |
@@ -790,7 +927,13 @@ affected. Failures of stale work are not errors.
 **Effect calls.** For a neuron with `effect` (11), every failure above except codes `budget`, `start` and
 `neuron` is not an `error` but an `unknown` event with the same fields and the same `code` (11.3): the
 call started, and nobody can tell whether the effect happened. `budget` and `start` mean the call never
-started, `neuron` is the neuron saying itself that it failed; they stay errors.
+started, `neuron` is the neuron saying itself that it failed; they stay errors. For a composed neuron with
+`effect` the same holds from the moment an effect inside the call has started; before it, its failures are
+errors (11.5).
+
+**Retried calls.** For a neuron with `retry` (2.4), each failed attempt is reported as above, and a failure
+followed by a `retry` note (6.3) is not the call's outcome: another attempt follows. A reader that counts
+failed calls counts those that no such note follows.
 
 ### 6.2 Event order
 
@@ -806,7 +949,8 @@ list.
    after it**: (a) the drops of the work that signal made stale, in the order
    that work was created; (b) for each target in `to` order, its delivery
    effects (a `hops` drop, or a held replacement drop).
-3. A reply is reported before its forward.
+3. A reply is reported before its forward. The forwards of an `each` answer (4.4) follow it in the array's
+   order, each with everything rule 2 puts after a signal before the next one is reported.
 4. A running drop is reported when the work goes stale; a `note` for the
    cancel follows it, and the later `term` and `kill` notes at their own times.
 5. A call that ends exactly when its input goes stale counts as stale.
@@ -820,7 +964,7 @@ list.
    reports their `expired` drops. A pending restart delay or idle ping is not work: it does not keep the run
    open, and the engine stops the process silently when the run ends (no `restart` note). A fixture runs the virtual clock until nothing
    is due. A real engine's "wait until idle" MAY stop earlier, ignoring held
-   inputs (the TypeScript `idle` does); then their drops are not reported.
+   inputs; then their drops are not reported.
 7. A call's outcome due at the same instant as its `timeout` is processed first: a call
    times out only if it is strictly longer than `timeout`. (A level 0 program's reply, a
    level 1 reply, the exit of a composed neuron: whatever ends the call at that instant.) A timeout has no
@@ -829,13 +973,27 @@ list.
    work caused: the reply and its forward and their delivery effects, or the `error`, the `unknown`, or the `drop`.
    A process note that belongs to that instant and follows its cause (the `kill` after the `error` of
    an over-long output) comes after `finished`.
+9. A call that waits for a place under `maxInflight` (2.4) starts **at the end of the step in which a place
+   of its neuron came free**. A step is one piece of work due (rule 1: one wake-up, or one thing a process
+   did) and everything it causes at that instant. So the start comes after every event of that step (the
+   outcome that freed the place, its forward and the delivery effects, `finished`, the notes) and before
+   any other work due at that instant. A place is given back only at the end of the step in which its call
+   ended, never inside it: an input delivered to the neuron later in that step waits too, behind the calls
+   already waiting. At the end of the step the call that has waited longest, among those whose neuron has
+   a free place, starts (the waiting calls of every neuron are in one order, the order they arrived); then
+   the next, one at a time, until none can. A call that ends as it starts (refused for its budget, 10.3)
+   gives its place to the next within the same end of step. What a call causes when it starts (its
+   `reserve` note, its wake-ups) is scheduled then, as for any call.
+10. The wait of a `retry` (2.4) is a wake-up scheduled when the failed attempt is reported, due `wait` ms
+    later (rule 1). With a `wait` of 0 it is due at that same instant, after the work already scheduled for
+    it. When it is due the attempt starts, or waits for a place as rule 9 says.
 
 ### 6.3 Process notes
 
 A `note` (7.2) records a fact about a process. An engine MUST write these, and conformance
 fixtures with `notes` compare them. Order at one instant: the event that reports what
 happened to the call (the `drop` of a cut, the `error` or `unknown` of a timeout or a crash, ...) first,
-then the notes of what the engine does to the process, in the order `cancel`, `term`, `kill`.
+then the `retry` note if another attempt follows, then the notes of what the engine does to the process, in the order `cancel`, `term`, `kill`.
 The notes of a budget (10) are written only when the network has a `budget`:
 
 - `reserve`: when a call with a `cost` starts (10.3), with `units`: the cost. Before anything else
@@ -846,8 +1004,8 @@ The notes of a budget (10) are written only when the network has a `budget`:
   `error` (or `unknown`) comes at the timeout and the `commit` when the program is over.
 
 - `cancel`: when the engine cancels a call that has started (stale, timeout), after the drop or
-  error. A call that is only queued for a slot, or a held input, has not started: it is dropped
-  without a `cancel` note.
+  error. A call that is only queued (for a slot, or for a place under `maxInflight`), or a held input,
+  has not started: it is dropped without a `cancel` note.
 - `term`: when the engine sends SIGTERM to a process group that still has a live member (a
   cancelled level 0 call; a level 1 process that crashed, hung, or wrote a line over 1 MiB).
   Nothing is written for a group that is already empty. A group's members are the process and whatever it
@@ -856,6 +1014,10 @@ The notes of a budget (10) are written only when the network has a `budget`:
 - `kill`: when the engine sends SIGKILL to a group that still has a live member: 2000 ms
   after `term` if anything remained (so also when the process itself ended on SIGTERM and left a member), or at once for level 0 output over 1 MiB (the `error`
   first, then the note).
+- `retry`: when the engine arranges another attempt of a failed call (2.4), right after the `error` or
+  `unknown` of the failed attempt and before the notes of what the engine does to the process. With
+  `trigger`: the `id` of that event; `attempt`: the number of the attempt to come (2 for the first retry);
+  and `wait`: the ms until it is due.
 - `restart`: when the new level 1 process is spawned, after the backoff delay, not when it is
   scheduled.
 - `junk`: when the junk line is read, so before the `junk` error it causes.
@@ -910,7 +1072,7 @@ v1 readers, which ignore what they do not know, are unaffected):
 | `code` on `error` | MUST, from the 6.1 table (`budget` included) |
 | `unknown` event: the fields of an `error` (`neuron`, `message`, `code`, the signal's fields and payload) | MUST, in place of the `error`, for the failures of a started effect call (6.1, 11.3); MUST NOT for any other neuron |
 | `forwarded` (`false`) on `answer` | MUST when the answer of an effect call was not forwarded because its input went stale (11.2); MUST NOT otherwise |
-| `note` event: `what` is `junk` (with `line`, `text`), `cancel`, `term`, `kill`, `restart` or `inject` (with `trigger`) | MUST, as 6.3 says (fixtures with `notes` compare them) |
+| `note` event: `what` is `junk` (with `line`, `text`), `cancel`, `term`, `kill`, `restart`, `retry` (with `trigger`, `attempt`, `wait`) or `inject` (with `trigger`) | MUST, as 6.3 says (fixtures with `notes` compare them) |
 | `note` event: `what` is `reserve` (with `units`) or `commit` (with `units`, `ms`, `basis`) | MUST for every call when the network has a `budget`; otherwise MUST NOT (10) |
 | `finished` event: `trace`, `status`, and `remaining` | MUST, once per trace of the outer network, as below |
 | `ground` event: `place` (the key string), `v` (the stored value after the write), `cause` (the depositing answer's id) | MUST on every deposit of a network that declares `ground` (4.5); MUST NOT otherwise; carries no signal fields |
@@ -1027,11 +1189,13 @@ The fixtures cover routing, threshold, staleness (issue 17 included, and a newer
 neurons and sealing, every row of the 6.1 table that an engine can reach, the 6.2 order, the
 end of a run, level 1 (handshake, queueing, cancel, ping, restart), observers and
 the version 0.1 budget (`budget/`: reserve, commit, refusal, the pool of a trace, a composed cap, `finished`),
-effects (`effect/`: a call staleness does not cut, an answer recorded and not forwarded, `unknown` after a crash, a hang or a timeout, cost committed) and
+effects (`effect/`: a call staleness does not cut, an answer recorded and not forwarded, `unknown` after a crash, a hang or a timeout, cost committed, and an effect inside a composed neuron: the two refusals, the cut before and after the effect starts, the failures, the timeout, and `exit` replying first) and
 the live stream (`stream/`), `may` (`may/`: the shape, the kinds it is allowed on, a composed neuron that
 covers its inside and two that do not) and a neuron named by its own file (`neuronfile/`: the same events as
 the inline neuron, the network's options on the entry, the file's own options applied, a narrowed `timeout`
-that fires, the fold reading the narrowed `may`, and each refusal).
+that fires, the fold reading the narrowed `may`, and each refusal), and `retry` (`retry/`: an error retried to an answer, the attempts
+used up, the cost of each attempt, the wait, a waiting attempt dropped, what is never retried, `unknown` on an effect neuron
+with and without it, a composed neuron, narrowing from a neuron's file, and each refusal).
 
 ### 8.5 The observer rule
 
@@ -1069,16 +1233,16 @@ mode), is not addressable, is not on any path, and cannot send along links.
   root replaces key (the producer), memory across level 0 calls (use `serve`),
   not diagnosing a known cause again (an ordinary neuron on the path, quiet for
   a known cause).
-- The TypeScript library's listeners (`onSignal`, `onDrop`, `onError`) are the
-  in-process observer. Routing done inside them, as the alert storm demo does,
-  belongs to the routing rule (section 4); an engine does it itself.
+- A library's listeners (the TypeScript library's `onSignal`, `onDrop`, `onError`, until
+  [decision 0023](decisions/0023-one-engine.md)) are an in-process observer. Routing done inside them, as that
+  library's alert storm demo did, belongs to the routing rule (section 4); an engine does it itself.
 - There is no `watch` link: it would settle the open passive/active question by
   the back door.
 
 ### 9.1 The live stream (normative)
 
 An engine MUST offer the events of the trace as they happen, to a consumer of the caller's choosing, in
-two forms: a library option (the reference engine's is `onEvent` on `runNetwork`) and a command-line flag
+two forms: a library option (the reference engine's is the `sink` of `run_with_stream`) and a command-line flag
 that writes one JSON object per line as they happen (the reference engine's is `run --stream <path>`).
 
 - **The stream is the trace.** It carries every event of the trace of the outer network (7.2: signals, replies,
@@ -1142,9 +1306,11 @@ When a call with a `cost` starts, the engine **reserves** the cost from its trac
 takes every unit of the cost out of the pool, and writes a `reserve` note (6.3). A call starts
 when its program is started (level 0), when its `signal` line is written (level 1: a call
 queued for a slot reserves when the slot frees, not before) or when the composed neuron's
-input enters its inside. A held input has not started a call and reserves nothing; the
+input enters its inside. A call waiting for a place under `maxInflight` (2.4) has not started: it
+reserves when it starts, at the place 6.2 rule 9 gives, and is refused then if the pool cannot cover it. A held input has not started a call and reserves nothing; the
 threshold call reserves once, when it acts. A call dropped before it starts (stale while held
-or queued) never reserved.
+or queued) never reserved. Each attempt of a retried call (`retry`, 2.4) is a call: it reserves when it
+starts, and the call reserves nothing while it waits between two attempts.
 
 If the pool cannot cover **every** unit of the cost, nothing is reserved, the call does not
 start, and the engine reports an `error` for the signal the call answers (for a threshold call,
@@ -1217,8 +1383,8 @@ engine can apply two rules that a program cannot apply for itself. The reasons a
 
 ### 11.1 Declaring
 
-`effect` is the neuron option `true` (2.4), on `run`, `serve`, `http` and `human` neurons; never on a
-`source` or a `network` neuron (the schema refuses both). It changes nothing else about the neuron: its
+`effect` is the neuron option `true` (2.4), on `run`, `serve`, `http` and `human` neurons, and on a `network`
+neuron whose file contains one (11.5); never on a `source` (the schema refuses it). It changes nothing else about the neuron: its
 contract (3), `threshold`, `within`, `timeout` and `cost` are as they were. A neuron without it behaves exactly as
 before.
 
@@ -1226,15 +1392,15 @@ before.
 
 When work for an effect neuron goes stale (5.4):
 
-- **Waiting work** (a held input, a call queued for a level 1 slot) has not started anything: it is dropped as
-  usual, reason `replaced`, phase `waiting`.
+- **Waiting work** (a held input, a call queued for a level 1 slot or for a place under `maxInflight`) has not
+  started anything: it is dropped as usual, reason `replaced`, phase `waiting`.
 - **A started call is not cut.** No `drop` is reported, no `cancel` is sent (level 1) and no signal is sent to
   the process group (level 0), and no `cancel`, `term` or `kill` note is written. The call is marked stale and
   runs to its own end. For a threshold call, any input it was built from going stale marks it, as in 5.4.
   A call that ends at the instant its input goes stale counts as stale (6.2 rule 5).
 - **Its answer is always recorded** as an `answer` event (4.3), and **its cost is committed** (10.4) as for any
   call. If the call is stale when it answers, the answer is not forwarded (4.4): the `answer` event carries
-  `"forwarded": false` (7.2) and no forward follows. Quiet and failures carry no mark: nothing would have been forwarded.
+  `"forwarded": false` (7.2) and no forward follows; with `each` (2.4), none of its items is forwarded. Quiet and failures carry no mark: nothing would have been forwarded.
   A call that was not stale answers and forwards as usual.
 - **Results.** What the engine returns to its caller (the answers of neurons with no outgoing links) is not a
   forward: a stale effect answer from such a neuron still reaches it, as well as the trace.
@@ -1253,9 +1419,14 @@ executable, no such working directory) never ran: that is an `error` (`exit`, 12
 A neuron that wants to say honestly "it did not happen" should be level 1 and reply `error`: level 0 has only its exit status,
 which a crash looks the same as.
 
-- Nothing is forwarded, as for an error, and nothing else is affected. The engine does not retry, hold or
-  block anything: an `unknown` is a record, and what to do about it is decided outside the engine (11.4).
-  The trace shows exactly one outcome for the call.
+- Nothing is forwarded, as for an error, and nothing else is affected. The engine does not hold or
+  block anything, and it does not retry unless the neuron has `retry` (below): an `unknown` is a record, and
+  what to do about it is decided outside the engine (11.4). The trace shows exactly one outcome for the call.
+- **With `retry` (2.4) the engine starts the call again after an `unknown`**, as after an error: the
+  `unknown` is reported, a `retry` note follows it, and the outcome of the last attempt is the call's. The
+  effect may then happen more than once. `retry` on an effect neuron is the file saying that this is safe,
+  because the program is idempotent (11.4); an effect neuron without `retry` is never started again. An
+  attempt that was marked stale (11.2) is not retried.
 - **A timeout is `unknown`, and the call is killed at it.** An effect call that hangs or runs past its
   `timeout` is cancelled as any call is (3.1, 3.2: SIGTERM then SIGKILL; `cancel` at level 1), at the timeout,
   and recorded `unknown` at that instant with code `timeout`. The run must be able to end, and the record
@@ -1270,7 +1441,7 @@ The engine has no machinery for reconciliation. The pattern uses what the specif
 
 1. The producer puts a short id at the top level of the payload it injects (`{"id": "n-17", ...}`), so it survives the
    2000-character cut of the trace (7.2), and the effect program uses it to make the effect idempotent, so doing it twice
-   is the same as doing it once. The engine never retries.
+   is the same as doing it once. The engine never retries unless the neuron has `retry` (2.4), which on an effect neuron states exactly this.
 2. The file declares a `source` for reconciliation (`reconcile`) linked to a neuron that can find out
    (`lookup`: reads the record the effect writes, or asks the other system).
 3. Whoever sees the `unknown` (the producer reading the stream, or an observer, 9) injects the id into `reconcile` (4.1, 9). The
@@ -1280,16 +1451,43 @@ The `unknown` event carries the payload of the input, so the id can be read from
 carries only the crossing input's payload (the others are not in the event), so a threshold effect should have its id on every
 input. Three cautions: `lookup` answering "not sent" is only as good as the other system's consistency, since a timed-out
 or killed call may still land later; any retry the producer makes must itself be idempotent by the id; and the engine
-guarantees none of this. The demo
-(`npm run demo:notify`) and the fixture `observer/an-observer-reconciles-an-unknown-effect` do this.
+guarantees none of this. The fixture `observer/an-observer-reconciles-an-unknown-effect` does this.
 
 ### 11.5 Composed neurons
 
-A `network` neuron is never an effect, and a network file used as a composed neuron MUST NOT contain a neuron
-with `effect` (`check` reports an error, 2.7). A composed call is cut as a whole, recursively and without
-reports (2.6 steps 2 and 4), and sealing (2.6) keeps the outside from seeing what the inside did, so neither the
-guarantee of 11.2 nor the record of 11.3 could hold across the boundary. An effect belongs in the outer file,
-where the trace shows it; a composed neuron may feed it.
+A network file used as a composed neuron MAY contain neurons with `effect`
+([decision 0022](decisions/0022-what-a-swarm-needs.md)). The `network` neuron that names it MUST then state
+`"effect": true`, and a `network` neuron whose file contains no effect neuron MUST NOT state it: `check` reports
+either as an error (2.7). A composed neuron inside the file counts by its own `effect`, as it counts by its own
+`may` (2.4). The option is what sealing (2.6) cannot hide: the outside never sees which neuron inside did what,
+and the reader of the outer file and of the outer trace still knows that a call of this neuron may do something
+in the world.
+
+**A composed call has an effect started** from the moment a call of an effect neuron of its file starts for it
+(10.3 says when a call starts), or a call of a composed effect neuron of its file has an effect started by this
+same rule. Waiting work inside (a held input, a call queued for a slot or for a place) has started nothing.
+
+- **Until then the call is an ordinary composed call.** Staleness cuts it (5.4: the `drop`, phase `running`, the
+  `cancel` note, the inside cancelled without reports), and its failures are errors: nothing has happened.
+- **From then on staleness never cuts it** (11.2 at the boundary): no `drop`, no `cancel` note. The call is marked
+  stale and its inside runs to its end, the work that is not an effect included. Its reply is recorded as for any
+  effect call: an answer carries `"forwarded": false` and is not forwarded.
+- **From then on its failures are `unknown`** (11.3): the `inner` failure of 2.6 step 3, a timeout, and the
+  `output` failure of `each` (2.4). An inner `unknown` is therefore the composed neuron's `unknown`, code `inner`,
+  and so is an inner error that comes after an effect inside had started: the outside cannot tell which neuron
+  failed. The message is the one the error has.
+- **A timeout ends the call as any composed call's does** (2.6 step 4), and the effect calls that have started
+  inside are cancelled with the rest, as their own timeout would cancel them (11.3). It is `unknown` if an effect
+  had started, and an error if none had.
+- **The first reply of `exit` is still the reply** (2.6 step 2). The remaining inner work of the call is cancelled,
+  except the effect calls that have started and the composed effect calls inside in which an effect has started:
+  those are marked stale and run to their own end, and nothing they answer is forwarded. The composed call is over
+  when `exit` replies (its `commit`, and its place under `maxInflight`, are as for any reply), and **its trace is
+  not finished until they have ended** (7.2). What such a call does after the reply stays inside, its failure
+  too: an effect whose failure must be seen belongs on the way to `exit`, or in the outer file.
+
+Sealing (2.6) stands throughout: nothing of the inside is reported, and the outside learns that an effect inside
+may have happened, never which one.
 
 ### 11.6 Budgets, threshold, levels
 
@@ -1300,17 +1498,18 @@ where the trace shows it; a composed neuron may feed it.
   met the call is a started call (11.2), and any of its inputs going stale marks it.
 - **Levels.** At level 0 and level 1 alike a stale input starts nothing: no signal to the process group, no
   `cancel` line. The slot of a level 1 effect call is its own until it replies or `timeout` ends it.
-  `http` neurons are not run by the reference engine; the rules apply to them when an engine does. A `human` effect
+  `http` neurons are not run by every engine; the rules apply to them when an engine does. A `human` effect
   call is as any other: an answer is committed, and a `timeout` is `unknown`.
 - **`finished`.** A trace is finished when nothing is running, queued or held (7.2); a running effect call
-  that went stale is still running, so the trace waits for it.
+  that went stale is still running, so the trace waits for it. So does the trace of a composed call that has
+  replied while an effect call inside it still runs (11.5).
 
 ## Appendix A. Walk-through: one alert (informative)
 
 Files: [alerts.network.json](../spec/examples/alerts.network.json),
 [diagnosis.network.json](../spec/examples/diagnosis.network.json); programs in
 `spec/examples/neurons/` and `examples/alerts/`. The producer injects, at their
-`at` times, the 40 alerts of `examples/alerts/alerts.json` (a timed schedule that
+`at` times, the 40 alerts of `spec/examples/alerts.inputs.jsonl` (a timed schedule that
 is the producer's, not the file's), each with its service as key. Alert 5:
 `{"id":5,"service":"checkout","severity":"warn",...}`.
 
@@ -1345,7 +1544,7 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
 - Passive and active channels (open; no field reserved); link attributes.
 - `http` authentication and headers; a `human` wait that survives a restart, several people and who may answer
   ([decision 0008](decisions/0008-human-neurons-on-a-page.md)); Wasm neurons;
-  Windows; concurrency limits at level 0; inspecting inside
+  Windows; inspecting inside
   a composed neuron; byte-level fixtures and real-process fixtures; hot reload.
 - Distribution: the engine will ship as a binary inside the npm and pip
   packages (the esbuild and ruff pattern).
@@ -1353,137 +1552,105 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
   `may` on a source that carries a program.
 - The neuron file, later ([decision 0019](decisions/0019-the-neuron-file.md)): a neuron's file on another
   machine; an entry that adds `effect` to a neuron that does not claim it; versioning a neuron file apart from
-  the network format; parameters (a neuron file is literals, so two uses that differ in an argument are two files).
+  the network format; parameters beyond the `args` of 2.10 ([decision 0022](decisions/0022-what-a-swarm-needs.md)):
+  for a composed file, and a value that reaches a program from the payload other than as its input.
 - Confinement, later ([decision 0018](decisions/0018-confining-a-program-to-its-may.md)): confinement as the
   default; a program placed on another machine; a named host for a program that does not speak HTTP; a path
   that reaches a program through a variable named in `env`.
-- Effects, later: an engine-held `unknown` that blocks a key until reconciled, a retry policy, effects
-  inside a composed file (11.5).
+- A limit on calls at once, later ([decision 0021](decisions/0021-a-limit-on-calls-at-once.md)): a bound on
+  how many calls may wait or for how long, at level 1 as well; a cap on connections to a peer; limits by
+  trace or by caller; backpressure to a live producer.
+- Fan-out, later ([decision 0022](decisions/0022-what-a-swarm-needs.md)): a join for the items of one `each`
+  answer, and a name for that group; a bound on how many items one answer may forward.
+- Retry, later ([decision 0022](decisions/0022-what-a-swarm-needs.md)): a wait that grows, a retry that
+  depends on the failure's code, and a limit on retries across a trace.
+- Effects, later: an engine-held `unknown` that blocks a key until reconciled, and a report
+  to the outside of what an effect inside a composed call did after `exit` had replied (11.5).
 - Budgets, later: usage claims in level 1 replies, an owed ledger, spend per source or per time
   window, settlement (10.8).
 
-## Appendix C. How the TypeScript library differs (informative)
+## Appendix C. The engine in this repository (informative)
 
-The library in `src/` is the first engine to be brought into line. Deliberate
-differences:
+One engine lives here: the Rust engine in `rust-engine/` (the `neuron-engine` binary). It is the reference any
+further engine is compared with. Until [decision 0023](decisions/0023-one-engine.md) there were three more pieces,
+a TypeScript library that predated this text, a TypeScript reference engine and a Python engine written from the
+text alone; they are deleted, and this appendix, which listed how each differed, now says what the one engine adds
+to the text, what it leaves out and what it chose where the text is silent. Its own account, with the reasons, is
+`rust-engine/README.md`.
 
-- one-way links (`connect` links both ways today);
-- automatic forwarding along links (callers forward today); `emit` `to` limited
-  to outgoing links;
-- a composed neuron is one shared inner network per instance (the demo builds a
-  fresh one per call);
-- a default `timeout` of 30 s (none today);
-- a minimal environment (the shell adapter inherits the engine's);
-- process-group kill with SIGKILL after 2 s (the adapter kills the child only);
-- level 0 is JSON both ways (the shell adapter writes text raw and reads
-  non-JSON as text);
-- a cut (running) drop is reported when the adapter settles, not when the work goes
-  stale (5.4, 6.2 rule 4): an adapter that ignores abort delays it, and one that never
-  settles never reports it (and `idle()` waits on it);
-- `emit` reports the drops a signal causes before that signal's own event (the abort
-  runs before the notification), the reverse of 6.2 rule 2;
-- `phase` on drops (`onDrop` reports one reason today; the recorder and the view add `phase` from the
-  held inputs they replay);
-- the threshold stdin shape applies above 1 only.
-
-### The reference engine (`src/engine/`, `npm run engine`)
-
-A second engine, written to this specification, reads network files. It is
-separate from the library (`src/index.ts` is unchanged) and is the reference
-any further engine is compared with (a Rust one was tried and stopped: decision 0005). It follows the specification, including the
-6.2 event order, where the library differs (the list above). Conformance gaps:
-
-- **Neuron kinds**: `source`, `run`, `serve`, `network` and `human`. `human` needs a desk: the command line's `run`
-  serves the page of Appendix D, and the library's `runNetwork` takes a `desk` option and refuses a `human` neuron
-  without one. `http` is reported by `check` as a warning and refused by `run`. The conformance runner scripts a
-  person (CONFORMANCE 5.5), and `spec/fixtures/human/` holds its fixtures.
-- **Fixtures** (section 8): `npm run engine -- conform spec/fixtures` runs them on a
-  virtual clock with scripted programs (`src/engine/virtual.ts`, a `Host` the engine takes in
-  place of real time and processes). Its other tests run real processes (`sh`, `cat`) for what
-  the fixtures cannot reach: bytes, process groups, the environment.
-- **Observers** (section 9): the `observer` option of `runNetwork` (a function called with each outer event, the
-  `finished` event included, that returns injections; the fixtures' scripted observer is one, and the notify demo
-  another), with the `inject` note. `run` returns the finished trace.
-- **The live stream** (9.1): the `onEvent` option of `runNetwork` and `run --stream <path>` (a file, or a pipe). Events are queued
-  and offered from a microtask, as copies; a consumer's exception or rejected promise is ignored. The buffer is
-  unbounded, so a consumer that never keeps up holds the events in memory.
-- **Same-instant order** (6.2 rules 1 and 5) holds because the engine is one
-  synchronous event loop, not because a clock orders it; a call whose process
-  ends in the same millisecond its input goes stale can go either way.
-- **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` only for a scripted observer;
-  `reserve` and `commit` with a budget.
-- **A run-level result** (4.4): not written by this engine, nor by the Python one. The Rust engine writes one
-  when asked (`run --result <path | ->`, [decision 0022](decisions/0022-what-a-swarm-needs.md)): each trace's
-  answers, failures and drops and the totals, read off the events; with it the run exits 3 when a call ended
-  in an error or an unknown.
-- **A neuron's own settings** (2.4): read by this engine and the Rust one, the two that start programs. The
-  Python engine starts none and ignores the file. In the Rust engine a single program placed on a peer
-  (`--peers`) is started by the peer with the peer's environment, and the settings file is not sent.
+- **Neuron kinds**: all of them. `source`, `run`, `serve`, `network` and the `neuron` kind; `http` over plain HTTP
+  (`https` is refused: the engine has no TLS); `human` on the desk, the page of Appendix D, whose address `run`
+  prints on stderr. The conformance runner scripts a person instead (CONFORMANCE 5.5), and `spec/fixtures/human/`
+  holds its fixtures.
+- **Fixtures** (section 8): `neuron-engine conform spec/fixtures` runs them on a virtual clock with scripted
+  programs. The engine's other tests (`rust-engine/tests/`) run real processes for what the fixtures cannot
+  reach: bytes, process groups, the environment.
+- **Observers** (section 9): the conformance runner scripts one, with the `inject` note. On a real run an
+  observer is a program outside the engine: it reads the live stream and injects through a live producer (below).
+- **The live stream** (9.1): the `sink` of `run_with_stream` (`rust-engine/src/run.rs`) and `run --stream <path>`
+  (a file, or a pipe). A consumer that fails never changes the run.
+- **A run-level result** (4.4): written when asked (`run --result <path | ->`,
+  [decision 0022](decisions/0022-what-a-swarm-needs.md)): each trace's answers, failures and drops and the
+  totals, read off the events; with it the run exits 3 when a call ended in an error or an unknown.
+- **A neuron's own settings** (2.4): read. A single program placed on a peer (`--peers`) is started by the peer
+  with the peer's environment, and the settings file is not sent.
 - **Effects** (section 11): all of it. `unknown` is a separate event type; the `forwarded` mark is on the `answer` event.
-- **A live producer** (4.1): not taken by this engine, nor by the Python one. The Rust engine takes one on
-  standard input (`run --inputs -`, `rust-engine/README.md`), writing its events to the stream as they happen
-  and keeping none. A file it hosts for other engines (`peer --network`) takes the same injection as an
-  `inject` line on a connection, and writes the file's own events to the worker's `--stream`.
-- **A limit on level 0 calls at once** (Appendix B): none in this engine, nor in the Python one. The Rust
-  engine takes one for the whole engine from the command line (`run --at-once <n>`, `peer --at-once <n>`,
-  [decision 0021](decisions/0021-a-limit-on-calls-at-once.md)): a level 0 call over it is queued in arrival
-  order, and queued means what it means at level 1 (3.2, 5.4, 10.3, 11). A network file cannot state it.
-- **A neuron named by its own file** (2.10): read when the network file is (`readNetwork`), so the engine itself
-  never sees the `neuron` kind. The Python and Rust engines do the same in their loaders.
-- **`may`** (2.4): checked, the fold included. This engine does not confine (2.9): a program runs with the rights
-  of whoever started it, whatever its `may` says. The Python engine starts no process. The Rust engine confines
-  on macOS when a run asks (`run --confine`, `rust-engine/README.md`): files by path, loopback ports directly, a
-  named host through a proxy of its own, `localhost` and `127.0.0.1` taken as one, and a listen address other
-  than those or `0.0.0.0` refused; on any other platform it refuses a run that asks.
-- **Budgets** (section 10): all of it. A call's `ms` is read from `performance.now()` in real runs, rounded to whole ms.
+- **A live producer** (4.1): taken on standard input (`run --inputs -`, `rust-engine/README.md`), writing its
+  events to the stream as they happen and keeping none. A file the engine hosts for other engines
+  (`peer --network`) takes the same injection as an `inject` line on a connection, and writes the file's own
+  events to the worker's `--stream`.
+- **A limit on calls at once**: `maxInflight` (2.4) is held for `run`, `network` and `http` neurons. Besides
+  the option the engine takes a limit for the whole engine from the command line (`run --at-once <n>`,
+  `peer --at-once <n>`, [decision 0021](decisions/0021-a-limit-on-calls-at-once.md)): a level 0 call over it is
+  queued in arrival order, and queued means what it means at level 1 (3.2, 5.4, 10.3, 11). A network file
+  cannot state that one. A call under both takes its neuron's place first and keeps it while it waits for the
+  engine's; a neuron placed on a peer has its `maxInflight` held by the engine that holds its calls.
+- **A neuron named by its own file** (2.10): read when the network file is, in the loader, so the engine itself
+  never sees the `neuron` kind, nor the entry's `args`: the command it is handed is already the longer one.
+- **`may`** (2.4): checked, the fold included. The engine confines (2.9) on macOS when a run asks
+  (`run --confine`, `rust-engine/README.md`): files by path, loopback ports directly, a named host through a
+  proxy of its own, `localhost` and `127.0.0.1` taken as one, and a listen address other than those or
+  `0.0.0.0` refused; on any other platform it refuses a run that asks. A run that does not ask is not confined:
+  a program runs with the rights of whoever started it, whatever its `may` says.
+- **Budgets** (section 10): all of it.
+- **Peers** ([decision 0013](decisions/0013-p2p.md), `docs/P2P.md`): `run --peers <file>` places some of a
+  network's neurons on other engines (`neuron-engine peer`). The text does not specify it.
 - **Process start failure** (no such executable) is an `exit` error, `exit 127:`
   then the reason; the table in 6.1 has no row for it.
-- **The inside of a composed neuron** is available only through the `inner`
-  option of `runNetwork` (CLI `--inner <out.json>`), an operator's tool outside
-  the trace (2.6); it is not specified.
-- **Payloads over 2000 characters** are cut to a preview in the trace (TRACE.md),
-  as the recorder does; the program still gets the whole value.
+- **The inside of a composed neuron** is not available from a run: its events are discarded (2.6). An operator's
+  view of the inside is not specified.
+- **Payloads over 2000 characters** are cut to a preview in the trace (TRACE.md);
+  the program still gets the whole value.
 - **POSIX only**: process groups, `kill(-pid)` and `sh`-style programs; no Windows.
 - **Engine defaults** (decision 0001): when a call ends the engine kills its
   program's process group; a call settles 100 ms after the process exits even if
-  a child still holds stdout open; ids are numbered per scope, so outer ids do not
-  reveal inside work; the CLI kills every running group on SIGINT or SIGTERM.
-- **The staleness map is not pruned**: a list of finished work stays under its
-  (sender, key) until that key is next replaced, the same known limit as the
-  library, so a very long run with many distinct keys grows in memory.
-- **`check` positions** point at the key of the offending member, or the item of
-  an array, not at its value.
+  a child still holds stdout open; the CLI kills every running group on SIGINT or SIGTERM.
+- **Ids** are numbered per run, and every trace says so in its header
+  (`"ids": {"signal":"run-numbered","trace":"run-numbered"}`); they are opaque strings (TRACE.md).
+- **`check` positions** point at the key of the offending member.
 - **Level 1 (`serve`)** follows 3.2 and 6.1. Where the text is silent the engine chose:
-  - a queued call (waiting for a slot) that goes stale is dropped as `replaced`, phase
-    `waiting`, with no `cancel` note; if it belongs to a threshold call, the whole call
-    is removed and one drop is written, for the crossing input;
   - a hung process (3.2) is killed with `term`, then `kill` after 2 s if anything of its
-    group remains, whether or not its leader has exited, and restarted; the calls still
-    running fail with `crash`. The run is not over until a cancelled call's slot is free,
-    so the trace records the kill. A serve process is noticed as down when it exits (after a
-    100 ms grace, so its last lines are read) or closes stdout, so a helper that inherited
-    stdout does not hide a crash;
+    group remains, and restarted; the calls still running fail with `crash`. The run is not over until a
+    cancelled call's slot is free, so the trace records the kill. A serve process is noticed as down when it
+    exits (after a 100 ms grace, so its last lines are read) or closes stdout;
   - the failed-start rule, the over-long line, junk and cancelled calls, and the `restart` note are
     specified in 3.2 and 6.3 (decision 0001 and 0004 give the reasons);
   - before `ready`, any first line other than a valid `ready` (junk, a wrong `v`, a bad
     `maxInflight`) is a failed start; the engine does not restart a neuron whose first start
     fails, it refuses to start. After a later start fails, backoff and the limit of 5 apply;
   - `ping` is sent every 10 s while nothing is running (the text gives no interval;
-    `runNetwork`'s `pingEvery` option changes it); the time to answer is in 3.2;
-  - the `error` message of a `crash` is `process failed`, then the first 500 bytes of stderr;
+    `run --ping <ms>` changes it); the time to answer is in 3.2;
   - the engine's clock starts when every serve neuron is ready, so `at` in an inputs file
     does not include start-up;
   - at the end of the run stdin is closed and a process that has not exited is sent SIGTERM
-    after 2 s and SIGKILL 2 s later, silently; the run returns after the processes are gone;
-  - a `term` or `kill` note for a process that dies on its own is written only if part of its
-    process group is still alive.
-- **Measured** on one machine (Apple M3, macOS, Python 3.14, an idle machine; not a benchmark, not asserted
-  by any test): per signal, a level 0 Python neuron costs a process start, median 19.7 ms (p95 21.6 ms, 40
-  runs of `hypothesis.py`); a level 1 neuron costs a round trip over the pipe, median 0.04 ms (p95 0.07 ms,
-  300 calls of `hypothesis_serve.py` with a 0 ms model call, one thread per call included). Against the alert
-  storm's detector budget of about 150 ms, a level 0 Python detector spends about 13% of it on start-up, a
-  level 1 one under 0.1%. A level 1 neuron pays its start once, at engine start (about the same 20 ms). The
-  engine adds routing on top of both.
+    after 2 s and SIGKILL 2 s later, silently; the run returns after the processes are gone.
+- **Measured** on one machine before decision 0023, with the TypeScript reference engine (Apple M3, macOS,
+  Python 3.14, an idle machine; not a benchmark, not asserted by any test): per signal, a level 0 Python neuron
+  cost a process start, median 19.7 ms (p95 21.6 ms, 40 runs of `hypothesis.py`); a level 1 neuron cost a round
+  trip over the pipe, median 0.04 ms (p95 0.07 ms, 300 calls of `hypothesis_serve.py` with a 0 ms model call,
+  one thread per call included). Against the alert storm's detector budget of about 150 ms, a level 0 Python
+  detector spent about 13% of it on start-up, a level 1 one under 0.1%. A level 1 neuron pays its start once,
+  at engine start (about the same 20 ms). The numbers have not been taken again with the Rust engine.
 
 ## Appendix D. A page for `human` neurons (informative)
 
@@ -1512,7 +1679,7 @@ interface to the engine.
   The page shows each person what waits on them and on the others, and the answers taken so far, with who gave them.
   An input with an `options` array of `{id, label, text}` is shown as its title, notes and one button per option (not
   as JSON); choosing one replies with its `text`, else its `id`. A one-line *why* may ride on any answer, for the record only: it is never sent.
-- **Nothing is fetched from elsewhere.** The page loads its fonts from its own origin and runs one inline script under
+- **Nothing is fetched from elsewhere.** The page uses the system's fonts and runs one inline script under
   a nonce; every value from an input is shown as text, never parsed as HTML.
 
 
@@ -1542,6 +1709,9 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 2.6 | Step 3: the inside has nothing running, queued or held for the call | global (inside) | The end of a call's inner work, G2 below, one level down. |
 | 2.6 | Step 6: `cost` and the inner `budget` bound the inside (10.5) | local | The boundary owns the inner trace's pool. |
 | 2.4 | `may`: the shape, and a composed neuron covering its inside | static | |
+| 2.4 | `maxInflight`: the places of one neuron, its waiting calls and their order | local | The wrapper counts its own calls. |
+| 2.4, 6.2 | Rule 9: which waiting call starts first when places of several neurons come free in one step | global | One order across neurons (G3). |
+| 2.4, 4.4 | `each`: the answer is an array, one forward per item, one emission | local | The neuron's own answer and links. Each item's draw is G4, its reserve G1. |
 | 2.10 | A neuron named by its own file; narrowing | static | Read once, before anything runs; afterwards it is an ordinary neuron. |
 | 2.9 | Confinement: the baseline, paths, connections, a proxy per neuron | local | The wrapper starts the program, and holds it. |
 | 2.9 | A confined run is refused whole when one program cannot be held | global | One neuron's `may` decides for the network, as G6. |
@@ -1558,7 +1728,7 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 4.4 | Forward along outgoing links; key set, cleared or inherited; two hops per neuron | local | The neuron's links and the input's fields. |
 | 4.5 | The ground: a value per place, deposits, evaporation | global | Any reply may write any place, and a draw at one neuron reads its targets' places (G4). |
 | 4.5 | One generator per engine, one draw per omitted-`to` reply | global | The sequence of draws follows the order of every neuron's replies (G4, G3). |
-| 5.1 | Order at a delivery: hops, hold, run | local | |
+| 5.1 | Order at a delivery: hops, hold, wait for a place, run | local | |
 | 5.2 | Threshold: groups by (neuron, trace), distinct senders, `within` | local | The receiver's own inputs; the sender is on the signal. |
 | 5.3 | `maxHops` | local | `hops` is on the signal. |
 | 5.4 | Staleness, when the newer signal reaches the same target | local | The target sees the newer (sender, key) input and cuts its own older work. |
@@ -1576,6 +1746,7 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 6.3 | `cancel`, `term`, `kill`, `restart`, `junk` notes | local | Facts about the wrapper's own process. |
 | 6.3 | `reserve`, `commit` notes | local | Written by the call's wrapper. The reservation itself is G1. |
 | 6.3 | `inject` note | global | An observer's act (G8). |
+| 2.4 | `retry`: a failed call is started again, each attempt a call | local | The wrapper's own call. Its reserve is G1 and its place is the neuron's, as for any call. |
 | 7.1 | The header: every neuron and link, one `demo`, one `engine` | global | A description of the whole network. |
 | 7.2 | What each event carries; the payload cut; `phase`, `code`, `forwarded` | local | One wrapper's fact. |
 | 7.2 | One event list; `t` in ms since the run started | global | One list and one clock (G3). |
@@ -1593,7 +1764,9 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 10.6 | A loop ends at the pool or at `maxHops` | global, local | G1; 5.3. |
 | 11.1 to 11.3 | An effect call is not cut; its answer is recorded; `unknown` | local | The wrapper's own call. |
 | 11.4 | Reconciling | global | A producer or an observer, outside (G8). |
-| 11.5 | No `effect` inside a composed file | static | |
+| 11.5 | A composed neuron states `effect` exactly when its file has an effect neuron | static | |
+| 11.5 | A composed call with an effect started is not cut; its failures are `unknown`; a timeout cancels the inside | local | Held at the boundary: the composed neuron's wrapper is the owner, and it knows what its inside has started. |
+| 11.5 | A trace waits for an effect call still running inside a composed call that has replied | global | G2. |
 | 11.6 | A trace waits for a running stale effect call | global | G2. |
 
 ### E.2 The global things

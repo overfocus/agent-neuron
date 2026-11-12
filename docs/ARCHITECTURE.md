@@ -1,11 +1,11 @@
 # Architecture map (informative)
 
-A dense index of how agent-neuron is put together: the model, the three engines, the inside of the
+A dense index of how agent-neuron is put together: the model, the engine, the inside of the
 Rust engine, the wire between engines, and the ways to run. It is written to be read fast by
 someone (or some agent) who needs to find the right file and function, not as an introduction; for
 that, read the [README](../README.md).
 
-**This is a snapshot, taken 2026-11-12 at the merge of decision 0021's engine cap.** Nothing here is
+**This is a snapshot, taken 2026-11-12 with decision 0021's `maxInflight` option (L2) and decision 0022's `each` (S2) built, and decision 0023 (one engine) carried out.** Nothing here is
 normative. The contract is [SPEC.md](SPEC.md), [`spec/fixtures/`](../spec/fixtures/) and the
 [decision records](decisions/). A name below that no longer greps is this file's error: fix it here.
 
@@ -18,25 +18,27 @@ MODEL
     serve    level 1: long-lived process, newline JSON; says `ready` {v, maxInflight}; slots + queue
     http     one request per call
     human    a person answers at the desk (page)
-    network  composed: a whole network file as one neuron (entry in, first exit reply out; inside sealed)
-    neuron   named by its own neuron file (0019); using entry may NARROW timeout/env/may only
-  options (9)   threshold, within, maxHops, timeout, env, cwd, cost, effect, may{connect,listen,read,write}   (SPEC 2.4; maxInflight would be the 10th, 0021 L2)
+    network  composed: a whole network file as one neuron (entry in, first exit reply out; inside sealed); states `effect` exactly when its file has an effect neuron (0022 S3)
+    neuron   named by its own neuron file (0019); using entry may NARROW timeout/env/may/maxInflight/retry.times only (effect, each: the file's, never the entry's)
+             and may ADD args[] to a run/serve file's command (0022 S4; an entry field, gone after the loader)
+  options (12)  retry{times,wait} (run|serve|http|network: a failed call starts again, each attempt a call; on effect it covers unknown; 0022 S5), threshold, within, maxHops, timeout, env, cwd, cost, effect, may{connect,listen,read,write}, maxInflight (run|http|network: calls at once, rest wait in arrival order; 0021 L2), each (run|serve|http|network: answer is an array, one forward per item; 0022 S2)   (SPEC 2.4)
   settings      .env beside the declaring file (neuron file, or network file for inline) fills `env` names; wins over the engine's environment; never reported (0022 S6; settings.rs)
   input         {at, source, payload, replaces?, budget?}; `replaces` is the staleness key and rides the signal
   signal        payload + trace id + cause; link from->to carries answers; `to`-less reply routes by links
   trace         one root signal and everything it causes; ends with `finished`
   events        signal, answer, quiet, error, unknown, drop{reason,phase}, note{what: reserve|commit|cancel|term|kill|restart|junk|inject}, finished
   outcome/call  exactly one: answer | quiet | error(code: exit|timeout|junk|output|http|inner|budget|start|neuron) | unknown (effect call that started, outcome not knowable)
-  staleness     newer signal on same `replaces` key cuts older work: Held/Queued -> drop phase `waiting`; Running -> cancel (effect: marked, never cut)
+  staleness     newer signal on same `replaces` key cuts older work: Held/Queued -> drop phase `waiting`; Running -> cancel (effect: marked, never cut; a composed effect call: cut until an effect inside has started, marked after)
   budget        pool per trace; check -> reserve at call START -> commit when program over
-  queued        (level 1, and --at-once): not started => no reserve, timeout not counting, never unknown, keeps trace open
+  queued        (level 1 slot, maxInflight place, --at-once): not started => no reserve, timeout not counting, never unknown, keeps trace open
+  maxInflight   place held from start until the call's record is done; given back at END OF STEP, then oldest waiting call whose neuron has room starts, one at a time (SPEC 6.2 rule 9)
+  each          one `answer` event (whole array) -> one forward per item, array order, same cause/trace/hops/to/key; ONE emission for staleness (items never cut each other; a later answer on the key cuts all); non-array => error/unknown code `output`; [] forwards nothing; no join
   cut sequence  cancel note -> SIGTERM group (`term`) -> 2000 ms grace -> SIGKILL (`kill`) -> commit -> done
 
-THREE ENGINES (same fixtures; conformance = scripted host, virtual time)
-  TypeScript  src/ (engine/, network.ts, neuron.ts, signal.ts, adapters/) + test/   reference
-  Python      py/
-  Rust        rust-engine/   the product engine: real processes, peers, desk, confine, mcp
-  gate        `npm run check` (needs Rust); rust: cargo test / fmt / clippy; fixtures by area in spec/fixtures/<area>/
+ONE ENGINE (conformance = scripted host, virtual time)
+  Rust        rust-engine/   the engine and the reference: real processes, peers, desk, confine, mcp
+  history     a TypeScript library, a TypeScript reference engine and a Python engine passed the same fixtures until decision 0023 deleted them
+  gate        `npm run check` = cargo fmt --check, clippy -D warnings, cargo test --release, then conform spec/fixtures and spec/probes; fixtures by area in spec/fixtures/<area>/
 
 RUST ENGINE  rust-engine/src
   engine.rs 5.5k  the Engine: nodes, works, sigs, heap of wake-ups, all rules
@@ -57,22 +59,25 @@ RUST ENGINE  rust-engine/src
     pools{}   budget per trace   groups{} threshold/within holds   traces[] roots to report `finished`
     low       index below which works are forgotten (tidy/all_done/forget/forget_later)
     at_once, cap_live, cap_queue   engine cap (0021 L1)
+    places{}, waiting              a neuron's own limit (0021 L2): node -> works holding a place; one arrival-ordered queue for every neuron
     hosting, hosted_out, inner_why, caller   hosted-file mode
   LOOP (real host)
     Engine::drive(&mut dyn Door) -> timed_out      Door{take, deadline, ends_when_over}
       RunDoor     a run (file inputs or live stdin)
       HostedDoor  hosted file: takes HostedReq::{Call(HostedCall), Inject(Box<Input>)} from mpsc, backstop
     real_step: tidy -> wait min(next wake, deadline) on host queue
-               -> host_step(Ev) | fire(Wake) -> cap_drain -> wake_composed_calls
+               -> host_step(Ev) | fire(Wake) -> place_drain -> cap_drain -> wake_composed_calls
     Ev (host.rs):   L0Done L1Line L1Down ServeStartFailed HttpDone Desk Inject InputsClosed Nudge
     Wake (engine):  Inject ObserverInject CallEnd CallTimeout Within L1Reply CancelReply EndAt StartDeadline ReadyAt L0Grace ServeGrace RestartDue PingTick PongArrive PongDeadline SlotDeadline
     rule: nothing in the engine blocks on a process; everything reports into the one queue
-    scripted (conformance) host has its own small loop in run(); no real time, no at_once
+    scripted (conformance) host has its own small loop in run(): fire -> wake_composed_calls -> place_drain; no real time, no at_once
   CALL PATH
-    signal arrives -> make_call -> start_new_call -> by kind:
+    signal arrives -> make_call -> start_new_call [maxInflight gate: Queued in `waiting`] -> start_placed -> by kind:
       Run       start_l0: [cap gate] check_cost -> reserve -> host.l0_begin | peers.start -> arm CallTimeout
       Serve     free slot ? signal_line : Queued in serves[node].queue (drain_serve on slot free)
       Human     desk      Http  thread -> HttpDone      Composed  start_composed (inner instance or remote graph)
+    both limits on one call: the neuron's place first (kept while it waits), then the cap gate in start_l0; a placed neuron's maxInflight is held by the driver
+    each: call_replied turns a non-array Answer into Fail `output`; forward_answer loops forward_one per item (a ground draw per item); `fanning` keeps the trace from `finished` between items; StaleEnt.emission (= cause, else own id) is what new_signal and stale_and_cut compare
     end: host_l0_done -> l0_finished -> call_replied(Outcome) | fail_call ; cut: cut_work -> terminate_l0 -> L0Grace -> fire_l0_grace
   COMPOSED / HOSTED
     composed call: inner trace root = works[cw].inner_root; first reply at exit answers the call (composed_exit_replied) then composed_cancel_inner; quiet inside -> quiet; inner failure -> error `inner` (cause sealed)

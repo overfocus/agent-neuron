@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "`args` adds to the command of a neuron named by its own file (2.10): on a neuron written inline, whose command is already the network's to write, it is an unknown field, refused by check, so the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

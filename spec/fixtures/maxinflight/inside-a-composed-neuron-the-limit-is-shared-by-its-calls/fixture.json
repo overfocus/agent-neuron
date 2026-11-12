@@ -1,0 +1,18 @@
+{
+  "fixture": 0,
+  "description": "A neuron inside a composed neuron holds its `maxInflight` across every call of the instance, as an inner level 1 neuron's slots are shared (2.6): the second call's inner call waits behind the first's.",
+  "inputs": [
+    {"at":0,"source":"s","payload":"one"},
+    {"at":0,"source":"s","payload":"two"}
+  ],
+  "script": {
+    "c/e": {"calls":[{"when":"one","after":30,"reply":{"answer":"E1"}},{"when":"two","after":10,"reply":{"answer":"E2"}}]},
+    "c/x": {"calls":[{"when":"E1","after":0,"reply":{"answer":"X1"}},{"when":"E2","after":0,"reply":{"answer":"X2"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["c"],"trace":"#1","hops":0,"payload":{"type":"text","text":"one"}},
+    {"type":"signal","t":0,"id":"#2","from":"s","to":["c"],"trace":"#2","hops":0,"payload":{"type":"text","text":"two"}},
+    {"type":"answer","t":30,"id":"#3","from":"c","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"X1"}},
+    {"type":"answer","t":40,"id":"#4","from":"c","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"X2"}}
+  ]
+}

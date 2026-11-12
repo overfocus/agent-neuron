@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "`maxInflight` is an integer of at least 1 (2.4): 1.5 is refused by check and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

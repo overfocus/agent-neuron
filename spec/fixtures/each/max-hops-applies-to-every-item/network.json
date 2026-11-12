@@ -1,0 +1,35 @@
+{
+  "version": 0,
+  "name": "max-hops-applies-to-every-item",
+  "description": "Each item is a forward with the hops of any forward (4.4), so a `maxHops` below them refuses every item (5.3): each is reported as a signal and dropped with reason hops, in turn, and the trace is finished only after the last.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "each": true
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "maxHops": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

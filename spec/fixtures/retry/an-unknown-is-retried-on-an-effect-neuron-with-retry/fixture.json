@@ -1,0 +1,19 @@
+{
+  "fixture": 0,
+  "description": "On an effect neuron retry covers unknown: the crash at 10 is reported as the unknown it is, a retry note follows, and the second attempt's answer at 40 is the call's. Without retry the same crash is the call's outcome (effect/a-crashed-effect-call-is-unknown-and-commits-its-cost).",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "work": {"calls":[{"after":10,"reply":{"crash":true}},{"after":10,"reply":{"answer":"sent"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["work"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"unknown","t":10,"id":"#1","from":"s","to":["work"],"trace":"#1","hops":0,"neuron":"work","message":"signal SIGKILL:","code":"exit","payload":{"type":"json","data":1}},
+    {"type":"note","t":10,"neuron":"work","what":"retry","trigger":"#1","attempt":2,"wait":20},
+    {"type":"answer","t":40,"id":"#2","from":"work","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"sent"}},
+    {"type":"finished","t":40,"trace":"#1","status":"done"}
+  ]
+}

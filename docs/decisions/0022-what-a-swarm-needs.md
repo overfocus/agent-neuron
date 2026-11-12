@@ -1,6 +1,6 @@
 # Decision record 0022: what a swarm needs (2026-11-12)
 
-**Status: decided 2026-11-12, every recommendation accepted. Built: S1 (`--result`), S6 (a neuron's own settings). Not built: S2 to S5.**
+**Status: decided 2026-11-12, every recommendation accepted. Built: S1 (`--result`), S2 (`each`), S3 (effects in a composed file), S4 (`args`), S5 (`retry`), S6 (a neuron's own settings): every step. Not done: the template job as one file.** A real job was put
 to the engine: give each of 21 business types a private template repository, one neuron doing one
 type and another handing out the list. It ran (the branch `feat/template-swarm`, kept unmerged), and
 it showed six things missing between the contract and a swarm. One of them, a limit on calls at
@@ -245,6 +245,40 @@ Three things the build settled.
    for one hears every event whether or not `--stream` was given. The engine itself is unchanged
    but for handing out the whole answers with their neurons.
 
+## S4 as built (2026-11-12)
+
+`args` on an entry that names a neuron's file, in the three loaders (`readNetwork` and `check` in
+`src/engine/check.ts`, `_resolve` in `py/agent_neuron/check.py`, `neuron_of_file` in
+`rust-engine/src/net.rs`): the entry is folded into the inline neuron with the longer command, and no
+engine proper changed. The contract commit: `spec/network.schema.json` (the `neuron` entry gains
+`args`, nothing else does), SPEC 2.2, 2.7, 2.8, 2.10 and Appendix B, and five fixtures in
+`spec/fixtures/neuronfile/`.
+
+| Check | Result |
+|---|---|
+| `args-are-appended-to-the-neurons-command`: a `run` file and a `serve` file, each entry with `args` | the events of the worked fixture (8.4), in all three engines |
+| `refuses-args-on-an-inline-neuron` | refused: an unknown field |
+| `refuses-args-on-an-http-neuron-file`, `refuses-args-on-a-human-neuron-file` | refused: the file has no command |
+| `refuses-args-that-are-not-literals` (`${NAME}`) | refused |
+| Real processes, `rust-engine/tests/args.rs`: a `run` and a `serve` program that answer with their arguments | `["own","--apply","two words","--apply"]`, and the run's output is that of the inline neuron |
+
+Four things the build settled.
+
+1. **A fixture cannot see an argument.** The scripted programs are keyed by instance path and nothing
+   runs a command (CONFORMANCE 2, 5), and the trace header carries no command (7.1). So the fixture
+   pins what it can, that the network is accepted and the run reports what the inline neuron's does,
+   and the proof that the arguments arrive is outside the fixtures: the real-process tests of the Rust
+   engine, and a unit test of each of the other two loaders (`test/spec.test.ts`,
+   `py/tests/test_args.py`) that the neuron handed to the engine is the inline one.
+2. **A string of `args` is what a string of a command is**: a literal, with no further limit. An empty
+   string and a repeated one stand, and the array is not a set.
+3. **On an inline neuron `args` is an unknown field**, of every kind, a source and a composed neuron
+   included: the schema's own refusal, with no rule added. A neuron file that holds `args` is refused
+   the same way, by its own closed schema.
+4. **The appended arguments come after everything the file wrote**, with nothing put between them:
+   a file whose command ends in an option that takes a value gives that value to the first of `args`.
+   That is the file author's to know; no engine looks inside a command.
+
 ## S6 as built (2026-11-12)
 
 SPEC 2.4 (normative), section 0, 2.7 and Appendix C; the Rust engine (`src/settings.rs`, the loader's
@@ -274,3 +308,191 @@ Three things the build settled.
    placed program is as before, and a file hosted by `peer --network` reads the settings beside it.
    **Open, for the wire's own SPEC text.** Not tested here: the hosted file's case goes through the
    same planting code as a run, and has no test of its own.
+
+## S2 as built (2026-11-12)
+
+The contract and the Rust engine, on `feat/s2-each` (on top of `feat/l2-max-inflight`): `each` in both
+schemas (`run`, `serve`, `http` and `network` neurons; `run`, `serve` and `http` neuron files), SPEC
+2.4, 2.7, 2.8, 2.10, 3.1, 3.2, 4.4, 4.5, 5.4, 6.1, 6.2 rule 3, 11.2 and Appendix B, C and E,
+CONFORMANCE 4.1, and 26 fixtures in `spec/fixtures/each/`, their expected events written by hand from
+the text. The Rust engine passes all 298 fixtures, the 272 that were there untouched. **The TypeScript
+and Python engines were not changed** (they were removed the same day, [decision 0023](0023-one-engine.md)): they accept the option in `check` and
+do not act on it.
+
+The gate, by fixture:
+
+| Check | Fixture (`each/`) |
+|---|---|
+| an array of three: order, one trace, three calls downstream | `an-array-of-three-is-three-forwards`, `items-take-a-place-in-the-arrays-order` |
+| an empty array; quiet | `an-empty-array-forwards-nothing`, `a-quiet-reply-is-quiet` |
+| a non-array is `output` | `an-answer-that-is-not-an-array-is-an-output-error`, `a-non-array-from-an-effect-neuron-is-unknown` |
+| a later answer on the key replaces every item | `a-later-answer-on-the-key-replaces-every-item`, `a-later-answer-drops-the-items-still-waiting` |
+| a level 1 reply that names `to`; its `replaces`; `to: []` | `a-level-1-reply-that-names-to-sends-every-item-there`, `a-level-1-reply-sets-the-key-of-every-item`, `a-level-1-reply-with-an-empty-to-forwards-no-item` |
+| a composed neuron with `each` | `a-composed-neuron-with-each`, `a-composed-neuron-with-each-whose-answer-is-not-an-array`, `each-inside-a-composed-neuron-and-the-first-exit-reply` |
+| the pool running out mid-list | `the-pool-runs-out-in-the-middle-of-the-list` |
+| a threshold counts senders | `items-from-one-sender-regroup-at-a-threshold` |
+| `maxHops` on the items | `max-hops-applies-to-every-item` |
+| the ground's draw | `with-select-every-item-draws-its-own-link` |
+| an effect neuron with `each` | `a-stale-effect-answer-forwards-none-of-its-items` |
+| no outgoing links | `with-no-outgoing-links-the-answer-is-the-array` |
+| the neuron's own file | `each-in-the-neurons-own-file` |
+| each refusal | the five `refuses-*`: on `human`, on a source, a value that is not `true`, on an entry that names a neuron's file, in a `human` neuron's file |
+
+Real processes: two tests in `rust-engine/tests/real.rs`, one in `tests/http.rs` (an `http` neuron,
+which no fixture reaches) and one in `tests/check.rs` (each refusal fires on its own rule).
+
+What the build settled that point 1 left loose. Each follows what a single forward does today.
+**All are for the maintainer to confirm.**
+
+1. **`each` is the neuron's own** (0019): written in the neuron's file, never on the entry that names
+   it, in the row of `effect`. It must match what the program prints, and that holds wherever the
+   program runs. The other reading has a case too (one list-printing program, used whole in one
+   network and fanned out in another); it would make `each` the network's, on the entry.
+2. **The ground: one draw per item**, in the array's order, and none for an empty array. Each item is a
+   forward of a reply that names no `to`. An `each` answer never deposits: its payload is an array.
+3. **An empty array makes nothing stale.** Staleness comes from emitting a signal, and none is
+   emitted, as for a level 1 reply with `to: []`. So `[]` on a key does not withdraw the items of an
+   earlier answer on that key.
+4. **The failure's message starts `not an array`**, and the check is on every kind's answer at the
+   point where it would be reported: no `answer` event is written. On an effect neuron it is
+   `unknown` (the call started), also when the call was stale. On the `exit` of a composed neuron it is
+   an inner failure, so the composed call ends as 2.6 step 3 says.
+5. **A level 1 reply's `to` and `replaces` hold for every item.**
+6. **Event order**: the answer, then each item's signal with its drops and delivery effects before the
+   next item's (6.2 rules 2 and 3). The older work of the key is dropped after the first item's signal.
+   A trace is not `finished` between items.
+7. **A threshold neuron may itself have `each`**; its one call's answer fans out. Not pinned by a
+   fixture.
+8. **Inside a composed neuron** an `each` neuron fans out inside, and the first reply of `exit` is
+   still the reply: the calls of the other items are cancelled. That is 2.6 unchanged, and it is the
+   place a join will be missed first.
+
+Not done: the TypeScript and Python engines and the mutants in `test/conformance.test.ts`; a demo and
+its row in DEMOS.md; the trace header does not list `each` among a neuron's `options`; the MCP
+server's description of a network does not show it; `each` on a neuron placed on a peer or in a
+hosted file is untested (the answer comes back through the same `call_replied`).
+
+## S3 as built (2026-11-12)
+
+The contract and the Rust engine, on `feat/s3-composed-effects`: `effect` on a `network` neuron in
+`spec/network.schema.json`, SPEC 2.4, 2.6 (steps 2, 3, 4 and 7), 2.7, 5.4, 6.1, section 8, 11.1, 11.5
+(rewritten), 11.6 and Appendix B and E, and 16 fixtures in `spec/fixtures/effect/`, their expected
+events written by hand from the text before the engine ran them. One of the 16 is the refusal that was
+there, renamed: it still refuses, now because the entry leaves `effect` out. The engine passes all 318.
+
+The gate, by fixture:
+
+| Check | Fixture (`effect/`) |
+|---|---|
+| the fold, both refusals | `refuses-a-composed-neuron-that-does-not-state-the-effect-inside`, `refuses-effect-on-a-composed-neuron-whose-file-has-none`, `refuses-a-composed-neuron-over-an-unstated-effect-two-levels-in` |
+| accepted, and an undisturbed call | `a-composed-neuron-with-an-effect-inside-answers-and-forwards` |
+| a call not cut after its inner effect started | `a-composed-call-is-not-cut-once-an-effect-inside-has-started`, `a-stale-composed-effect-call-lets-its-whole-inside-run`, `an-effect-two-levels-down-is-stated-at-each-level` |
+| cut before it | `a-composed-effect-call-is-cut-while-no-effect-inside-has-started`, `an-effect-inside-waiting-for-a-place-has-not-started` |
+| an inner `unknown` surfacing | `an-inner-unknown-is-the-composed-neurons-unknown` (with its `reserve` and `commit`), `an-inner-error-after-an-effect-started-is-unknown`, `an-inner-error-before-any-effect-started-is-an-error` |
+| a timeout before and after the inner start | `a-timeout-with-no-effect-started-is-an-error`, `a-timeout-after-an-effect-started-is-unknown-and-cancels-it` |
+| `exit` replying while an inner effect still runs | `exit-replies-while-an-effect-inside-still-runs`, `exit-reply-cancels-an-effect-inside-that-has-not-started` |
+
+Eight engines broken on purpose (the trace not held open, a timeout that does not reach a started
+effect, a call always or never counted as started, a failure always `unknown`, no word to the composed
+call around, `exit`'s reply cancelling a started effect, a waiting call counted as started) each fail
+at least one of them. Real processes: three tests in `rust-engine/tests/real.rs`, and three in
+`tests/check.rs` for the refusals.
+
+What the build settled that point 2 left loose. **All are for the maintainer to confirm.**
+
+1. **When an effect inside "has started"**: when a call of an effect neuron of the file starts for the
+   call, by 10.3's start. A call waiting for a slot or a place has started nothing, so the composed
+   call around it is still cut. A composed effect neuron inside passes it up: started two levels down
+   is started at every level.
+2. **Every failure after that is `unknown`, not only an inner `unknown`.** Point 2 said an inner
+   `unknown` is the composed neuron's. An inner *error* after an effect had started (the effect
+   answered, then another inner neuron failed and `exit` never replied) is `unknown` too: sealing
+   keeps the outside from telling which neuron failed, and an `error` on an effect neuron reads as
+   "nothing happened". It is the same test the timeout uses. The other reading keeps it an error.
+3. **A stale composed effect call lets its whole inside run**, the work that is not an effect included
+   ("the inside runs to its end"), and its answer is recorded with `forwarded: false`.
+4. **The timeout cancels the started effect calls inside**, as their own timeout would (11.3).
+5. **After `exit` has replied, a started effect call inside is marked stale**: it runs to its end,
+   nothing it answers is forwarded inside, and no new inner work starts for a call that is over. The
+   composed call's `commit`, and its place under `maxInflight`, are given at the reply, not when the
+   effect ends.
+6. **What that effect does after the reply is lost to the outside**, its failure included: the call's
+   one outcome is already reported. The SPEC says so and says where to put an effect whose failure
+   must be seen (on the way to `exit`, or in the outer file). Appendix B lists the report as later.
+7. **The message of the `unknown` is the error's**, `no answer: an inner neuron failed`.
+8. **`effect` on the entry is required exactly when the file has one**: stating it over a file with
+   none is refused too, as point 2 said. A composed neuron inside counts by its own `effect`.
+9. **A composed effect neuron placed on a peer counts as started at dispatch** (the Rust engine, not
+   the SPEC): the driver cannot see what the peer's file has started.
+
+Found on the way and fixed: an inner neuron that is not `exit` and has no outgoing links had its answer
+printed among the run's answers (2.6's sealing; the trace was always sealed). No fixture sees printed
+answers; the real-process test of `exit` replying first pins it.
+
+Not done: a demo and its row in DEMOS.md (the template job is to be it); a fixture that pins where
+`finished` stands against the `cancel` note of a cut or timed-out composed call (no fixture pinned it
+before either); an inner effect that is a `serve`, `http` or `human` neuron, a composed effect neuron
+on a peer and a hosted file are untested.
+
+## S5 as built (2026-11-12)
+
+The contract and the Rust engine, on `feat/s5-retry`: `retry` in both schemas (`run`, `serve`, `http`
+and `network` neurons; `run`, `serve` and `http` neuron files; `{ "times" }` alone on the entry that
+names a neuron's file), SPEC 2.4, 2.7, 2.8, 2.10, 5.4, 6.1, 6.2 (rule 10), 6.3, 7.2, section 8, 10.3,
+11.3, 11.4 and Appendix B and E, CONFORMANCE 5.1, TRACE.md, and 26 fixtures in `spec/fixtures/retry/`,
+their expected events written by hand from the text before the engine ran them. The engine passes all
+344.
+
+The gate, by fixture:
+
+| Check | Fixture (`retry/`) |
+|---|---|
+| an error retried to an answer; `wait` in virtual time | `an-error-is-retried-to-an-answer` (a wait of 100), `a-level-1-error-reply-is-retried`, `a-timeout-is-retried-and-each-attempt-has-its-own-timeout` |
+| retries used up | `when-the-attempts-are-used-up-the-last-failure-is-the-calls` |
+| the cost of each attempt | `each-attempt-reserves-and-commits-its-cost`, `an-attempt-the-pool-cannot-cover-is-refused-and-ends-the-call` |
+| a stale call not retried | `a-waiting-attempt-is-dropped-when-it-goes-stale`, `a-stale-effect-call-that-fails-is-not-retried` |
+| a `budget` refusal not retried | `a-budget-refusal-is-not-retried` |
+| `unknown` retried on an effect with `retry`, and not without | `an-unknown-is-retried-on-an-effect-neuron-with-retry`; without is `effect/a-crashed-effect-call-is-unknown-and-commits-its-cost`, as before |
+| when the attempt starts | `with-no-wait-the-attempt-follows-the-work-already-due`, `an-attempt-waits-for-a-place-behind-the-calls-already-waiting` |
+| a composed neuron | `a-composed-call-is-retried-as-a-new-call`, `a-retried-attempt-inside-a-composed-neuron-is-no-inner-failure` |
+| narrowing from a neuron's file | `retry-in-the-neurons-own-file`, `an-entry-may-lower-the-times-of-its-neurons-retry` |
+| each refusal | the ten `refuses-*`: on `human`, on a source, zero times, no times, an unknown member, not an object, times wider than the file's, on an entry whose file has none, a `wait` on the entry, in a `human` neuron's file |
+
+Nine engines broken on purpose (one attempt too many, one too few, a `budget` refusal retried, a stale
+effect call retried, the wait ignored, a retried attempt counted as an inner failure, the attempt
+started at once instead of as a wake-up, a waiting attempt that staleness cannot find, `unknown` not
+retried) each fail at least one. The sixth passed every fixture at first: the fixture let `exit` reply,
+which hides it, and was rewritten so that `exit` is never reached. Real processes: two tests in
+`rust-engine/tests/real.rs`, and one in `tests/check.rs` for the refusals.
+
+What the build settled that point 5 left loose. **All are for the maintainer to confirm.**
+
+1. **What is retried**: a failure with any code except `budget` and `start`. Point 5 named `budget`;
+   `start` is a `serve` neuron that failed to start five times and stays failed for the run. A level 1
+   `error` reply (`neuron`) is retried, and so is a program that cannot be started (`exit 127`).
+2. **The note**: `{"type":"note","what":"retry","neuron","trigger","attempt","wait"}`, right after the
+   failed attempt's event and before the `cancel`, `term` and `kill` notes of a timeout. `trigger` is the
+   id of that event, `attempt` the number of the attempt to come.
+3. **A reader that counts failed calls** counts the failures no `retry` note follows (6.1). `--result`
+   does: a retried failure is in `failures` with `"retried": true` and in `totals.retried`, and does
+   not make `ok` false or the run exit 3. Without this a run whose retry worked would exit 3.
+4. **The wait is a wake-up** scheduled when the failure is reported (6.2 rule 10). With a `wait` of 0 the
+   attempt starts at the same instant, after the work already due then.
+5. **The attempt starts as a new call does**: behind the calls already waiting for a place under
+   `maxInflight`. It does not keep the place of the attempt that failed.
+6. **A call that went stale** is, in practice, an effect call that was marked stale and then failed: any
+   other stale call was cut and reported no failure. Between attempts the call is dropped, phase
+   `waiting`.
+7. **`maxHops`** needs no rule: a refused hop is a drop, and there is no call to retry.
+8. **Inside a composed neuron** only a last attempt's failure is an inner failure (2.6 step 3). On a
+   `network` neuron `retry` starts the whole composed call again, a new call of the same instance.
+9. **On the entry that names a neuron's file**: `{ "times": n }` only, `n` at most the file's. The entry
+   never states `wait`, and may not add `retry` to a file that has none (that would raise it from
+   nothing, and on an effect neuron it is the author's word about the program).
+10. **`wait`** is at most 3600000, as a `timeout` is. `times` has no upper limit.
+11. **A threshold call** is retried with the same inputs. No fixture pins it: a fixture cannot see an
+    input, only that a call happened.
+
+Not done: a demo and its row in DEMOS.md (the template job is to be it); `retry` on an `http` neuron,
+on a neuron placed on a peer and in a hosted file are untested; the trace header's `options` and MCP
+`describe_network` do not carry `retry` (nor `maxInflight` or `each`, as before).

@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "inside-a-composed-neuron-the-limit-is-shared-by-its-calls",
+  "description": "A neuron inside a composed neuron holds its `maxInflight` across every call of the instance, as an inner level 1 neuron's slots are shared (2.6): the second call's inner call waits behind the first's.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "c",
+      "network": "inner.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "c"
+    }
+  ]
+}

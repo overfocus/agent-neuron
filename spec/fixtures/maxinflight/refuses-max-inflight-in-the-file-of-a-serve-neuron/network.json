@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "refuses-max-inflight-in-the-file-of-a-serve-neuron",
+  "description": "`maxInflight` is not the own option of a `serve` neuron (2.4, 2.10): its file may not state it, so check refuses and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

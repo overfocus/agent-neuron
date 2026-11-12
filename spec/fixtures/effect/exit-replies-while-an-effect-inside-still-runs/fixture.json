@@ -1,0 +1,22 @@
+{
+  "fixture": 0,
+  "description": "exit replies at 15 while the effect neuron inside, started at 5, runs until 105. The reply is the composed neuron's and is forwarded at once; the started effect call is not cancelled, and the trace is finished only when it has ended.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "box/e": {"calls":[{"after":5,"reply":{"answer":1}}]},
+    "box/x": {"calls":[{"after":10,"reply":{"answer":"done"}}]},
+    "box/notify": {"calls":[{"after":100,"reply":{"answer":"sent"}}]},
+    "after": {"calls":[{"after":1,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":15,"id":"#2","from":"box","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"done"}},
+    {"type":"signal","t":15,"id":"#3","from":"box","to":["after"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"done"}},
+    {"type":"quiet","t":16,"id":"#4","from":"after","to":["box"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"finished","t":105,"trace":"#1","status":"done"}
+  ]
+}

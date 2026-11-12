@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "`args` adds to a command (2.10): an entry that sets it and names the file of a `human` neuron, which has no command, is refused by check, so the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

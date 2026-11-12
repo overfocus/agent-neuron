@@ -1,0 +1,28 @@
+{
+  "fixture": 0,
+  "description": "The items of one answer are one emission (5.4): the three keyed forwards of the first answer all run at b, none making another stale. The later answer of a on the same key makes every one of them stale at its first forward (three drops, in the order the work was created), and its own two items replace them together: both run and answer.",
+  "inputs": [
+    {"at":0,"source":"s","payload":"old","replaces":"k"},
+    {"at":50,"source":"s","payload":"new","replaces":"k"}
+  ],
+  "script": {
+    "a": {"calls":[{"when":"old","after":10,"reply":{"answer":[1,2,3]}},{"when":"new","after":10,"reply":{"answer":[4,5]}}]},
+    "b": {"calls":[{"when":1,"after":100,"reply":{"answer":"never"}},{"when":2,"after":100,"reply":{"answer":"never"}},{"when":3,"after":100,"reply":{"answer":"never"}},{"when":4,"after":10,"reply":{"answer":"b4"}},{"when":5,"after":10,"reply":{"answer":"b5"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"text","text":"old"}},
+    {"type":"answer","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":[1,2,3]}},
+    {"type":"signal","t":10,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"replaces":"k","payload":{"type":"json","data":1}},
+    {"type":"signal","t":10,"id":"#4","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"replaces":"k","payload":{"type":"json","data":2}},
+    {"type":"signal","t":10,"id":"#5","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"replaces":"k","payload":{"type":"json","data":3}},
+    {"type":"signal","t":50,"id":"#6","from":"s","to":["a"],"trace":"#6","hops":0,"replaces":"k","payload":{"type":"text","text":"new"}},
+    {"type":"answer","t":60,"id":"#7","from":"a","to":["s"],"trace":"#6","replyTo":"#6","hops":1,"payload":{"type":"json","data":[4,5]}},
+    {"type":"signal","t":60,"id":"#8","from":"a","to":["b"],"trace":"#6","cause":"#7","hops":2,"replaces":"k","payload":{"type":"json","data":4}},
+    {"type":"drop","t":60,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"neuron":"b","reason":"replaced","phase":"running","payload":{"type":"json","data":1}},
+    {"type":"drop","t":60,"id":"#4","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"neuron":"b","reason":"replaced","phase":"running","payload":{"type":"json","data":2}},
+    {"type":"drop","t":60,"id":"#5","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"neuron":"b","reason":"replaced","phase":"running","payload":{"type":"json","data":3}},
+    {"type":"signal","t":60,"id":"#9","from":"a","to":["b"],"trace":"#6","cause":"#7","hops":2,"replaces":"k","payload":{"type":"json","data":5}},
+    {"type":"answer","t":70,"id":"#10","from":"b","to":["a"],"trace":"#6","replyTo":"#8","hops":3,"payload":{"type":"text","text":"b4"}},
+    {"type":"answer","t":70,"id":"#11","from":"b","to":["a"],"trace":"#6","replyTo":"#9","hops":3,"payload":{"type":"text","text":"b5"}}
+  ]
+}
