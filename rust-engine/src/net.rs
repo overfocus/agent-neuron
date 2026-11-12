@@ -46,6 +46,9 @@ pub struct Opts {
     /// What the program is allowed to touch (SPEC 2.4, decision 0016).
     /// Checked, not yet enforced: nothing that runs a program reads it.
     pub may: Option<May>,
+    /// The most calls of the neuron at once (SPEC 2.4, decision 0021): on a
+    /// `run`, `http` or `network` neuron; `None` is no limit.
+    pub max_inflight: Option<u64>,
 }
 
 /// A `may` (SPEC 2.4): four lists, each as the file wrote it. A member the
@@ -902,7 +905,7 @@ fn link(lv: &Value, i: usize, scan: &Scan, span: Span, out: &mut Vec<Diag>) -> L
 /// What is the neuron's sits in its file (the kind, `cwd`, `effect`, and
 /// `may`, `env`, `timeout`); what is the network's sits on the entry (`id`,
 /// `at`, `threshold`, `within`, `maxHops`, `cost`). The entry may restate
-/// `timeout`, `env` and `may` only to narrow them.
+/// `timeout`, `env`, `may` and `maxInflight` only to narrow them.
 fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out: &mut Vec<Diag>) -> Option<Value> {
     let before = out.len();
     let id = nv.get("id").and_then(|v| v.as_str()).unwrap_or("");
@@ -912,7 +915,17 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
             push(span, scan, k, &format!("{}: a neuron has exactly one kind field", what), out);
         } else if !matches!(
             k,
-            "id" | "description" | "at" | "neuron" | "threshold" | "within" | "maxHops" | "cost" | "timeout" | "env" | "may"
+            "id" | "description"
+                | "at"
+                | "neuron"
+                | "threshold"
+                | "within"
+                | "maxHops"
+                | "cost"
+                | "timeout"
+                | "env"
+                | "may"
+                | "maxInflight"
         ) {
             push(
                 span,
@@ -967,10 +980,14 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
         return None;
     }
     let program = matches!(kinds[0], "run" | "serve");
+    // `maxInflight` (2.4): a serve program says its own in `ready`, and a
+    // person's queue is the desk's.
+    let limited = matches!(kinds[0], "run" | "http");
     for k in of.keys() {
         let own = matches!(k, "$schema" | "version" | "description" | "timeout" | "effect")
             || k == kinds[0]
-            || (program && matches!(k, "env" | "cwd" | "may"));
+            || (program && matches!(k, "env" | "cwd" | "may"))
+            || (limited && k == "maxInflight");
         if !own {
             push(
                 span,
@@ -995,6 +1012,34 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
     if let Some(t) = nv.get("timeout").and_then(|v| v.as_u64()) {
         if t > limit {
             push(span, scan, "timeout", &wider(format!("timeout {} (over {})", t, limit)), out);
+        }
+    }
+    if nv.has("maxInflight") && !limited {
+        push(
+            span,
+            scan,
+            "maxInflight",
+            &format!(
+                "{}: 'maxInflight' is an option of run, http and network neurons, and '{}' is a {} neuron",
+                what, rel, kinds[0]
+            ),
+            out,
+        );
+    }
+    // A file that states no limit has none, so any limit on the entry
+    // narrows it.
+    if let (Some(mine), Some(theirs)) = (
+        nv.get("maxInflight").and_then(|v| v.as_u64()),
+        of.get("maxInflight").and_then(|v| v.as_u64()),
+    ) {
+        if mine > theirs {
+            push(
+                span,
+                scan,
+                "maxInflight",
+                &wider(format!("maxInflight {} (over {})", mine, theirs)),
+                out,
+            );
         }
     }
     for key in ["env", "may"] {
@@ -1168,6 +1213,7 @@ fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out
             "effect" => !is_network,
             "env" | "cwd" => is_command,
             "may" => is_command || is_network,
+            "maxInflight" => matches!(kind, Kind::Run(_) | Kind::Http(_) | Kind::Network(_)),
             _ => false,
         };
         if !allowed {
@@ -1227,6 +1273,18 @@ fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out
                     out,
                 )
             }
+        }
+    }
+    if let Some(x) = nv.get("maxInflight") {
+        match x.as_u64() {
+            Some(n) if n >= 1 => opts.max_inflight = Some(n),
+            _ => push(
+                span,
+                scan,
+                "maxInflight",
+                &format!("{}: maxInflight is an integer at least 1", what),
+                out,
+            ),
         }
     }
     if let Some(x) = nv.get("env") {

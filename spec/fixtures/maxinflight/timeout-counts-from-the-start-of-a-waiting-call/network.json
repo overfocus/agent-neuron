@@ -1,0 +1,25 @@
+{
+  "version": 0,
+  "name": "timeout-counts-from-the-start-of-a-waiting-call",
+  "description": "`timeout` counts from a call's start (2.4): with `maxInflight` 1 and a timeout of 50 ms, the second call waits 40 ms for its place and times out at 90, not at 50.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "maxInflight": 1,
+      "timeout": 50
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

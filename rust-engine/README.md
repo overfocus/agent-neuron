@@ -100,8 +100,8 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 123: mcp 22, real 29, check 16, desk 17, http 11, peers 26, unit 2
-cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 224, 0, 0
+cargo test                                          # 171: mcp 22, real 29, check 19, confine 22, desk 17, http 12, live 5, peers 43, unit 2
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 272, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
 target/debug/neuron-engine run spec/examples/alerts-python-serve.network.json --inputs spec/examples/alerts.inputs.jsonl
@@ -511,6 +511,23 @@ engine are on the machine at once, across every neuron. Without the flag there i
   is sent, so time spent waiting for a place at a program worker counts against it; and a caller of
   a hosted file is a composed call, whose timeout has always covered everything inside it.
 - A cap that is not an integer of at least 1 is a usage error (exit 2).
+
+## A neuron's own limit — the `maxInflight` option (decision 0021, L2)
+
+`"maxInflight": <n>` on a `run`, `http` or `network` neuron (SPEC 2.4): at most *n* calls of that
+neuron at once, the rest waiting in the order they arrived, on the real host and the scripted one
+alike. Waiting is level 1's queued, as under the cap.
+
+- **`start_new_call` is the gate**: a neuron whose places are taken queues the call in `waiting`
+  (one arrival-ordered list for every neuron); `places` holds the calls that have a place.
+- **`place_drain` runs at the end of every step** (SPEC 6.2 rule 9), before `cap_drain`: it gives
+  back the places of the calls whose records are done and starts the oldest waiting call whose
+  neuron has room, one at a time. On the scripted host it follows `wake_composed_calls`.
+- **Both limits**: a call takes its neuron's place first and keeps it while it waits for the
+  engine's cap. A placed neuron's limit is held here, by the driver; the worker's `--at-once`
+  still counts the process.
+- Covered by `spec/fixtures/maxinflight/` (26, on the scripted host), four tests in
+  `tests/peers.rs` and one in `tests/http.rs` (real processes and a real request).
 
 ## Confinement — `run --confine` (decision 0018, S2a and S2b)
 

@@ -361,6 +361,8 @@ struct INode {
     within: u64,
     max_hops: Option<u64>,
     timeout: u64,
+    /// The most calls of this neuron at once (SPEC 2.4): `None` is no limit.
+    max_inflight: Option<u64>,
     effect: bool,
     cost: Option<Units>,
     out: Vec<usize>,
@@ -648,6 +650,16 @@ pub struct Engine {
     cap_live: u64,
     /// The calls waiting for a place, in the order they arrived.
     cap_queue: std::collections::VecDeque<usize>,
+    /// A neuron's own limit (SPEC 2.4 `maxInflight`, decision 0021): the
+    /// calls that hold a place at each neuron that states one. A place is
+    /// taken when the call passes its neuron's gate and given back at the end
+    /// of the step in which the call's record became `done` (`place_drain`),
+    /// never inside the step.
+    places: BTreeMap<usize, Vec<usize>>,
+    /// The calls waiting for a place at their own neuron, in the order they
+    /// arrived: every neuron's in one list, so the order of starts is one
+    /// order for the whole engine.
+    waiting: std::collections::VecDeque<usize>,
     /// The node a hosted file's callers enter through (`plant_hosted`).
     caller: Option<usize>,
 }
@@ -721,6 +733,8 @@ impl Engine {
             at_once: None,
             cap_live: 0,
             cap_queue: std::collections::VecDeque::new(),
+            places: BTreeMap::new(),
+            waiting: std::collections::VecDeque::new(),
             caller: None,
         }
     }
@@ -1027,6 +1041,7 @@ impl Engine {
             within: 10_000,
             max_hops: None,
             timeout: 30_000,
+            max_inflight: None,
             effect: false,
             cost: None,
             out: Vec::new(),
@@ -1117,6 +1132,7 @@ impl Engine {
                 within: n.opts.within.unwrap_or(10_000),
                 max_hops: n.opts.max_hops,
                 timeout: n.opts.timeout.unwrap_or(30_000),
+                max_inflight: n.opts.max_inflight,
                 effect: n.opts.effect,
                 cost: n.opts.cost.clone(),
                 out: Vec::new(),
@@ -1315,6 +1331,7 @@ impl Engine {
             let Some(w) = self.pop() else { break };
             self.fire(w);
             self.wake_composed_calls();
+            self.place_drain();
         }
         if self.is_real() {
             self.end_run_quietly();
@@ -1390,6 +1407,7 @@ impl Engine {
             (t, d) => t.or(d),
         };
         if self.host_step(cap) {
+            self.place_drain();
             self.cap_drain();
             self.wake_composed_calls();
             return Step::Advanced;
@@ -1411,6 +1429,7 @@ impl Engine {
             // can move things on. The pump waits to the deadline when one is
             // set, and to nothing at all when none is.
             if self.host_step(self.deadline) {
+                self.place_drain();
                 self.cap_drain();
                 self.wake_composed_calls();
                 return Step::Advanced;
@@ -1421,6 +1440,7 @@ impl Engine {
             return Step::Idle;
         };
         self.fire(w);
+        self.place_drain();
         self.cap_drain();
         self.wake_composed_calls();
         Step::Advanced
@@ -2331,6 +2351,7 @@ impl Engine {
                     s.queue.retain(|&w| w != work);
                 }
                 self.cap_queue.retain(|&w| w != work);
+                self.waiting.retain(|&w| w != work);
             }
             WSt::Running => {
                 let node = self.works[work].node;
@@ -2551,9 +2572,60 @@ impl Engine {
 // ---------------------------------------------------------------------------
 
 impl Engine {
+    /// A call may start (SPEC 5.1). A neuron with `maxInflight` (2.4) whose
+    /// places are all taken keeps it waiting: queued with level 1's meaning,
+    /// so no check, no reserve and no timeout until `place_drain` starts it.
+    fn start_new_call(&mut self, work: usize) {
+        let node = self.works[work].node;
+        if let Some(limit) = self.nodes[node].max_inflight {
+            let held = self.places.entry(node).or_default();
+            if held.len() as u64 >= limit {
+                self.works[work].st = WSt::Queued;
+                self.waiting.push_back(work);
+                return;
+            }
+            held.push(work);
+        }
+        self.start_placed(work);
+    }
+
+    /// The end of a step (decision 0021): the places of the calls that ended
+    /// in it are free, and the call that has waited longest among those whose
+    /// neuron has a free place starts, one at a time, until none can. The
+    /// step's own events come first, as under the engine's cap; a call that
+    /// ends as it starts (a budget refusal, say) gives its place to the next.
+    fn place_drain(&mut self) {
+        if self.places.is_empty() {
+            return;
+        }
+        // The step's own last word first (2.6 step 3): the real host's loop
+        // makes this check after its drains, the scripted one before.
+        self.wake_composed_calls();
+        loop {
+            let works = &self.works;
+            for held in self.places.values_mut() {
+                held.retain(|&w| !works[w].done);
+            }
+            let next = self.waiting.iter().position(|&w| {
+                let node = works[w].node;
+                let limit = self.nodes[node].max_inflight.unwrap_or(u64::MAX);
+                (self.places.get(&node).map(|held| held.len()).unwrap_or(0) as u64) < limit
+            });
+            let Some(work) = next.and_then(|ix| self.waiting.remove(ix)) else {
+                break;
+            };
+            let node = self.works[work].node;
+            self.places.entry(node).or_default().push(work);
+            self.works[work].st = WSt::Running;
+            self.start_placed(work);
+            self.finish_check(None);
+            self.wake_composed_calls();
+        }
+    }
+
     /// A call starts (SPEC 5.1): the reserve check comes first, then the
     /// matched entry, the reserve, and the program.
-    fn start_new_call(&mut self, work: usize) {
+    fn start_placed(&mut self, work: usize) {
         let node = self.works[work].node;
         let kind = self.works[work].kind;
         match kind {
@@ -2831,6 +2903,9 @@ impl Engine {
                 continue;
             }
             self.start_l0(work);
+            // A call refused as it starts (its budget) may have been the last
+            // work of its trace (6.2 rule 8).
+            self.finish_check(None);
         }
     }
 

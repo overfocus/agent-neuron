@@ -179,6 +179,16 @@ const mutations: { name: string; edits: [from: string, to: string, count?: numbe
   { name: 'a ground draw over the links in reverse order (4.5)', edits: [['    for (let i = 0; i < node.out.length; i++) if ((acc += weights[i]!) > u * total) return [node.out[i]!];', '    for (let i = node.out.length - 1; i >= 0; i--) if ((acc += weights[i]!) > u * total) return [node.out[i]!];']] },
   { name: 'a ground deposit.by that filters nobody (4.5)', edits: [['if (d.by !== undefined && d.by !== node.id) return;', 'if (false as boolean) return;']] },
   { name: 'a ground event without its cause (4.5)', edits: [["{ type: 'ground', place, v, cause: replyId }", "{ type: 'ground', place, v }"]] },
+  { name: 'a neuron\'s maxInflight ignored (2.4)', edits: [['if (limit === undefined) return go();', 'if (limit === undefined || (true as boolean)) return go();']] },
+  { name: 'a call waiting for a place reserving when it waits (10.3)', edits: [['    call.queued = true;\n    call.stop = () => { // dropped while it waits', '    const early = this.reserve(call);\n    if (early) return done(early);\n    call.queued = true;\n    call.stop = () => { // dropped while it waits']] },
+  { name: 'the timeout of a call waiting for a place counted from its arrival', edits: [['    this.waiting.push({ call, go });', '    arm();\n    this.waiting.push({ call, go });']] },
+  { name: 'the newest waiting call taking a free place', edits: [['const at = this.waiting.findIndex(({ call }) =>', 'const at = this.waiting.findLastIndex(({ call }) =>']] },
+  { name: 'the oldest waiting call holding up another neuron\'s', edits: [
+    ['const at = this.waiting.findIndex(({ call }) => call.crossing.node.places < call.crossing.node.spec.maxInflight!);', 'const at = this.waiting.slice(0, 1).findIndex(({ call }) => call.crossing.node.places < call.crossing.node.spec.maxInflight!);']] },
+  { name: 'a free place taken inside the step that freed it', edits: [['    if (this.ended.length === 1) queueMicrotask(() => this.endOfStep());', '    this.drain();']] },
+  { name: 'a cut call giving up its place before its program is gone', edits: [["    if (!call.queued) this.note(call.crossing, 'cancel');\n", "    if (!call.queued) this.note(call.crossing, 'cancel');\n    if (call.place) { call.place = false; this.vacate(call); }\n"]] },
+  { name: 'a place never given back', edits: [['for (const over of this.ended.splice(0)) over.crossing.node.places--;', 'this.ended.splice(0);']] },
+  { name: 'one limit shared by the calls of every neuron', edits: [['    if (node.places < limit) {\n      node.places++;', '    if (this.waiting.length === 0 && [...call.crossing.scope.inst.nodes.values()].every((n) => n.places === 0)) {\n      node.places++;']] },
 ];
 
 describe('mutation check: every broken engine fails at least one fixture', () => {

@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "one-at-a-time-in-arrival-order",
+  "description": "`maxInflight` 1 on a `run` neuron (2.4): three inputs at once run one at a time, in the order they arrived, whatever each takes; a waiting call keeps its trace unfinished.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "maxInflight": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

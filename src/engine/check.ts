@@ -10,6 +10,7 @@ export type NeuronSpec = {
   source?: true; run?: string[]; serve?: string[]; http?: string; human?: true; network?: string;
   neuron?: string; // a neuron's own file (SPEC 2.10): `readNetwork` replaces the entry with the neuron it describes
   threshold?: number; within?: number; maxHops?: number; timeout?: number; env?: string[]; cwd?: string; cost?: Record<string, number>; effect?: true; may?: MaySpec;
+  maxInflight?: number; // the most calls of the neuron at once (SPEC 2.4, decision 0021): run, http and network neurons
 };
 /** What a neuron's program is allowed to touch (SPEC 2.4, decision 0016). A member that is absent grants nothing. */
 export type MaySpec = { connect?: string[]; listen?: string[]; read?: string[]; write?: string[] };
@@ -146,7 +147,7 @@ const onPath = (cmd: string, cwd: string) =>
   cmd.includes('/') ? existsSync(resolve(cwd, cmd)) : (process.env.PATH ?? '').split(delimiter).some((d) => d && existsSync(join(d, cmd)));
 
 /** A neuron's own file (SPEC 2.10, decision 0019): what is true of the program wherever it runs. */
-type NeuronFile = Pick<NeuronSpec, 'description' | 'run' | 'serve' | 'http' | 'human' | 'timeout' | 'env' | 'cwd' | 'effect' | 'may'> & { version: 0 };
+type NeuronFile = Pick<NeuronSpec, 'description' | 'run' | 'serve' | 'http' | 'human' | 'timeout' | 'env' | 'cwd' | 'effect' | 'may' | 'maxInflight'> & { version: 0 };
 
 /**
  * The neuron an entry with `neuron` stands for: the file's kind and own options, the entry's on top. Relative paths
@@ -219,6 +220,9 @@ export function check(file: string, seen: string[] = [], shown?: string): Findin
     for (const key of ['env', 'may'] as const) if (n[key] !== undefined && !program) return stop(`${at}.${key}`, `"${key}" narrows a program's, and ${n.neuron} is not a run or serve neuron`);
     const limit = of.timeout ?? 30000;
     if (n.timeout !== undefined && n.timeout > limit) return stop(`${at}.timeout`, `timeout ${n.timeout} is wider than the neuron's own (${limit}, ${n.neuron}): the entry that names a neuron may only narrow it (SPEC 2.10)`);
+    // `maxInflight` (SPEC 2.4): an option of run and http neurons' files; a file that states none has no limit, so any limit narrows it
+    if (n.maxInflight !== undefined && of.run === undefined && of.http === undefined) return stop(`${at}.maxInflight`, `"maxInflight" is an option of run, http and network neurons, and ${n.neuron} is not a run or http neuron (SPEC 2.4)`);
+    if (n.maxInflight !== undefined && of.maxInflight !== undefined && n.maxInflight > of.maxInflight) return stop(`${at}.maxInflight`, `maxInflight ${n.maxInflight} is wider than the neuron's own (${of.maxInflight}, ${n.neuron}): the entry that names a neuron may only narrow it (SPEC 2.10)`);
     for (const name of n.env ?? []) if (!(of.env ?? []).includes(name)) return stop(`${at}.env`, `env "${name}" is wider than the neuron's own (${n.neuron}): the entry that names a neuron may only narrow it (SPEC 2.10)`);
     for (const m of MAY) for (const v of n.may?.[m] ?? []) if (!(of.may?.[m] ?? []).includes(v)) return stop(`${at}.may`, `may ${m} "${v}" is wider than the neuron's own (${n.neuron}): the entry that names a neuron may only narrow it (SPEC 2.10)`);
     return resolved(n, of, neuronFile);

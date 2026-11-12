@@ -157,6 +157,17 @@ describe('routing and level 0 processes', () => {
     expect(t.events.at(-1)!.t).toBeLessThan(2900);
   }, 10_000);
 
+  it('runs a neuron with maxInflight 1 one program at a time, in arrival order, and drops a waiting call that goes stale without starting it', async () => {
+    const log = join(mkdtempSync(join(tmpdir(), 'inflight-')), 'log');
+    const one = sh('one', `read n; echo "begin $n" >> ${log}; sleep 0.3; echo "end $n" >> ${log}; echo $n`, { maxInflight: 1, timeout: 700 });
+    const t = await run([one], [['s', 'one']], [inject(0, 1), inject(20, 2, 'k'), inject(40, 3, 'k'), inject(60, 4)]);
+    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual(['begin 1', 'end 1', 'begin 3', 'end 3', 'begin 4', 'end 4']); // never two at once; 2 never started
+    expect(events(t, 'drop').map((e) => [e.reason, e.phase])).toEqual([['replaced', 'waiting']]);
+    expect(t.events.filter((e) => e.type === 'note')).toEqual([]); // nothing running was cut
+    expect(events(t, 'answer').map((e) => (e.payload as { data: number }).data)).toEqual([1, 3, 4]);
+    expect(events(t, 'error')).toEqual([]); // the last call ends more than 700 ms after it arrived: its timeout counts from its start, not from its arrival
+  }, 10_000);
+
   it('turns failures into error events with their code, forwarding nothing', async () => {
     const t = await run(
       [sh('bad', 'echo oops >&2; exit 3'), sh('junk', 'echo not json'), sh('big', 'head -c 2000000 /dev/zero | tr "\\0" x'), sh('hang', 'sleep 5', { timeout: 100 }), { id: 'gone', run: ['no-such-program-here'] }, echo('after')],

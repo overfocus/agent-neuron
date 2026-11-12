@@ -106,6 +106,7 @@ class Node {
   groups = new Map<string, Work[]>(); // threshold: scope and trace -> held works
   inner?: Instance;
   server?: Server; // serve neurons
+  places = 0; // `maxInflight` (SPEC 2.4): the places its calls hold; one is given back at the end of the step in which its call ended
   constructor(readonly spec: NeuronSpec, readonly dir: string, readonly path: string) {
     if (spec.network) this.inner = new Instance(resolve(dir, spec.network), readNetwork(resolve(dir, spec.network)), path);
   }
@@ -137,7 +138,8 @@ class Work {
 /** One run of a program for the works that met the threshold; the last is the one that crossed. */
 class Call {
   cancelled = false;
-  queued = false; // serve: waiting for a slot, not yet written
+  queued = false; // waiting, not started: for a slot of a serve neuron, or for a place under its neuron's `maxInflight`
+  place = false; // it holds one of the places of its neuron's `maxInflight`
   reserved?: Units; t0 = 0; // the cost reserved at the start of the call, and when it started
   finished = false; // the program is over and its reply is being made: no longer cuttable
   stale = false; // an effect call (SPEC 11) one of whose inputs went stale: not cut, its answer is not forwarded
@@ -595,12 +597,33 @@ class Run {
       this.commit(call); // every outcome consumes what it reserved: answer, cut, timeout, crash
       if (!call.cancelled) this.reply(call.crossing, o);
       for (const w of inputs) this.retire(w);
+      if (call.place) this.vacate(call);
     };
     const value = (node.spec.threshold ?? 1) > 1 ? { payload: call.crossing.sig.payload, inputs: inputs.map((w) => w.sig.payload) } : call.crossing.sig.payload;
     if (node.server) {
       node.server.submit({ call, message: (node.spec.threshold ?? 1) > 1 ? (value as object) : { payload: value }, arm, done });
       return;
     }
+    const go = () => this.begin(call, node, value, done, arm);
+    const limit = node.spec.maxInflight;
+    if (limit === undefined) return go();
+    if (node.places < limit) {
+      node.places++;
+      call.place = true;
+      return go();
+    }
+    // Every place of the neuron is taken (SPEC 2.4, 5.1): the call waits and has not started, so it reserves nothing and its timeout does not count.
+    call.queued = true;
+    call.stop = () => { // dropped while it waits (stale, or its composed call ended): it never starts
+      const at = this.waiting.findIndex((x) => x.call === call);
+      if (at >= 0) this.waiting.splice(at, 1);
+      done({ quiet: true });
+    };
+    this.waiting.push({ call, go });
+  }
+
+  /** The call starts (SPEC 5.1): the budget first, then the program, then its timeout. */
+  private begin(call: Call, node: Node, value: unknown, done: (o: Outcome) => void, arm: () => void) {
     const refused = this.reserve(call);
     if (refused) return done(refused);
     // The program's wake-ups are set before the timeout's: a reply due at the very instant of the timeout wins (SPEC 6.2 rule 7).
@@ -608,6 +631,32 @@ class Run {
     else if (node.spec.human) this.person(call, node, value, done);
     else this.program(call, node, value, done);
     if (!call.finished) arm();
+  }
+
+  // ---- a limit on calls at once (SPEC 2.4 `maxInflight`, 5.1; decision 0021) ----
+  private waiting: { call: Call; go: () => void }[] = []; // the calls waiting for a place at their own neuron, in arrival order, every neuron's in one list
+  private ended: Call[] = []; // calls that held a place and are over; their places are free at the end of the step
+  broken?: (e: unknown) => void; // ends the run with an error raised outside a wake-up (the end of a step)
+  /** A call that held a place is over. Its place is given back at the end of the step (a microtask: after everything the step's wake-up caused), not here. */
+  private vacate(call: Call) {
+    this.ended.push(call);
+    if (this.ended.length === 1) queueMicrotask(() => this.endOfStep());
+  }
+  private endOfStep() {
+    try { this.drain(); } catch (e) { this.broken?.(e); } // a failure to start a waiting call is the run's failure, as one inside a wake-up is
+  }
+  /** The end of a step in which a place came free: the oldest waiting call whose neuron has a free place starts, one at a time, until none can. */
+  private drain() {
+    for (;;) {
+      for (const over of this.ended.splice(0)) over.crossing.node.places--;
+      const at = this.waiting.findIndex(({ call }) => call.crossing.node.places < call.crossing.node.spec.maxInflight!);
+      if (at < 0) return;
+      const [{ call, go }] = this.waiting.splice(at, 1) as [{ call: Call; go: () => void }];
+      call.queued = false;
+      call.place = true;
+      call.crossing.node.places++;
+      go();
+    }
   }
 
   // ---- budget (SPEC 10) ----
@@ -950,8 +999,9 @@ export async function runNetwork(file: string, injections: Injection[], options:
   try {
     await drive(run.startServers(options.pingEvery ?? PING_EVERY)); // throws if a serve neuron cannot reach ready
     try {
-      await drive(new Promise<void>((resolveRun) => {
+      await drive(new Promise<void>((resolveRun, rejectRun) => {
         run.over = resolveRun;
+        run.broken = rejectRun;
         void run.injectAll(injections);
       }));
     } finally {

@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "refuses-max-inflight-on-a-source",
+  "description": "A source has no calls to limit: `maxInflight` on one is refused by check and the engine refuses to start (2.4).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true,
+      "maxInflight": 1
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

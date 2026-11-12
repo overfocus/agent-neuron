@@ -1,0 +1,27 @@
+{
+  "fixture": 0,
+  "description": "threshold 2 with `maxInflight` 1: the second trace's inputs cross at 5 and leave their group (no `within` expiry at 15), and their one call waits for the place and starts at 20 with both inputs.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":5,"source":"s","payload":2}
+  ],
+  "script": {
+    "p": {"calls":[{"when":1,"reply":{"answer":"p1"}},{"when":2,"reply":{"answer":"p2"}}]},
+    "q": {"calls":[{"when":1,"reply":{"answer":"q1"}},{"when":2,"reply":{"answer":"q2"}}]},
+    "a": {"calls":[{"when":{"payload":"q1","inputs":["p1","q1"]},"after":20,"reply":{"answer":"a1"}},{"when":{"payload":"q2","inputs":["p2","q2"]},"after":3,"reply":{"answer":"a2"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["p","q"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":0,"id":"#2","from":"p","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"p1"}},
+    {"type":"signal","t":0,"id":"#3","from":"p","to":["a"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"p1"}},
+    {"type":"answer","t":0,"id":"#4","from":"q","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"q1"}},
+    {"type":"signal","t":0,"id":"#5","from":"q","to":["a"],"trace":"#1","cause":"#4","hops":2,"payload":{"type":"text","text":"q1"}},
+    {"type":"signal","t":5,"id":"#6","from":"s","to":["p","q"],"trace":"#6","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"answer","t":5,"id":"#7","from":"p","to":["s"],"trace":"#6","replyTo":"#6","hops":1,"payload":{"type":"text","text":"p2"}},
+    {"type":"signal","t":5,"id":"#8","from":"p","to":["a"],"trace":"#6","cause":"#7","hops":2,"payload":{"type":"text","text":"p2"}},
+    {"type":"answer","t":5,"id":"#9","from":"q","to":["s"],"trace":"#6","replyTo":"#6","hops":1,"payload":{"type":"text","text":"q2"}},
+    {"type":"signal","t":5,"id":"#10","from":"q","to":["a"],"trace":"#6","cause":"#9","hops":2,"payload":{"type":"text","text":"q2"}},
+    {"type":"answer","t":20,"id":"#11","from":"a","to":["q"],"trace":"#1","replyTo":"#5","hops":3,"payload":{"type":"text","text":"a1"}},
+    {"type":"answer","t":23,"id":"#12","from":"a","to":["q"],"trace":"#6","replyTo":"#10","hops":3,"payload":{"type":"text","text":"a2"}}
+  ]
+}

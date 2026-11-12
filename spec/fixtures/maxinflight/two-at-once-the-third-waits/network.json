@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "two-at-once-the-third-waits",
+  "description": "`maxInflight` 2 on a `run` neuron: two of three inputs run at once, the third starts when the first of them is over (at 20) and answers before the slowest.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "maxInflight": 2
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

@@ -392,3 +392,52 @@ fn free_port() -> u16 {
     drop(listener);
     port
 }
+
+#[test]
+fn http_max_inflight_one_request_at_a_time() {
+    // `maxInflight` 1 on an http neuron (2.4, decision 0021): three inputs at
+    // once make one request at a time, in arrival order. Each takes 300 ms,
+    // so the answers come about 300 ms apart; a timeout of 500 ms counts from
+    // each request's start, so none of the three times out though the last
+    // waited 600 ms for its place.
+    let server = Server::new("slow 300");
+    let temp = Temp::new("inflight");
+    let net = temp.write(
+        "network.json",
+        &network(&[(
+            "s",
+            "http",
+            &format!("\"{}\"", server.url("/")),
+            ", \"timeout\": 500, \"maxInflight\": 1",
+        )]),
+    );
+    let inputs = inputs_file(
+        &temp,
+        &[("0", "src", "{\"n\":1}"), ("0", "src", "{\"n\":2}"), ("0", "src", "{\"n\":3}")],
+    );
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    let answers: Vec<&str> = text.lines().collect();
+    assert_eq!(answers.len(), 3, "{}", text);
+    for (i, line) in answers.iter().enumerate() {
+        assert!(has(line, &format!("\"seen\":{{\"n\":{}}}", i + 1)), "arrival order: {}", text);
+    }
+    let trace = trace_of(&temp, "t.json");
+    assert!(!has(&trace, "\"type\":\"error\""), "{}", trace);
+    let times: Vec<u64> = trace
+        .split("\"type\":\"answer\"")
+        .skip(1)
+        .map(|rest| {
+            let at = rest.find("\"t\":").expect("an answer's t") + 4;
+            let digits: String = rest[at..].chars().take_while(|c| c.is_ascii_digit()).collect();
+            digits.parse().expect("a time")
+        })
+        .collect();
+    assert_eq!(times.len(), 3, "{}", trace);
+    assert!(
+        times[1] >= times[0] + 250 && times[2] >= times[1] + 250,
+        "one request at a time: {times:?}"
+    );
+    let _ = server;
+}

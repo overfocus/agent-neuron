@@ -108,6 +108,11 @@ were set (SPEC 6.2 rule 1), with these fixed points so that engines agree:
 - A scripted process that ends (by its own script or by a signal) is known to the engine at
   that same instant, without a wake-up of its own: the exit is processed inside the step that
   ended it.
+- **A call that waited for a place under `maxInflight` starts at the end of a step** (SPEC 6.2 rule 9),
+  where a step is the processing of one wake-up and everything it causes. The start is not a wake-up:
+  it follows the step's last event and goes before the next wake-up, at the same instant or not. The
+  call sets its own wake-ups then (its scripted reply, then its timeout), so they go after every
+  wake-up already set for their instants.
 
 Fixtures avoid the one tie the specification does not decide: a ping due at the instant of an
 injection.

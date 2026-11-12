@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "a-cut-call-keeps-its-place-until-its-program-is-gone",
+  "description": "A running call cut as stale keeps its place until its program is off the machine: one that ignores SIGTERM holds it through the kill grace, so the waiting call starts at the kill (2010) and answers at 2015.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "maxInflight": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

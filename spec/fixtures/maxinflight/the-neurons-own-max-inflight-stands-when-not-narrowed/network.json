@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "the-neurons-own-max-inflight-stands-when-not-narrowed",
+  "description": "`maxInflight` is the neuron's own (2.10): written in its file and left out of the entry, it stands, and the two calls run one after the other.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

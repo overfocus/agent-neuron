@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "an-entry-may-set-a-limit-its-neurons-file-does-not",
+  "description": "A neuron file that states no `maxInflight` has no limit, so any limit on the entry lowers it (2.10): the entry says 1 and the two calls run one after the other.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json",
+      "maxInflight": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "version": 0,
+  "name": "a-waiting-effect-call-is-dropped-when-stale",
+  "description": "Staleness never cuts a started effect call (11.2), but one waiting for a place under `maxInflight` has not started and is dropped as usual: replaced, phase waiting, no cancel note, and it never starts.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "run": [
+        "neuron-notify"
+      ],
+      "maxInflight": 1,
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    }
+  ]
+}

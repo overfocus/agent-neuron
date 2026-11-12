@@ -113,6 +113,7 @@ class Call:
         self.re = None
         self.server = None
         self.inner_ctx = None
+        self.place = False  # it holds one of the places of its neuron's `maxInflight` (2.4)
 
 
 class Group:
@@ -142,6 +143,8 @@ class Neuron:
         self.timeout = spec.get("timeout", 30000)
         self.cost = spec.get("cost")
         self.effect = spec.get("effect") is True
+        self.limit = spec.get("maxInflight")  # the most calls at once (2.4, decision 0021); None: no limit
+        self.places = 0  # the places its calls hold; one is given back at the end of the step its call ended in
         self.report = inst.report
         self.groups = {}
         script = run.script.get(self.path) or {}
@@ -625,6 +628,8 @@ class Run:
             self.power = float(g.get("power", 1))
             self.rng = g.get("seed", 0)
         self.inputs = inputs
+        self.waiting = []  # calls waiting for a place at their own neuron (`maxInflight`), in arrival order
+        self.vacated = []  # calls that held a place and are over: the places are free at the end of the step
         self.epoch = 0
         self.stopped = False
         self._validate_inputs()
@@ -673,7 +678,7 @@ class Run:
 
     def queued(self):
         """A call waiting for a slot keeps the run open (6.2 rule 6), even when only a restart delay is due."""
-        return any(sv.queue for sv in self.root.servers())
+        return bool(self.waiting) or any(sv.queue for sv in self.root.servers())
 
     def touch(self, tr):
         self.touched.append(tr)
@@ -728,7 +733,24 @@ class Run:
             s.now = item[0]
             item[2]()
             self.settle()
+            self.drain()
         return self.events
+
+    def drain(self):
+        """The end of a step: the places of the calls that ended in it are free, and the call that has waited
+        longest among those whose neuron has a free place starts, one at a time, until none can (2.4, 5.1)."""
+        while True:
+            for call in self.vacated:
+                call.neuron.places -= 1
+            self.vacated = []
+            nxt = next((c for c in self.waiting if c.neuron.places < c.neuron.limit), None)
+            if nxt is None:
+                return
+            self.waiting.remove(nxt)
+            nxt.place = True
+            nxt.neuron.places += 1
+            self.start_call(nxt)
+            self.settle()
 
     def settle(self):
         while self.touched:
@@ -811,14 +833,19 @@ class Run:
                 return
             call.stale = True
             if call.state == "queued":
-                try:
-                    call.server.queue.remove(call)
-                except ValueError:
-                    pass
+                self.unqueue(call)
                 self.drop_call(call, "replaced", "waiting")
                 self.release(call)
             elif call.state == "running" and not call.neuron.effect and not call.cancelled:
                 self.cut(call)
+
+    def unqueue(self, call):
+        """A call that waits (for a level 1 slot, or for a place under `maxInflight`) leaves its queue: it never starts."""
+        q = call.server.queue if call.server is not None else self.waiting
+        try:
+            q.remove(call)
+        except ValueError:
+            pass
 
     def drop(self, w, reason, phase=None):
         s = w.sig
@@ -908,6 +935,19 @@ class Run:
         if n.kind == "serve":
             n.server.submit(call)
             return
+        if n.limit is not None:
+            if n.places >= n.limit:
+                # every place is taken: the call waits and has not started (no reserve, no timeout)
+                call.state = "queued"
+                self.waiting.append(call)
+                return
+            call.place = True
+            n.places += 1
+        self.start_call(call)
+
+    def start_call(self, call):
+        """The call starts (5.1): the budget first, then the program."""
+        n = call.neuron
         if not self.reserve(call):
             self.release(call)
             return
@@ -952,6 +992,8 @@ class Run:
         if call.state == "done":
             return
         call.state = "done"
+        if call.place:
+            self.vacated.append(call)
         call.ctx.calls.discard(call)
         for w in call.inputs:
             w.state = "done"
@@ -1250,10 +1292,7 @@ class Run:
             self.unhold(w)
         for call in list(ctx.calls):
             if call.state == "queued":
-                try:
-                    call.server.queue.remove(call)
-                except ValueError:
-                    pass
+                self.unqueue(call)
                 self.release(call)
             elif call.state == "running" and not call.cancelled:
                 self.sched.cancel(call.timeout_item)

@@ -1,0 +1,30 @@
+{
+  "version": 0,
+  "name": "a-waiting-call-refused-as-it-starts-gives-its-place-to-the-next",
+  "description": "Three inputs at a (`maxInflight` 1, costs 1); the second's injection lowers its budget to 0. When the first is over at 10 the second starts and is refused for its budget, and within the same end of step the third takes the place: its `reserve` follows the refused trace's `finished`.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "maxInflight": 1,
+      "cost": {
+        "credits": 1
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ],
+  "budget": {
+    "credits": 5
+  }
+}

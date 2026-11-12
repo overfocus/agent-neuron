@@ -1,0 +1,25 @@
+{
+  "fixture": 0,
+  "description": "A call waiting for a place reserves nothing (10.3): the second call's `reserve` note comes at 10, when the first is over and after that trace's `finished`, and its commit counts 5 ms from its start.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":0,"source":"s","payload":2}
+  ],
+  "script": {
+    "a": {"calls":[{"when":1,"after":10,"reply":{"answer":"one"}},{"when":2,"after":5,"reply":{"answer":"two"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"note","t":0,"neuron":"a","what":"reserve","units":{"credits":3}},
+    {"type":"signal","t":0,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"note","t":10,"neuron":"a","what":"commit","units":{"credits":3},"ms":10,"basis":"estimated"},
+    {"type":"answer","t":10,"id":"#3","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"one"}},
+    {"type":"finished","t":10,"trace":"#1","status":"done","remaining":{"credits":2}},
+    {"type":"note","t":10,"neuron":"a","what":"reserve","units":{"credits":3}},
+    {"type":"note","t":15,"neuron":"a","what":"commit","units":{"credits":3},"ms":5,"basis":"estimated"},
+    {"type":"answer","t":15,"id":"#4","from":"a","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"two"}},
+    {"type":"finished","t":15,"trace":"#2","status":"done","remaining":{"credits":2}}
+  ]
+}

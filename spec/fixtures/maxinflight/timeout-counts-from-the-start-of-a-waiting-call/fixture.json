@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "`timeout` counts from a call's start (2.4): with `maxInflight` 1 and a timeout of 50 ms, the second call waits 40 ms for its place and times out at 90, not at 50.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":0,"source":"s","payload":2}
+  ],
+  "script": {
+    "a": {"calls":[{"when":1,"after":40,"reply":{"answer":"one"}},{"when":2,"after":0,"reply":{"hang":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"signal","t":0,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"answer","t":40,"id":"#3","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"one"}},
+    {"type":"error","t":90,"id":"#2","from":"s","to":["a"],"trace":"#2","hops":0,"neuron":"a","message":"timed out after 50 ms","code":"timeout","payload":{"type":"json","data":2}},
+    {"type":"note","t":90,"neuron":"a","what":"cancel"},
+    {"type":"note","t":90,"neuron":"a","what":"term"}
+  ]
+}

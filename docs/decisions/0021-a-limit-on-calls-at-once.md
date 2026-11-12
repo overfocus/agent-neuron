@@ -1,9 +1,10 @@
 # Decision record 0021: a limit on calls at once (2026-11-11)
 
-**Status: decided 2026-11-12, every recommendation accepted. Built: L1, the engine cap. Not built: L2, the option.** [Decision 0020](0020-one-loop-fed-from-outside.md)
+**Status: decided 2026-11-12, every recommendation accepted. Built: L1, the engine cap, and L2, the option (on `feat/l2-max-inflight`, not merged; see "L2 as built").** [Decision 0020](0020-one-loop-fed-from-outside.md)
 left this open twice (its point 5, and the burst it reported). A run that stays up and a file that
 other engines call both take work at a rate somebody else chooses, so the question is no longer
-academic. Nothing here changes the SPEC, the schema or a fixture until a contract commit of its own.
+academic. Nothing here changes the SPEC, the schema or a fixture until a contract commit of its own
+(L2's is that commit).
 
 ## What is true today
 
@@ -174,3 +175,75 @@ Three things the build settled that the proposal left loose.
    start that clock at the program's start, the wire would need a word for "started"; it has none,
    and none is added here. A caller of a hosted file is a composed call, whose timeout has always
    covered its whole inside. **Open, for the wire's own SPEC text.**
+
+## L2 as built (2026-11-12)
+
+The contract and the three engines in one commit, on `feat/l2-max-inflight`: `maxInflight` in both
+schemas (`run`, `http` and `network` neurons, and the entry that names a neuron's file; `run` and
+`http` neuron files), SPEC 2.4, 2.6, 2.7, 2.8, 2.10, 5.1, 6.2 rule 9, 6.3, 10.3, 11.2 and Appendix B,
+C and E, CONFORMANCE 4.1, and 26 fixtures in `spec/fixtures/maxinflight/`. The TypeScript, Python
+and Rust engines each hold the queue; all three pass every fixture, the 246 that were there
+untouched. A neuron without the option takes the path it took.
+
+The gate, by fixture:
+
+| Check | Fixture (`maxinflight/`) |
+|---|---|
+| `maxInflight` 1: arrival order, a waiting call keeps its trace unfinished | `one-at-a-time-in-arrival-order` |
+| `maxInflight` 2 | `two-at-once-the-third-waits` |
+| a stale waiting call is dropped, phase `waiting`, and never starts | `a-waiting-call-that-goes-stale-is-dropped`, `a-waiting-effect-call-is-dropped-when-stale` |
+| the budget is reserved when the call starts | `a-waiting-call-reserves-when-it-starts`, `a-waiting-call-is-refused-for-budget-only-when-it-starts`, `a-waiting-call-refused-as-it-starts-gives-its-place-to-the-next` |
+| `timeout` counts from the start | `timeout-counts-from-the-start-of-a-waiting-call` |
+| each refusal | the eight `refuses-*`: on `serve`, `human` and a source; zero; not an integer; an entry wider than its file; in a `serve` neuron's file; on an entry that names a `serve` neuron |
+| narrowing from a neuron's file | `a-narrowed-max-inflight-is-the-one-that-holds`, `the-neurons-own-max-inflight-stands-when-not-narrowed`, `an-entry-may-set-a-limit-its-neurons-file-does-not` |
+
+Each refusal was checked to fire on its own rule in each engine's `check`. Real processes: one test
+in `test/engine.test.ts`, four in `rust-engine/tests/peers.rs` (the programs' own count under
+`maxInflight` 2; both limits on one call; a stale waiting call; a placed neuron) and one in
+`rust-engine/tests/http.rs` (an `http` neuron, one request at a time).
+
+What the build settled that this record left loose. Each follows level 1 or L1 where they speak, and
+each is pinned by a fixture unless it says otherwise. **All are for the maintainer to confirm.**
+
+1. **Where a waiting call starts.** At the end of the step in which a place came free: after every
+   event the step caused, before any other work due at that instant (SPEC 6.2 rule 9). This is where
+   level 1's queued call starts when a reply frees its slot, and where L1's `cap_drain` runs. A place
+   is not taken inside the step that frees it, so an input delivered later in that step waits behind
+   the calls already waiting (`a-place-freed-in-a-step-is-taken-at-the-end-of-the-step`).
+2. **A place is held until the program is over**, as a cancelled level 1 call keeps its slot and as
+   L1 holds a place: a cut `run` call through its kill grace
+   (`a-cut-call-keeps-its-place-until-its-program-is-gone`). An `http` call's place is free when its
+   request is over or cancelled, a `network` call's when the composed neuron has replied or was cut
+   (no fixture for the `http` half: no conformance engine but Rust runs `http`).
+3. **One order for every neuron's waiting calls.** When places of several neurons come free in one
+   step, the call that arrived first starts first; a neuron that is full never holds up another's
+   (`calls-waiting-at-one-neuron-do-not-hold-up-another`). Which of two neurons' calls starts first in
+   that case has no fixture: it shows only in the order of wake-ups set in one step.
+4. **The limit is per neuron per instance.** A neuron inside a composed neuron counts the calls of
+   every call to that instance together, as an inner level 1 neuron's slots are shared
+   (`inside-a-composed-neuron-the-limit-is-shared-by-its-calls`).
+5. **A neuron file that states no `maxInflight` has no limit, so an entry may set any**
+   (`an-entry-may-set-a-limit-its-neurons-file-does-not`). The other reading (an entry may restate
+   only what the file states) would make the option unusable on a neuron somebody else wrote.
+6. **Where the option may be written.** In the file of a `run` or `http` neuron; inline on `run`,
+   `http` and `network`; on an entry only when its file is a `run` or `http` neuron (0019's rule that
+   an option is allowed only where it is on an inline neuron of the file's kind).
+7. **A threshold call waits as one call**: its inputs crossed and left their group, so none expires
+   while the call waits (`a-threshold-call-waits-as-one-call`).
+8. **A call refused as it starts gives its place on** within the same end of step
+   (`a-waiting-call-refused-as-it-starts-gives-its-place-to-the-next`).
+9. **Both limits on one call** (Rust, real processes only): the call takes its neuron's place first
+   and keeps it while it waits for the engine's cap. A neuron placed on a peer has its `maxInflight`
+   held by the driver; the peer's `--at-once` still counts the process.
+10. **A composed call's `timeout` covers its inside's waiting**, as it always covered everything
+    inside it: a call waiting for an inner neuron's place has started as far as the outer call is
+    concerned. Only a call waiting for its own neuron's place has a clock that has not started.
+
+One change to L1 on the way: `cap_drain` now checks for finished traces after each start, so a call
+refused for its budget as it leaves the cap's queue reports its trace's `finished` then and not at
+the next event.
+
+Not done: a demo and its row in DEMOS.md; the trace header does not list `maxInflight` among a
+neuron's `options` (it lists `threshold`, `within` and `maxHops` only, as before); the wire still has
+no word for "started", so point 3 of "L1 as built" stands for a placed neuron that waits at a
+worker's cap.
