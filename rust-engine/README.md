@@ -446,13 +446,27 @@ closes and nothing is left. Anything that can write a line is a producer.
   is that step plus what ends it (S4a). An injection is one more host event, `Ev::Inject`, read by a
   thread of its own and stamped when read, so it is injected at that instant; `Ev::InputsClosed` is
   the producer saying it is done (S4b).
-- **A hosted graph is the same loop, fed by its callers** (S4c, `Engine::serve_calls`). The engine
-  of a `peer --network` graph lives on a thread of its own; a connection hands it a call and waits
-  for that call's outcome, and calls from different connections overlap as traces do in a run (the
-  lock that made them take turns is gone). A connection still carries one call at a time. Each call
-  has its own timeout and its own backstop, counted from when it arrives. A call, a cancel and a
-  dropped connection each post `Ev::Nudge`, which ends the loop's wait so it looks. The hosted
-  engine keeps no events and no answers, as a live run keeps none.
+- **A hosted file is the same loop, fed by its callers** (S4c, `Engine::serve_calls`). The engine
+  of a `peer --network` file lives on a thread of its own; a connection hands it a request and, for
+  a call, waits for that call's outcome. Calls from different connections overlap as traces do in a
+  run (the lock that made them take turns is gone). A connection still carries one call at a time.
+  Each call has its own timeout and its own backstop, counted from when it arrives. A request, a
+  cancel and a dropped connection each post `Ev::Nudge`, which ends the loop's wait so it looks.
+- **The hosted file is the worker's own outer network** (`Engine::plant_hosted`): instance 0, so its
+  sources are injected into, its events are the ones reported and its traces finish as a run's do. A
+  caller enters through one node the file does not declare (`__call`), a composed neuron whose
+  inside is instance 0, alone in an instance that is never reported. So a call is still 2.6's
+  composed call and what the caller is told is sealed, while the worker's own stream shows its file
+  at work.
+- **Called, fed, or both.** A hosted file needs an `entry` and an `exit` to be called, a `source` to
+  be fed, and may have both; one with neither is refused when the worker starts, and a `ground` is
+  refused. An `inject` line on a connection, `{"type":"inject","source","payload","replaces"?,
+  "budget"?}`, is the object a live producer writes on standard input: injected when it is read,
+  with no reply, and refused on the worker's stderr (`refused an injection ...`) for the reasons a
+  live producer's is. A `call` to a file with no `entry` is answered `inner`.
+- **`peer --network <file> --stream <path>`** writes the file's own events as they happen, the lines
+  a live run's `--stream` writes; the hosted engine keeps no events and no answers. A call's trace
+  starts with a signal from `__call` and ends with a `finished`, like any other.
 - **A live run keeps nothing it has reported.** It requires `--stream` and refuses `--trace`: each
   event goes to the stream as it happens and is not kept, and each answer of a neuron with no
   outgoing links is printed on stdout as it happens.

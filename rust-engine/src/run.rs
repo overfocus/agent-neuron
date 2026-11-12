@@ -193,38 +193,47 @@ fn read_live_inputs(post: crate::host::Post) {
         if line.is_empty() {
             continue;
         }
-        let v = match crate::json::parse(line) {
-            Ok(v) => v,
-            Err(e) => {
-                refuse(i + 1, format!("not JSON ({})", e));
+        let input = match crate::json::parse(line)
+            .map_err(|e| format!("not JSON ({})", e))
+            .and_then(live_input_of)
+        {
+            Ok(input) => input,
+            Err(why) => {
+                refuse(i + 1, why);
                 continue;
             }
         };
-        if v.has("at") {
-            refuse(
-                i + 1,
-                "`at` counts from the start of a run and belongs to a file of inputs; a live injection is injected when it is read".into(),
-            );
-            continue;
-        }
-        // The shape of an entry of an inputs file, with the instant the
-        // engine itself supplies: the moment it takes the injection.
-        let v = match v {
-            Value::Obj(mut members) => {
-                members.push(("at".to_string(), Value::Int(0)));
-                Value::Obj(members)
-            }
-            other => other,
-        };
-        let mut errs = Vec::new();
-        let input = fixture::inputs_of(&v, i, &mut errs);
-        if !errs.is_empty() {
-            refuse(i + 1, errs.join("; "));
-            continue;
-        }
         post.post(crate::host::Ev::Inject(Box::new(input)));
     }
     post.post(crate::host::Ev::InputsClosed);
+}
+
+/// One live injection from its JSON object (SPEC 4.1): `{source, payload,
+/// replaces?, budget?}`, the shape a live producer writes on standard input
+/// and a caller sends a hosted graph as an `inject` line. `at` is refused: it
+/// counts from the start of a run, which neither can know.
+pub fn live_input_of(v: Value) -> Result<fixture::Input, String> {
+    if v.has("at") {
+        return Err(
+            "`at` counts from the start of a run and belongs to a file of inputs; a live injection is injected when it is read".into(),
+        );
+    }
+    // The shape of an entry of an inputs file, with the instant the engine
+    // itself supplies: the moment it takes the injection.
+    let v = match v {
+        Value::Obj(mut members) => {
+            members.push(("at".to_string(), Value::Int(0)));
+            Value::Obj(members)
+        }
+        other => other,
+    };
+    let mut errs = Vec::new();
+    let input = fixture::inputs_of(&v, 0, &mut errs);
+    if errs.is_empty() {
+        Ok(input)
+    } else {
+        Err(errs.join("; "))
+    }
 }
 
 /// The answers on stdout, one per line (already the printed form).
