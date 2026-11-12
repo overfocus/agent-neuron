@@ -227,6 +227,9 @@ struct L0Proc {
     /// A call dispatched to a peer (decision 0013): no local process group,
     /// so `gid` stays `None` and the peer's outcome arrives as `L0Done`.
     remote: bool,
+    /// A local process this engine started that is still on the machine: it
+    /// holds one place under the engine's cap (decision 0021).
+    holds: bool,
 }
 
 /// A level 1 slot: at most `maxInflight` run at once (SPEC 3.2).
@@ -638,6 +641,13 @@ pub struct Engine {
     /// The hosted calls still open, by their work record, and what each one's
     /// boundary replied once it has (an answer or a quiet).
     hosted_out: HashMap<usize, Option<GraphOut>>,
+    /// The engine's cap (decision 0021, `--at-once`): at most this many level
+    /// 0 programs of this engine on the machine at once. `None` is no cap.
+    at_once: Option<u64>,
+    /// The programs that hold a place under the cap now.
+    cap_live: u64,
+    /// The calls waiting for a place, in the order they arrived.
+    cap_queue: std::collections::VecDeque<usize>,
     /// The node a hosted file's callers enter through (`plant_hosted`).
     caller: Option<usize>,
 }
@@ -708,6 +718,9 @@ impl Engine {
             inner_why: HashMap::new(),
             hosting: false,
             hosted_out: HashMap::new(),
+            at_once: None,
+            cap_live: 0,
+            cap_queue: std::collections::VecDeque::new(),
             caller: None,
         }
     }
@@ -772,6 +785,16 @@ impl Engine {
     /// Set before the plant; absent is a run that confines nothing.
     pub fn set_confine(&mut self, confine: crate::confine::Confine) {
         self.confine = Some(confine);
+    }
+
+    /// The engine's cap (decision 0021): at most `n` level 0 programs started
+    /// by this engine are on the machine at once, across every neuron; a
+    /// call over it is queued in arrival order, with level 1's meaning of
+    /// queued (3.2). It is a fact about the machine, so it comes from the
+    /// command line and never from a network file. A placed call is the
+    /// peer's process and is counted by the peer's own cap.
+    pub fn set_at_once(&mut self, n: u64) {
+        self.at_once = Some(n.max(1));
     }
 
     /// No desk on this route: a network with `human` neurons is refused at
@@ -1367,6 +1390,7 @@ impl Engine {
             (t, d) => t.or(d),
         };
         if self.host_step(cap) {
+            self.cap_drain();
             self.wake_composed_calls();
             return Step::Advanced;
         }
@@ -1387,6 +1411,7 @@ impl Engine {
             // can move things on. The pump waits to the deadline when one is
             // set, and to nothing at all when none is.
             if self.host_step(self.deadline) {
+                self.cap_drain();
                 self.wake_composed_calls();
                 return Step::Advanced;
             }
@@ -1396,6 +1421,7 @@ impl Engine {
             return Step::Idle;
         };
         self.fire(w);
+        self.cap_drain();
         self.wake_composed_calls();
         Step::Advanced
     }
@@ -2304,6 +2330,7 @@ impl Engine {
                 if let Some(s) = self.serves.get_mut(&node) {
                     s.queue.retain(|&w| w != work);
                 }
+                self.cap_queue.retain(|&w| w != work);
             }
             WSt::Running => {
                 let node = self.works[work].node;
@@ -2662,6 +2689,14 @@ impl Engine {
 
     fn start_l0(&mut self, work: usize) {
         let node = self.works[work].node;
+        // The engine's cap (decision 0021): with every place taken the call
+        // is queued, and it has not started: no check, no reserve, no timeout
+        // (3.2's queued, 10.3). `cap_drain` starts it when a program ends.
+        if self.is_real() && self.nodes[node].peer.is_none() && self.at_once.is_some_and(|cap| self.cap_live >= cap) {
+            self.works[work].st = WSt::Queued;
+            self.cap_queue.push_back(work);
+            return;
+        }
         if let Err(why) = self.check_cost(work) {
             self.emit_fail(work, "budget", &why);
             self.mark_trace_refused(self.works[work].trace);
@@ -2687,6 +2722,7 @@ impl Engine {
                 gid: None,
                 killed: false,
                 remote: peer.is_some(),
+                holds: false,
             });
             self.works[work].l0 = Some(l0);
             self.works[work].st = WSt::Running;
@@ -2711,10 +2747,11 @@ impl Engine {
                         None => Err("no peers table for a placed neuron".into()),
                     }
                 }
-                None => self
-                    .host()
-                    .l0_begin(l0, &cmd, cwd.as_deref(), &env, input.as_bytes())
-                    .map(|gid| self.l0s[l0].gid = Some(gid)),
+                None => self.host().l0_begin(l0, &cmd, cwd.as_deref(), &env, input.as_bytes()).map(|gid| {
+                    self.l0s[l0].gid = Some(gid);
+                    self.l0s[l0].holds = true;
+                    self.cap_live += 1;
+                }),
             };
             if let Err(why) = started {
                 // The program never ran: an error even for an effect neuron
@@ -2748,6 +2785,7 @@ impl Engine {
             // The scripted host has no wire: a call is either scripted here or
             // carried by a peer, never both.
             remote: false,
+            holds: false,
         });
         self.works[work].l0 = Some(l0);
         self.works[work].st = WSt::Running;
@@ -2772,6 +2810,28 @@ impl Engine {
             self.arm(self.now + entry.after, Wake::CallEnd { work });
         }
         self.arm(self.now + self.nodes[node].timeout, Wake::CallTimeout { work });
+    }
+
+    /// A local program is off the machine (its group is gone, or was just
+    /// killed): its place under the cap is free. Nothing starts here: the
+    /// step's own events come first, and `cap_drain` runs at the step's end.
+    fn cap_release(&mut self, l0: usize) {
+        if std::mem::replace(&mut self.l0s[l0].holds, false) {
+            self.cap_live -= 1;
+        }
+    }
+
+    /// The free places take the waiting calls, in the order they arrived
+    /// (decision 0021). A call that was dropped while it waited never starts.
+    fn cap_drain(&mut self) {
+        let Some(cap) = self.at_once else { return };
+        while self.cap_live < cap {
+            let Some(work) = self.cap_queue.pop_front() else { break };
+            if self.works[work].done || self.works[work].st != WSt::Queued {
+                continue;
+            }
+            self.start_l0(work);
+        }
     }
 
     /// The level 0 group is terminated (SIGTERM): a `term` note when the group
@@ -2814,6 +2874,7 @@ impl Engine {
             } else {
                 // The program is gone: the cut call commits now (10.4).
                 self.host().l0_forget(l0);
+                self.cap_release(l0);
                 let work = self.l0s[l0].work;
                 self.commit_call(work);
                 self.works[work].done = true;
@@ -2859,6 +2920,7 @@ impl Engine {
                             host::kill_group(gid);
                         }
                         self.host().l0_forget(l0);
+                        self.cap_release(l0);
                         alive
                     }
                     None => false,
@@ -2893,6 +2955,7 @@ impl Engine {
                 host::kill_group(gid);
             }
             self.host().l0_forget(l0);
+            self.cap_release(l0);
             self.l0s[l0].leader_alive = false;
             self.l0s[l0].killed = true;
             return alive;
@@ -2913,6 +2976,16 @@ impl Engine {
     /// effect neuron, and the ambiguity of started work stays `unknown`
     /// (finding 8, 0014).
     fn host_l0_done(&mut self, l0: usize, out: host::L0Out, started: bool) {
+        self.host_l0_over(l0, out, started);
+        // The program's exit arrived and its call is over: nothing of it is
+        // left on the machine. A cut call whose group outlives its leader
+        // keeps its place until the grace's kill.
+        if self.l0s.get(l0).is_some_and(|p| self.works[p.work].done) {
+            self.cap_release(l0);
+        }
+    }
+
+    fn host_l0_over(&mut self, l0: usize, out: host::L0Out, started: bool) {
         let Some(p) = self.l0s.get(l0) else { return };
         let work = p.work;
         let kind = self.works[work].kind;
@@ -4836,6 +4909,7 @@ impl Engine {
                     gid: None,
                     killed: false,
                     remote: true,
+                    holds: false,
                 });
                 self.works[work].l0 = Some(l0);
                 let req = crate::peers::CallReq {

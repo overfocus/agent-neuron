@@ -1,6 +1,6 @@
 # Decision record 0021: a limit on calls at once (2026-11-11)
 
-**Status: decided 2026-11-12, every recommendation accepted; nothing built yet.** [Decision 0020](0020-one-loop-fed-from-outside.md)
+**Status: decided 2026-11-12, every recommendation accepted. Built: L1, the engine cap. Not built: L2, the option.** [Decision 0020](0020-one-loop-fed-from-outside.md)
 left this open twice (its point 5, and the burst it reported). A run that stays up and a file that
 other engines call both take work at a rate somebody else chooses, so the question is no longer
 academic. Nothing here changes the SPEC, the schema or a fixture until a contract commit of its own.
@@ -146,3 +146,31 @@ Every recommendation was accepted.
 4. **Over a limit, a call waits.** It is not refused.
 5. **No bound on a queue yet.**
 6. **The engine cap first** (L1), then the option as its own contract commit (L2).
+
+## L1 as built (2026-11-12)
+
+`run --at-once <n>` and `peer --at-once <n>` in the Rust engine (`rust-engine/README.md`), and one
+informative sentence in SPEC Appendix C. No schema, fixture or normative text changed.
+
+The gate, measured:
+
+| Check | Result |
+|---|---|
+| 100 calls at once across two neurons, `--at-once 5`, counted by the programs | never more than 5 alive; all 100 answered; no error |
+| The same burst without the flag | all at once, as before |
+| A call replaced while it waits for a place | one `drop`, `replaced`, phase `waiting`; its program never started; no cancel |
+| A hosted file and a program worker, each `--at-once 1`, three calls at once | one program at a time; all answered |
+| The third probe again: 400 at once, process limit 150 above what was running | without the cap 83 answered; with `--at-once 50` all 400, in 2.8 s |
+
+Three things the build settled that the proposal left loose.
+
+1. **A place is held until the program is off the machine.** For a call that ended by itself that
+   is its exit; for a cut call it is the end of its group, so a program that ignores SIGTERM holds
+   its place through the kill grace, as point 1 said it should.
+2. **A placed call is the peer's.** The driver does not count a call it sent to a peer; the peer
+   counts it under its own `--at-once`. `peer --serve` refuses the flag.
+3. **A caller's clock does not wait for the callee's queue.** A driver's timeout for a placed call
+   starts when the call is sent, so waiting for a place at a program worker counts against it. To
+   start that clock at the program's start, the wire would need a word for "started"; it has none,
+   and none is added here. A caller of a hosted file is a composed call, whose timeout has always
+   covered its whole inside. **Open, for the wire's own SPEC text.**

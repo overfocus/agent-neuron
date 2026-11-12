@@ -220,7 +220,7 @@ impl Hosted {
     /// here and nothing runs yet: the serve programs start with the first
     /// call, and a file this route cannot host is an `inner` refusal of
     /// every call.
-    fn boot(g: Graph, stream: Option<crate::run::StreamSink>) -> Hosted {
+    fn boot(g: Graph, stream: Option<crate::run::StreamSink>, at_once: Option<u64>) -> Hosted {
         // A peers file that will not load is the instance's refusal from the
         // first call. The placement's keys are the file's own node paths: the
         // file is this engine's outer network.
@@ -243,6 +243,9 @@ impl Hosted {
             }
             if let Some(sink) = stream {
                 eng.set_stream(sink);
+            }
+            if let Some(n) = at_once {
+                eng.set_at_once(n);
             }
             match eng.plant_hosted(&g.net, &g.files, Some(&g.base)) {
                 Ok(()) => engine = Some(eng),
@@ -926,6 +929,7 @@ pub fn main(args: &[String]) {
     let mut network: Option<String> = None;
     let mut peers: Option<String> = None;
     let mut stream: Option<String> = None;
+    let mut at_once: Option<u64> = None;
     let mut serve_host = false;
     let mut i = 0;
     while i < args.len() {
@@ -945,6 +949,10 @@ pub fn main(args: &[String]) {
             "--network" => network = Some(args[i + 1].clone()),
             "--peers" => peers = Some(args[i + 1].clone()),
             "--stream" => stream = Some(args[i + 1].clone()),
+            "--at-once" => match args[i + 1].parse::<u64>() {
+                Ok(n) if n >= 1 => at_once = Some(n),
+                _ => usage(),
+            },
             _ => usage(),
         }
         i += 2;
@@ -964,6 +972,16 @@ pub fn main(args: &[String]) {
     if stream.is_some() && network.is_none() {
         usage();
     }
+    // The cap is on level 0 programs (decision 0021). A serve host starts
+    // each program once, for the driver that asked, and has none to count.
+    if at_once.is_some() && serve_host {
+        usage();
+    }
+    // A worker that runs programs holds the cap itself; a worker that hosts
+    // a file gives it to the file's engine.
+    if let (Some(n), None) = (at_once, &network) {
+        let _ = GATE.set(Gate::new(n));
+    }
     // A peer without `--network` runs programs; with it, the peer *is* one
     // neuron whose inside is a graph — one engine for the process's life
     // (finding 3, 0014), its instance shared by every call the worker takes.
@@ -981,7 +999,7 @@ pub fn main(args: &[String]) {
                         None
                     }
                 });
-                Some(Hosted::boot(g, sink))
+                Some(Hosted::boot(g, sink, at_once))
             }
             Err(why) => {
                 eprintln!("peer {}: cannot host the network: {}", name, why);
@@ -1030,8 +1048,11 @@ pub fn main(args: &[String]) {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: neuron-engine peer --listen <host:port> --token <hex> [--name <name>] [--serve]");
-    eprintln!("       neuron-engine peer --listen <host:port> --token <hex> --network <file> [--peers <json>] [--stream <path>]");
+    eprintln!("usage: neuron-engine peer --listen <host:port> --token <hex> [--name <name>] [--at-once <n>]");
+    eprintln!("       neuron-engine peer --listen <host:port> --token <hex> [--name <name>] --serve");
+    eprintln!(
+        "       neuron-engine peer --listen <host:port> --token <hex> --network <file> [--peers <json>] [--stream <path>] [--at-once <n>]"
+    );
     std::process::exit(2);
 }
 
@@ -1398,6 +1419,71 @@ fn cancelled_outcome(name: &str) -> Value {
     })
 }
 
+/// A program worker's cap (decision 0021, `peer --at-once <n>`): at most `n`
+/// programs at once, the rest waiting in arrival order. One per process.
+static GATE: std::sync::OnceLock<Gate> = std::sync::OnceLock::new();
+
+struct Gate {
+    cap: u64,
+    st: Mutex<GateSt>,
+    freed: std::sync::Condvar,
+}
+
+#[derive(Default)]
+struct GateSt {
+    live: u64,
+    next: u64,
+    waiting: std::collections::VecDeque<u64>,
+}
+
+/// One place under the cap, given back when it is dropped.
+struct Place(&'static Gate);
+
+impl Drop for Place {
+    fn drop(&mut self) {
+        if let Ok(mut st) = self.0.st.lock() {
+            st.live -= 1;
+        }
+        self.0.freed.notify_all();
+    }
+}
+
+impl Gate {
+    fn new(cap: u64) -> Gate {
+        Gate {
+            cap,
+            st: Mutex::new(GateSt::default()),
+            freed: std::sync::Condvar::new(),
+        }
+    }
+
+    /// Wait for a place, first come first served. `None` when `cancelled`
+    /// turned true first (it is polled at the pump's 50 ms tick).
+    fn enter(&'static self, cancelled: impl Fn() -> bool) -> Option<Place> {
+        let mut st = self.st.lock().ok()?;
+        let ticket = st.next;
+        st.next += 1;
+        st.waiting.push_back(ticket);
+        loop {
+            if st.waiting.front() == Some(&ticket) && st.live < self.cap {
+                st.waiting.pop_front();
+                st.live += 1;
+                drop(st);
+                // The next in line may fit too.
+                self.freed.notify_all();
+                return Some(Place(self));
+            }
+            if cancelled() {
+                st.waiting.retain(|&t| t != ticket);
+                drop(st);
+                self.freed.notify_all();
+                return None;
+            }
+            st = self.freed.wait_timeout(st, Duration::from_millis(50)).ok()?.0;
+        }
+    }
+}
+
 /// Run one program call here, in this host's code: the same spawn, the same
 /// 1 MiB cap, the same settle and the same classification a local call gets.
 fn execute_program(call: &Value, name: &str, cancels: &Mutex<HashSet<i64>>, dead: &AtomicBool) -> Value {
@@ -1443,6 +1529,16 @@ fn execute_program(call: &Value, name: &str, cancels: &Mutex<HashSet<i64>>, dead
     if wire_cancelled(cancels, dead, id) {
         return reply(cancelled_outcome(name), false);
     }
+    // The worker's cap (decision 0021): the call waits here for a place, in
+    // the order it arrived, and holds it until its group is gone. A cancel
+    // that arrives while it waits ends the wait, and the program never ran.
+    let _place = match GATE.get() {
+        None => None,
+        Some(gate) => match gate.enter(|| wire_cancelled(cancels, dead, id)) {
+            Some(place) => Some(place),
+            None => return reply(cancelled_outcome(name), false),
+        },
+    };
     let mut host = host::Host::new();
     if let Err(why) = host.l0_begin(0, &argv, cwd.as_deref(), &env, input.as_bytes()) {
         return reply(outcome_json(&L0Out::Exit { code: 127, stderr: why }), false);
