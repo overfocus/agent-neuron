@@ -283,7 +283,7 @@ pub fn install_signal_teardown() {
 /// the program's working directory), a minimal environment (`PATH` and only
 /// the neuron's named variables, a name the engine lacks stays unset), the
 /// working directory, and its own process group (SPEC 2.3, 2.4, 3.1).
-fn spawn(cmd: &[String], cwd: Option<&Path>, env_names: &[String]) -> std::io::Result<std::process::Child> {
+fn spawn(cmd: &[String], cwd: Option<&Path>, env_names: &[String], settings: &[(String, String)]) -> std::io::Result<std::process::Child> {
     let Some(name) = cmd.first() else {
         return Err(std::io::Error::other("an empty command"));
     };
@@ -304,7 +304,11 @@ fn spawn(cmd: &[String], cwd: Option<&Path>, env_names: &[String]) -> std::io::R
         c.env("PATH", path);
     }
     for env_name in env_names {
-        if let Some(value) = std::env::var_os(env_name) {
+        // The neuron's own settings win over the engine's environment
+        // (decision 0022, point 6); only a listed name is ever passed.
+        if let Some((_, value)) = settings.iter().find(|(k, _)| k == env_name) {
+            c.env(env_name, value);
+        } else if let Some(value) = std::env::var_os(env_name) {
             c.env(env_name, value);
         }
     }
@@ -542,8 +546,16 @@ impl Host {
     /// the process exits before the whole outcome is delivered (decision
     /// 0001). `Ok(gid)` is the process group; a spawn failure is the error
     /// text (an `exit 127:` at once, Appendix C).
-    pub fn l0_begin(&mut self, l0: usize, cmd: &[String], cwd: Option<&Path>, env_names: &[String], input: &[u8]) -> Result<i32, String> {
-        let mut child = spawn(cmd, cwd, env_names).map_err(|e| e.to_string())?;
+    pub fn l0_begin(
+        &mut self,
+        l0: usize,
+        cmd: &[String],
+        cwd: Option<&Path>,
+        env_names: &[String],
+        settings: &[(String, String)],
+        input: &[u8],
+    ) -> Result<i32, String> {
+        let mut child = spawn(cmd, cwd, env_names, settings).map_err(|e| e.to_string())?;
         let gid = child.id() as i32;
         register_group(gid);
         self.l0s.insert(l0, gid);
@@ -678,6 +690,7 @@ impl Host {
     /// Start one long-lived process: spawn it in its own group, write the
     /// `hello` line, and read its stdout as protocol lines and its stderr as
     /// logs. `Ok(gid)` is the process group; a spawn failure the reason.
+    #[allow(clippy::too_many_arguments)]
     pub fn l1_begin(
         &mut self,
         node: usize,
@@ -686,8 +699,9 @@ impl Host {
         cmd: &[String],
         cwd: Option<&Path>,
         env_names: &[String],
+        settings: &[(String, String)],
     ) -> Result<i32, String> {
-        let mut child = spawn(cmd, cwd, env_names).map_err(|e| e.to_string())?;
+        let mut child = spawn(cmd, cwd, env_names, settings).map_err(|e| e.to_string())?;
         let gid = child.id() as i32;
         register_group(gid);
         let stdin = child.stdin.take().expect("piped stdin");
@@ -961,7 +975,7 @@ mod probe {
             } else {
                 None
             };
-            let gid = h.l0_begin(0, &cmd, cwd.as_deref(), &[], input).expect("the call starts");
+            let gid = h.l0_begin(0, &cmd, cwd.as_deref(), &[], &[], input).expect("the call starts");
             let _ = gid;
             let Some(m) = h.pump(Some(clock_ms() + 5000)) else {
                 panic!("{}: no outcome in 5 s", what);

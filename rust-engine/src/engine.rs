@@ -374,6 +374,9 @@ struct INode {
     cmd: Vec<String>,
     cwd: Option<PathBuf>,
     env: Vec<String>,
+    /// The neuron's own settings (decision 0022, point 6): the values its
+    /// settings file gives for names in `env`. Never reported.
+    settings: Vec<(String, String)>,
     /// The peer that executes this neuron's calls (decision 0013): `None` is
     /// this machine. Read from the peers file at the plant; P0 carries only
     /// the outer file's `run` neurons.
@@ -510,6 +513,15 @@ impl RunOutcome {
     /// the rest as their JSON value.
     pub fn printed_answers(&self) -> Vec<String> {
         self.answers.iter().map(|(_, payload)| printed(payload)).collect()
+    }
+
+    /// The answers whole, each with its neuron, in the order they happened:
+    /// for a run-level result (decision 0022).
+    pub fn whole_answers(&self) -> Vec<(String, Value)> {
+        self.answers
+            .iter()
+            .map(|(neuron, payload)| (neuron.clone(), payload.as_full()))
+            .collect()
     }
 
     fn empty() -> RunOutcome {
@@ -1049,6 +1061,7 @@ impl Engine {
             cmd: Vec::new(),
             cwd: None,
             env: Vec::new(),
+            settings: Vec::new(),
         });
         self.inner_inst_of.insert(node, 0);
         self.caller = Some(node);
@@ -1099,6 +1112,10 @@ impl Engine {
                 Kind::Run(cmd) | Kind::Serve(cmd) => (cmd.clone(), n.opts.env.clone()),
                 _ => (Vec::new(), Vec::new()),
             };
+            // The neuron's own settings: read beside the file that declares
+            // its program, for the names it lists (decision 0022, point 6).
+            let settings = crate::settings::for_names(n.settings_dir.as_deref().unwrap_or(&dir), &env)
+                .map_err(|bad| format!("neuron {}: its settings file {}", prog, bad))?;
             // cwd: the `cwd` option (a relative one is relative to the
             // declaring file's directory: a value in the file means what the
             // file means), else that directory itself (SPEC 2.4).
@@ -1140,6 +1157,7 @@ impl Engine {
                 cmd,
                 cwd,
                 env,
+                settings,
             });
         }
         for n in net.nodes.iter() {
@@ -2782,6 +2800,7 @@ impl Engine {
             self.reserve_call(work);
             let cmd = self.nodes[node].cmd.clone();
             let env = self.nodes[node].env.clone();
+            let settings = self.nodes[node].settings.clone();
             let cwd = self.nodes[node].cwd.clone();
             let input = json::write(&self.input_value_of(work));
             let peer = self.nodes[node].peer;
@@ -2819,11 +2838,14 @@ impl Engine {
                         None => Err("no peers table for a placed neuron".into()),
                     }
                 }
-                None => self.host().l0_begin(l0, &cmd, cwd.as_deref(), &env, input.as_bytes()).map(|gid| {
-                    self.l0s[l0].gid = Some(gid);
-                    self.l0s[l0].holds = true;
-                    self.cap_live += 1;
-                }),
+                None => self
+                    .host()
+                    .l0_begin(l0, &cmd, cwd.as_deref(), &env, &settings, input.as_bytes())
+                    .map(|gid| {
+                        self.l0s[l0].gid = Some(gid);
+                        self.l0s[l0].holds = true;
+                        self.cap_live += 1;
+                    }),
             };
             if let Err(why) = started {
                 // The program never ran: an error even for an effect neuron
@@ -4297,6 +4319,7 @@ impl Engine {
             let display = self.nodes[node].display.clone();
             let cmd = self.nodes[node].cmd.clone();
             let env = self.nodes[node].env.clone();
+            let settings = self.nodes[node].settings.clone();
             let cwd = self.nodes[node].cwd.clone();
             let hello = json::write(&Obj::new().int("v", 1).str("type", "hello").str("neuron", &display).build());
             // The serve starts where the placement put it (decision 0013, P1):
@@ -4319,7 +4342,9 @@ impl Engine {
                     None => Err("no peers table for a placed neuron".into()),
                 }
             } else {
-                self.host().l1_begin(node, gen, &hello, &cmd, cwd.as_deref(), &env).map(Some)
+                self.host()
+                    .l1_begin(node, gen, &hello, &cmd, cwd.as_deref(), &env, &settings)
+                    .map(Some)
             };
             match spawn {
                 Ok(gid) => {

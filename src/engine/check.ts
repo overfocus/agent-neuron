@@ -157,7 +157,31 @@ function resolved(entry: NeuronSpec, of: NeuronFile, neuronFile: string): Neuron
   const { version: _version, ...own } = of as NeuronFile & { $schema?: string };
   delete (own as { $schema?: string }).$schema;
   const { neuron: _neuron, ...mine } = entry;
-  return { ...own, ...mine, ...(of.run || of.serve ? { cwd: resolve(dirname(neuronFile), of.cwd ?? '.') } : {}) };
+  const neuron = { ...own, ...mine, ...(of.run || of.serve ? { cwd: resolve(dirname(neuronFile), of.cwd ?? '.') } : {}) };
+  ownDir.set(neuron, dirname(neuronFile));
+  return neuron;
+}
+
+/** Where a neuron named by its own file keeps its settings: that file's directory (decision 0022, point 6). Not a field: it is no part of the neuron. */
+const ownDir = new WeakMap<NeuronSpec, string>();
+export class BadSettings extends Error {}
+/**
+ * A neuron's own settings (SPEC 2.4, decision 0022 point 6): `.env` in the directory of the file that declares its program
+ * (`dir` for a neuron written inline), as the values of the names in its `env` that the file has. Lines are `NAME=value`;
+ * blank lines and `#` lines are skipped, a quoted value loses its quotes, and anything else throws, naming the line and never its text.
+ */
+export function settingsOf(spec: NeuronSpec, dir: string): Record<string, string> {
+  const names = spec.env ?? [], file = join(ownDir.get(spec) ?? dir, '.env'), out: Record<string, string> = {};
+  if (!names.length || !existsSync(file)) return out;
+  readFileSync(file, 'utf8').split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) return;
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (!m) throw new BadSettings(`${file} line ${i + 1}: not NAME=value`);
+    const v = m[2]!, quoted = v.length >= 2 && (v[0] === '"' || v[0] === "'") && v.endsWith(v[0]);
+    if (names.includes(m[1]!)) out[m[1]!] = quoted ? v.slice(1, -1) : v;
+  });
+  return out;
 }
 
 /**
@@ -280,6 +304,7 @@ export function check(file: string, seen: string[] = [], shown?: string): Findin
     if (n.cwd !== undefined && !existsSync(cwd)) add('error', `${at}.cwd`, `working directory "${n.cwd}" not found`);
     const cmd = n.run?.[0] ?? n.serve?.[0];
     if (cmd && !onPath(cmd, cwd)) add('warning', `${at}.${n.run ? 'run' : 'serve'}`, `executable "${cmd}" not found`);
+    if (cmd) try { settingsOf(n, dirname(file)); } catch (e) { if (!(e instanceof BadSettings)) throw e; add('error', `${at}.env`, `neuron "${n.id}": its settings file ${e.message}`); }
     if (n.http) add('warning', at, `neuron "${n.id}" is http: this engine runs source, run, serve, network and human neurons only`);
     if (n.network === undefined) return;
     const inner = resolve(dirname(file), n.network);

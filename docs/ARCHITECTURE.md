@@ -21,6 +21,7 @@ MODEL
     network  composed: a whole network file as one neuron (entry in, first exit reply out; inside sealed)
     neuron   named by its own neuron file (0019); using entry may NARROW timeout/env/may/maxInflight only
   options (10)  threshold, within, maxHops, timeout, env, cwd, cost, effect, may{connect,listen,read,write}, maxInflight (run|http|network: calls at once, rest wait in arrival order; 0021 L2)   (SPEC 2.4)
+  settings      .env beside the declaring file (neuron file, or network file for inline) fills `env` names; wins over the engine's environment; never reported (0022 S6; settings.rs)
   input         {at, source, payload, replaces?, budget?}; `replaces` is the staleness key and rides the signal
   signal        payload + trace id + cause; link from->to carries answers; `to`-less reply routes by links
   trace         one root signal and everything it causes; ends with `finished`
@@ -98,7 +99,7 @@ RUN MODES
   batch   run <f> --inputs <jsonl> [--trace] [--stream]   inputs at `at` ms; ends when nothing left; trace at end
   live    run <f> --inputs - --stream <p>                  stdin lines injected when read; ends at EOF + nothing left; keeps nothing; refuses --trace
   hosted  peer --network                                   never ends; serve programs persist; events only to --stream
-  flags   --ping --grants --peers --confine (not with --peers) --at-once <n>
+  flags   --ping --grants --peers --confine (not with --peers) --at-once <n> --result <path | -> (one object at the end; exit 3 on any error or unknown)
   exit    1 = run refused/failed to start, 2 = usage
 
 GLOBALS the driver holds for everyone (SPEC App. E.2 G1-G8 + 0020 S4d table)

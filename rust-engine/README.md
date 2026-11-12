@@ -564,10 +564,52 @@ groups and the 6.1 failures are untouched.
   a program that ignores the proxy, another neuron's proxy). Its programs are inline `/bin/sh` scripts, so the tests name no
   path of the machine they run on.
 
+## A neuron's own settings — `.env` beside the file that declares it (decision 0022, S6)
+
+For each name in a neuron's `env`, the program gets the value from `.env` in the directory of the
+file that declares the neuron (its own neuron file, or the network file for an inline neuron), and
+from the engine's environment only when that file lacks the name (SPEC 2.4). `src/settings.rs`.
+
+- Only listed names are passed; the file wins over the environment; no file is as before.
+- A line that is not `NAME=value` refuses the start (`check` and `run`), named by file and line,
+  never by its text. A neuron that lists no names never has the file read.
+- A file hosted by `peer --network` reads the settings beside it, on the peer. **A single program
+  placed on a program worker does not get them**: the wire carries names, and the worker fills
+  them from its own environment, as before. Open, for the wire's SPEC text.
+- Covered by `tests/settings.rs` (7): listed and unlisted names, precedence, no file, two neurons
+  with their own files, a `serve` program, a malformed line, a file never read.
+
+## A run-level result — `--result <path | ->` (decision 0022, S1)
+
+`run <file> --result <path>` writes one JSON object when the run ends; `--result -` prints it as the
+last line of standard output, after the answers. Without the flag nothing is written and the exit
+status is as before.
+
+```json
+{"network":"name","ok":false,
+ "totals":{"traces":2,"answers":1,"errors":1,"unknowns":0,"drops":0},
+ "traces":[
+  {"trace":"1","source":"s","replaces":"k1","status":"done",
+   "answers":[{"neuron":"b","payload":{"got":1}}],"failures":[],"drops":[]},
+  {"trace":"2","source":"s","status":"done","answers":[],
+   "failures":[{"type":"error","neuron":"a","code":"exit","message":"exit 7: "}],"drops":[]}]}
+```
+
+- **It is a reading of the events** and adds nothing to them. `answers` are those of the neurons with
+  no outgoing links (SPEC 4.4), each payload whole (an event cuts one at 2000 characters);
+  `failures` are the trace's `error` and `unknown` events; `drops` its `drop` events (the neuron,
+  the reason, the phase).
+- **`ok`** is true when no call ended in an error or an unknown. A drop is not a failure.
+- **With the flag the run exits 3 when `ok` is false.** 1 and 2 keep their meaning (a run that was
+  refused or could not start; usage).
+- **A live run** (`--inputs -`) keeps nothing, so its result holds `network`, `ok` and `totals` and
+  no `traces`.
+- Covered by `tests/result.rs` (5).
+
 ## Where it stands, and the roadmap (2026-11-09)
 
 **Surfaces.** `conform <dir>` (the fixture runner, CONFORMANCE 8); `run <file>`
-with `--inputs`, `--trace`, `--stream`, `--ping`, `--grants`, `--peers`, `--confine`, `--at-once`;
+with `--inputs`, `--trace`, `--stream`, `--ping`, `--grants`, `--peers`, `--confine`, `--at-once`, `--result`;
 `check <file>` (2.7 errors and warnings, positioned); `mcp` (five tools,
 `describe_network`, `spec://` resources, `run://` jobs, stdio JSON-RPC);
 `peer --listen` (P0/P0.5: a program worker, or `--network <file>` for a peer that

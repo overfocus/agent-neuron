@@ -89,7 +89,9 @@ Rules you will hit:
 - **Environment.** Your program sees only `PATH` and the variables named in the
   neuron's `env`. No `HOME`, no virtualenv variables, no API keys unless you
   list their names (`"env": ["OPENAI_API_KEY"]`). Use an absolute interpreter
-  path, or name what the interpreter needs.
+  path, or name what the interpreter needs. A value comes from `.env` beside the file that declares
+  your neuron when that file has the name (`OPENAI_API_KEY=...`), and from the engine's environment
+  otherwise (2.4): a neuron can carry its own settings, and your program just reads its environment.
 - **What your program may touch is declared, and held only when a run asks.** A neuron's `may` names
   the hosts it may connect to, the addresses it may listen on and the paths it may read and write;
   without one it is declared to touch nothing (2.4). An engine may run your program confined to that
@@ -235,6 +237,19 @@ program's working directory.
 A program's environment is empty except `PATH` and the `env` names (a name the
 engine lacks stays unset). `threshold` and `within` are not allowed on `network`.
 
+**A neuron's own settings** ([decision 0022](decisions/0022-what-a-swarm-needs.md)). The value of an `env`
+name comes first from the neuron's settings file, and from the engine's environment only when the file
+lacks the name or there is no file. The settings file is `.env` in the directory of the file that
+declares the neuron's program: the neuron's own file for an entry that names one (2.10), the network
+file for a neuron written inline. It is lines of `NAME=value`; blank lines and lines that start with
+`#` are skipped; a value wholly inside single or double quotes loses them; there is no interpolation
+and no escape. A line that is anything else is an error (2.7), and the engine refuses to start. Only
+the names in `env` are passed: a name the file has and the neuron does not list reaches no program,
+and a neuron that lists none never has the file read. An engine MUST NOT report a value: not in an
+event, a note, the trace or a finding of `check`, which names the file and the line and never the
+text. The file is no field of the network: nothing names it, and an engine that starts no programs
+ignores it. The engine reads it, so the program needs nothing in its `may` for it.
+
 **`may`** ([decision 0016](decisions/0016-the-self-describing-neuron.md)) is a closed object of four
 members, each optional, each an array of unique literal strings:
 
@@ -357,7 +372,8 @@ neurons of its file declare (2.4) (error); for an entry that names a neuron's fi
 missing or invalid, an option on the wrong side (one that is the network's in the file, or one that is the
 neuron's own on the entry), and a `timeout`, `env`, `may` or `maxInflight` on the entry that is wider than the file's (errors);
 a `maxInflight` that is not an integer of at least 1, or one on a `serve`, `human` or `source` neuron, in a network
-file or in a neuron's own file (2.4) (errors).
+file or in a neuron's own file (2.4) (errors); a settings file of a neuron that lists `env` names with a line that is not
+`NAME=value` (2.4) (error, naming the file and the line, never the text).
 
 ### 2.8 Field budget (informative)
 
@@ -670,7 +686,9 @@ Each neuron on a path adds **two hops** (reply, then forward). A neuron at depth
 count, not on neurons deep: a limit of 4 lets a chain reach its third neuron.
 
 A run's result is not a return value: read the answers of neurons with no
-outgoing links from the trace.
+outgoing links from the trace. An engine MAY also write them out when the run ends, with each
+trace's failures and drops, as one object read off the trace and adding nothing to it (Appendix C,
+[decision 0022](decisions/0022-what-a-swarm-needs.md)).
 
 ### 4.5 The ground (normative)
 
@@ -1375,7 +1393,7 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
 - Passive and active channels (open; no field reserved); link attributes.
 - `http` authentication and headers; a `human` wait that survives a restart, several people and who may answer
   ([decision 0008](decisions/0008-human-neurons-on-a-page.md)); Wasm neurons;
-  Windows; a run-level result; inspecting inside
+  Windows; inspecting inside
   a composed neuron; byte-level fixtures and real-process fixtures; hot reload.
 - Distribution: the engine will ship as a binary inside the npm and pip
   packages (the esbuild and ruff pattern).
@@ -1445,6 +1463,13 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
   ends in the same millisecond its input goes stale can go either way.
 - **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` only for a scripted observer;
   `reserve` and `commit` with a budget.
+- **A run-level result** (4.4): not written by this engine, nor by the Python one. The Rust engine writes one
+  when asked (`run --result <path | ->`, [decision 0022](decisions/0022-what-a-swarm-needs.md)): each trace's
+  answers, failures and drops and the totals, read off the events; with it the run exits 3 when a call ended
+  in an error or an unknown.
+- **A neuron's own settings** (2.4): read by this engine and the Rust one, the two that start programs. The
+  Python engine starts none and ignores the file. In the Rust engine a single program placed on a peer
+  (`--peers`) is started by the peer with the peer's environment, and the settings file is not sent.
 - **Effects** (section 11): all of it. `unknown` is a separate event type; the `forwarded` mark is on the `answer` event.
 - **A live producer** (4.1): not taken by this engine, nor by the Python one. The Rust engine takes one on
   standard input (`run --inputs -`, `rust-engine/README.md`), writing its events to the stream as they happen
