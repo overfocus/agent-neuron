@@ -14,11 +14,11 @@ KINDS = ("source", "run", "serve", "http", "human", "network")
 COMMON = {"id", "description", "at"}  # `at`: descriptive, for a drawing (decision 0011)
 OPTS = {
     "source": set(),
-    "run": {"threshold", "within", "maxHops", "timeout", "env", "cwd", "cost", "effect", "may"},
+    "run": {"threshold", "within", "maxHops", "timeout", "env", "cwd", "cost", "effect", "may", "maxInflight"},
     "serve": {"threshold", "within", "maxHops", "timeout", "env", "cwd", "cost", "effect", "may"},
-    "http": {"threshold", "within", "maxHops", "timeout", "cost", "effect"},
+    "http": {"threshold", "within", "maxHops", "timeout", "cost", "effect", "maxInflight"},
     "human": {"threshold", "within", "maxHops", "timeout", "cost", "effect"},
-    "network": {"maxHops", "timeout", "cost", "may"},
+    "network": {"maxHops", "timeout", "cost", "may", "maxInflight"},
 }
 TOP = {"$schema", "version", "name", "description", "neurons", "links", "entry", "exit", "budget", "ground"}
 GROUND = {"deposit", "evaporate", "select", "base", "power", "seed"}
@@ -124,8 +124,8 @@ def _ground(g, ids, path):
 
 
 # A neuron named by its own file (SPEC 2.10, decision 0019). The entry that names it holds what is the
-# network's, and may restate `timeout`, `env` and `may` only to narrow them; the file holds the rest.
-ENTRY = COMMON | {"neuron", "threshold", "within", "maxHops", "cost", "timeout", "env", "may"}
+# network's, and may restate `timeout`, `env`, `may` and `maxInflight` only to narrow them; the file holds the rest.
+ENTRY = COMMON | {"neuron", "threshold", "within", "maxHops", "cost", "timeout", "env", "may", "maxInflight"}
 FILE_KINDS = ("run", "serve", "http", "human")
 
 
@@ -154,6 +154,9 @@ def _resolve(n, i, base):
         raise CheckError(f"{name}: exactly one of run, serve, http, human required")
     program = kinds[0] in ("run", "serve")
     own = {"$schema", "version", "description", kinds[0], "timeout", "effect"} | ({"env", "cwd", "may"} if program else set())
+    limited = kinds[0] in ("run", "http")  # `maxInflight` (2.4): a serve program says its own, a person's queue is the desk's
+    if limited:
+        own.add("maxInflight")
     extra = set(of) - own
     if extra:
         raise CheckError(f"{name}: {sorted(extra)[0]} is not the neuron's own")
@@ -166,6 +169,12 @@ def _resolve(n, i, base):
     for key in ("env", "may"):
         if key in n and not program:
             raise CheckError(f"{what}: {key} narrows a program's, and {name} is not a run or serve neuron")
+    if "maxInflight" in n:
+        if not limited:
+            raise CheckError(f"{what}: maxInflight is not an option of a {kinds[0]} neuron, and {name} is one")
+        # a file that states none has no limit, so any limit on the entry narrows it
+        if "maxInflight" in of and (not _isint(n["maxInflight"]) or not _isint(of["maxInflight"]) or n["maxInflight"] > of["maxInflight"]):
+            raise CheckError(f"{what}: maxInflight is wider than the neuron's own ({of['maxInflight']})")
     if "env" in n:
         theirs = of.get("env", [])
         if not isinstance(n["env"], list) or not isinstance(theirs, list) or any(x not in theirs for x in n["env"]):
@@ -234,6 +243,8 @@ def _neuron(n, i):
             raise CheckError(f"neurons[{i}]: {f} must be an integer from 1 to {top}")
     if "maxHops" in n and (not _isint(n["maxHops"]) or n["maxHops"] < 0):
         raise CheckError(f"neurons[{i}]: maxHops must be an integer >= 0")
+    if "maxInflight" in n and (not _isint(n["maxInflight"]) or n["maxInflight"] < 1):
+        raise CheckError(f"neurons[{i}]: maxInflight must be an integer >= 1")
     if "env" in n:
         e = n["env"]
         if not isinstance(e, list) or len(set(e)) != len(e) or not all(isinstance(x, str) and ENV_RE.match(x) for x in e):

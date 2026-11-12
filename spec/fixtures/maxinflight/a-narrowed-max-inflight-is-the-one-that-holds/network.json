@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "a-narrowed-max-inflight-is-the-one-that-holds",
+  "description": "The entry that names a neuron's file may lower its `maxInflight` (2.10): the file says 2, the entry 1, and the two calls run one after the other.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json",
+      "maxInflight": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

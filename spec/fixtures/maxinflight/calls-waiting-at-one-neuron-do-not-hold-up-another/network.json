@@ -1,0 +1,35 @@
+{
+  "version": 0,
+  "name": "calls-waiting-at-one-neuron-do-not-hold-up-another",
+  "description": "Each neuron's waiting calls wait for that neuron only: a and b both have `maxInflight` 1; the second call at b starts when b is free (10) though the second call at a, which arrived before it, still waits (until 50).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "maxInflight": 1
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "maxInflight": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    }
+  ]
+}

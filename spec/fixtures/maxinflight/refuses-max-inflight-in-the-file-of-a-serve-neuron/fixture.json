@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "`maxInflight` is not the own option of a `serve` neuron (2.4, 2.10): its file may not state it, so check refuses and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

@@ -134,6 +134,11 @@
       "maximum": 86400000,
       "description": "A human neuron's timeout: up to a day (decision 0008); every other kind is capped at an hour."
     },
+    "inflight": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The most calls of the neuron at once; the rest wait in arrival order (SPEC 2.4, decision 0021). Absent: no limit."
+    },
     "link": {
       "type": "object",
       "additionalProperties": false,
@@ -212,6 +217,9 @@
             },
             "timeout": {
               "$ref": "#/$defs/ms"
+            },
+            "maxInflight": {
+              "$ref": "#/$defs/inflight"
             },
             "env": {
               "type": "array",
@@ -342,6 +350,9 @@
             "timeout": {
               "$ref": "#/$defs/ms"
             },
+            "maxInflight": {
+              "$ref": "#/$defs/inflight"
+            },
             "cost": {
               "$ref": "#/$defs/units"
             },
@@ -424,6 +435,9 @@
             "timeout": {
               "$ref": "#/$defs/ms"
             },
+            "maxInflight": {
+              "$ref": "#/$defs/inflight"
+            },
             "cost": {
               "$ref": "#/$defs/units"
             },
@@ -470,6 +484,9 @@
             },
             "timeout": {
               "$ref": "#/$defs/humanMs"
+            },
+            "maxInflight": {
+              "$ref": "#/$defs/inflight"
             },
             "env": {
               "type": "array",

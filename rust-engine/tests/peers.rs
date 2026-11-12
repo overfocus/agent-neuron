@@ -2540,3 +2540,206 @@ fn a_cap_that_is_not_a_count_is_refused() {
         .expect("the engine runs");
     assert_eq!(out.status.code(), Some(2), "peer --serve --at-once: {}", stderr(&out));
 }
+
+// ---------------------------------------------------------------------------
+// A neuron's own limit (decision 0021, L2): the `maxInflight` option
+// ---------------------------------------------------------------------------
+
+/// Two neurons whose programs count who is alive with them, each among its
+/// own neuron's programs (`one`, `two`) and among all of them (`all`). `one`
+/// states `max_inflight`; `two` states no limit.
+fn limited_net(live: &Path, max_inflight: u64) -> String {
+    for dir in ["one", "two", "all"] {
+        std::fs::create_dir_all(live.join(dir)).expect("a live directory");
+    }
+    let prog = |own: &str| {
+        format!(
+            "read line; mkdir {live}/{own}/$$ {live}/all/$$; n=$(ls {live}/{own} | wc -l | tr -d ' '); m=$(ls {live}/all | wc -l | tr -d ' '); sleep 0.1; rmdir {live}/{own}/$$ {live}/all/$$; printf '{{\"{own}\":%s,\"all\":%s}}' \"$n\" \"$m\"",
+            live = live.to_string_lossy(),
+        )
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+    };
+    format!(
+        r#"{{
+  "version": 0,
+  "name": "limited",
+  "neurons": [
+    {{"id": "src", "description": "in", "source": true}},
+    {{"id": "one", "description": "counts", "run": ["/bin/sh", "-c", "{one}"], "timeout": 5000, "maxInflight": {max_inflight}}},
+    {{"id": "two", "description": "counts too", "run": ["/bin/sh", "-c", "{two}"], "timeout": 5000}}
+  ],
+  "links": [{{"from": "src", "to": "one"}}, {{"from": "src", "to": "two"}}]
+}}
+"#,
+        one = prog("one"),
+        two = prog("two"),
+    )
+}
+
+/// The numbers after `"<key>":` in a run's answers.
+fn counts_of(answers: &str, key: &str) -> Vec<u64> {
+    answers
+        .split(&format!("\"{key}\":"))
+        .skip(1)
+        .map(|rest| {
+            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            digits.parse().expect("a count")
+        })
+        .collect()
+}
+
+/// `maxInflight` 2 on one neuron of two: in a burst of 20 inputs that neuron
+/// never has more than 2 programs alive, by the programs' own count, while
+/// the neuron beside it runs its calls all at once; every call answers, and
+/// the last one's timeout, counted from its start, never fires.
+#[test]
+fn a_neuron_never_has_more_calls_at_once_than_its_max_inflight() {
+    let temp = Temp::new("inflight");
+    let net = temp.write("net.json", &limited_net(&temp.path("live"), 2));
+    let burst: String = (0..20)
+        .map(|n| format!("{{\"at\": 0, \"source\": \"src\", \"payload\": {{\"n\": {n}}}}}\n"))
+        .collect();
+    let inputs = temp.write("inputs.jsonl", &burst);
+    let out = run(&temp, &net, &inputs, &temp.path("trace.json"), &[], &[]);
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    let (one, two) = (counts_of(&stdout(&out), "one"), counts_of(&stdout(&out), "two"));
+    assert_eq!((one.len(), two.len()), (20, 20), "every call answered: {}", stdout(&out));
+    let most = one.iter().copied().max().unwrap_or(0);
+    assert_eq!(most, 2, "the limited neuron ran two at once and never more: {one:?}");
+    assert!(
+        two.iter().copied().max().unwrap_or(0) > 2,
+        "the neuron with no limit is not held back: {two:?}"
+    );
+    let text = std::fs::read_to_string(temp.path("trace.json")).expect("the trace");
+    assert_eq!(count(&text, "\"type\":\"error\""), 0, "no call failed: {text}");
+}
+
+/// Both limits hold for one call: with `maxInflight` 3 on a neuron and
+/// `--at-once 2` on the engine, the neuron never has more than 2 programs
+/// alive (the engine's cap is the lower) and nor has the engine; with
+/// `maxInflight` 1 and `--at-once 3` the neuron runs one at a time and the
+/// engine never more than 3. Every call answers either way.
+#[test]
+fn a_call_waits_for_its_neurons_place_and_for_the_engines() {
+    for (max_inflight, at_once, most_one, most_all) in [(3, "2", 2, 2), (1, "3", 1, 3)] {
+        let temp = Temp::new("inflight-cap");
+        let net = temp.write("net.json", &limited_net(&temp.path("live"), max_inflight));
+        let burst: String = (0..12)
+            .map(|n| format!("{{\"at\": 0, \"source\": \"src\", \"payload\": {{\"n\": {n}}}}}\n"))
+            .collect();
+        let inputs = temp.write("inputs.jsonl", &burst);
+        let out = run(&temp, &net, &inputs, &temp.path("trace.json"), &["--at-once", at_once], &[]);
+        assert!(out.status.success(), "the run failed: {}", stderr(&out));
+        let (one, all) = (counts_of(&stdout(&out), "one"), counts_of(&stdout(&out), "all"));
+        assert_eq!((one.len(), all.len()), (12, 24), "every call answered: {}", stdout(&out));
+        assert!(
+            one.iter().copied().max().unwrap_or(0) <= most_one,
+            "maxInflight {max_inflight}, --at-once {at_once}: the neuron had {one:?} alive"
+        );
+        assert!(
+            all.iter().copied().max().unwrap_or(0) <= most_all,
+            "maxInflight {max_inflight}, --at-once {at_once}: the engine had {all:?} alive"
+        );
+        let text = std::fs::read_to_string(temp.path("trace.json")).expect("the trace");
+        assert_eq!(count(&text, "\"type\":\"error\""), 0, "no call failed: {text}");
+    }
+}
+
+/// A call that goes stale while it waits for its neuron's place is dropped as
+/// `waiting` and its program never starts (5.4); the calls run in the order
+/// they arrived.
+#[test]
+fn a_call_that_goes_stale_waiting_for_its_neurons_place_never_starts() {
+    let temp = Temp::new("inflight-stale");
+    let log = temp.path("log.txt");
+    let net = temp.write(
+        "net.json",
+        &format!(
+            r#"{{
+  "version": 0,
+  "name": "stale",
+  "neurons": [
+    {{"id": "src", "description": "in", "source": true}},
+    {{"id": "slow", "description": "slow", "run": ["/bin/sh", "-c", "read line; echo \"begin $line\" >> {log}; sleep 0.6; printf '{{\"did\":%s}}' \"$line\""], "timeout": 5000, "maxInflight": 1}}
+  ],
+  "links": [{{"from": "src", "to": "slow"}}]
+}}
+"#,
+            log = log.to_string_lossy(),
+        ),
+    );
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 1}}\n\
+         {\"at\": 100, \"source\": \"src\", \"payload\": {\"n\": 2}, \"replaces\": \"k\"}\n\
+         {\"at\": 200, \"source\": \"src\", \"payload\": {\"n\": 3}, \"replaces\": \"k\"}\n",
+    );
+    let out = run(&temp, &net, &inputs, &temp.path("trace.json"), &[], &[]);
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    let begun = std::fs::read_to_string(&log).expect("the programs' log");
+    assert_eq!(count(&begun, "begin"), 2, "two programs started: {begun}");
+    assert!(!begun.contains("\"n\":2"), "the replaced call never started: {begun}");
+    let answers = stdout(&out);
+    assert!(answers.contains("{\"did\":{\"n\":1}}"), "the first answered: {answers}");
+    assert!(answers.contains("{\"did\":{\"n\":3}}"), "the newest answered: {answers}");
+    let drops: Vec<Value> = events(&temp.path("trace.json"))
+        .into_iter()
+        .filter(|e| field(e, "type") == "drop")
+        .collect();
+    assert_eq!(drops.len(), 1, "one drop: {drops:?}");
+    assert_eq!(field(&drops[0], "reason"), "replaced");
+    assert_eq!(field(&drops[0], "phase"), "waiting", "it had not started: {:?}", drops[0]);
+    let text = std::fs::read_to_string(temp.path("trace.json")).expect("the trace");
+    assert_eq!(count(&text, "\"what\":\"cancel\""), 0, "nothing running was cut: {text}");
+}
+
+/// The limit of a neuron placed on a peer is held by the engine that holds
+/// its calls: with `maxInflight` 1 three calls sent at once reach the worker
+/// one at a time, though the worker has no cap of its own.
+#[test]
+fn a_placed_neurons_limit_is_held_by_its_driver() {
+    let temp = Temp::new("inflight-placed");
+    let log = temp.path("log.txt");
+    let net = temp.write(
+        "net.json",
+        &format!(
+            r#"{{
+  "version": 0,
+  "name": "placed",
+  "neurons": [
+    {{"id": "src", "description": "in", "source": true}},
+    {{"id": "worker", "description": "slow", "run": ["/bin/sh", "-c", "read line; echo begin >> {log}; sleep 0.3; echo end >> {log}; printf '{{\"did\":%s}}' \"$line\""], "timeout": 20000, "maxInflight": 1}}
+  ],
+  "links": [{{"from": "src", "to": "worker"}}]
+}}
+"#,
+            log = log.to_string_lossy(),
+        ),
+    );
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 1}}\n\
+         {\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 2}}\n\
+         {\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 3}}\n",
+    );
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &[]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"worker\": \"b\"}"));
+    let out = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("trace.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    assert_eq!(count(&stdout(&out), "\"did\""), 3, "three answers: {}", stdout(&out));
+    let lines: Vec<String> = std::fs::read_to_string(&log)
+        .expect("the programs' log")
+        .lines()
+        .map(|l| l.to_string())
+        .collect();
+    assert_eq!(lines, ["begin", "end", "begin", "end", "begin", "end"], "one program at a time");
+}

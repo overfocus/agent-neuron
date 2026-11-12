@@ -232,6 +232,7 @@ program's working directory.
 | `cost` | units (10.1) | none | all but source | what one call reserves, and the most it may consume (10) |
 | `effect` | `true` | none | run, serve, http, human | a started call is never cut by staleness; its failures are `unknown` (11) |
 | `may` | object (below) | none: nothing | run, serve, network | what the neuron's program is allowed to touch |
+| `maxInflight` | integer, at least 1 | none: no limit | run, http, network | at most this many calls of the neuron at once; the rest wait in the order they arrived (below) |
 
 A program's environment is empty except `PATH` and the `env` names (a name the
 engine lacks stays unset). `threshold` and `within` are not allowed on `network`.
@@ -274,6 +275,32 @@ members, each optional, each an array of unique literal strings:
   confine, or a run that did not ask it to, MUST NOT be described as confined. `may` changes
   nothing an engine reports: no event, no note, no field of the trace.
 
+**`maxInflight`** ([decision 0021](decisions/0021-a-limit-on-calls-at-once.md)) is the most calls of
+the neuron that run at once: a fact about the program (a script that takes a lock, an endpoint with a
+rate its owner knows), said by the file because a level 0 program has no `ready` to say it in. It is
+the word level 1 uses for the same thing (3.2), and it means the same.
+
+- **A call holds a place** from its start until its program is over: a `run` call until its process
+  group is gone (for a call that was cut, after the kill if it comes to that), an `http` call until
+  its request is over or cancelled, a `network` call until the composed neuron has replied or its call
+  was cut. It is where the call's `commit` note goes (6.3).
+- **A call that finds every place taken waits**, and it is **queued** as a level 1 call waiting for a
+  slot is queued: it has not started. It is dropped if it goes stale (5.4, reason `replaced`, phase
+  `waiting`, no `cancel` note); it reserves from the budget when it starts and not before (10.3); its
+  `timeout` counts from its start, so it waits for as long as it takes; it is never `unknown` (11); and
+  it keeps its trace and the run unfinished (6.2 rule 6). Nothing new is reported: no event, no note.
+  A threshold call (5.2) waits as one call: its inputs have left their group.
+- **Waiting calls start in the order they arrived** (6.2 rule 9 places the start).
+- **The limit is the neuron's own**, one per neuron per instance: a neuron inside a composed neuron
+  holds it across every call of that instance, as an inner level 1 neuron's slots are shared (2.6).
+  One neuron's waiting calls never hold up another's.
+- **Without it there is no limit**, and a neuron without it behaves exactly as before. It is not
+  allowed on `serve` (the program says its own in `ready`), on `human` (a person's queue is the
+  desk's) or on a `source`. There is no bound on how many calls may wait, or for how long (appendix B).
+
+An engine MAY also hold calls back for a limit of its own, about the machine and not the neuron (the
+Rust engine's `--at-once`, appendix C). A call then waits for both, and waiting means the same.
+
 ### 2.5 Links
 
 `{ "from": id, "to": id }` and nothing else. Both ids MUST exist; the same
@@ -289,7 +316,8 @@ MUST NOT contain a `source`, and `exit` MUST NOT have outgoing links.
 **One shared inner network per instance.** The inner network is started when
 the engine starts and is shared by every call to that instance: its level 1
 processes, their `maxInflight` slots and their state are shared; level 0
-programs still run once per call. Two `network` entries are two instances even
+programs still run once per call, and an inner neuron's `maxInflight` option (2.4)
+counts the calls of every call to the instance together. Two `network` entries are two instances even
 if they name one file; instances share nothing.
 
 Per call:
@@ -342,12 +370,15 @@ or a `network` neuron whose file has neurons costing a unit its `cost` does not 
 refused, 10.5) (warnings); an executable that cannot be found (warning); a `network` neuron whose `may` does not cover what the
 neurons of its file declare (2.4) (error); for an entry that names a neuron's file (2.10): a file that is
 missing or invalid, an option on the wrong side (one that is the network's in the file, or one that is the
-neuron's own on the entry), and a `timeout`, `env` or `may` on the entry that is wider than the file's (errors); a settings file of a neuron that lists `env` names with a line that is not `NAME=value` (2.4) (error, naming the file and the line, never the text).
+neuron's own on the entry), and a `timeout`, `env`, `may` or `maxInflight` on the entry that is wider than the file's (errors);
+a `maxInflight` that is not an integer of at least 1, or one on a `serve`, `human` or `source` neuron, in a network
+file or in a neuron's own file (2.4) (errors); a settings file of a neuron that lists `env` names with a line that is not
+`NAME=value` (2.4) (error, naming the file and the line, never the text).
 
 ### 2.8 Field budget (informative)
 
 10 top-level fields (`budget` is the ninth, `ground` the tenth — [decision
-0012](decisions/0012-the-ground.md)); per neuron `id`, `description`, `at`, one kind field, at most 9
+0012](decisions/0012-the-ground.md)); per neuron `id`, `description`, `at`, one kind field, at most 10
 options; 2 per link. The kinds are seven: `neuron` is the seventh, admitted by
 [decision 0019](decisions/0019-the-neuron-file.md) and costing no option. A new field must answer one question: does it say how
 neurons connect, or how one decides? Deciders are programs. A second, closed
@@ -360,7 +391,10 @@ as `timeout` and `maxHops` ([decision 0006](decisions/0006-budgets.md)); whether
 and what a failure of it means, is likewise the engine's to apply, not something a program can do for itself
 ([decision 0007](decisions/0007-effects-and-the-live-stream.md)). `may` is the ninth, admitted when the budget was
 reopened for it: what a program may touch is a limit of the same class, since a program cannot be trusted to
-confine itself ([decision 0016](decisions/0016-the-self-describing-neuron.md)).
+confine itself ([decision 0016](decisions/0016-the-self-describing-neuron.md)). `maxInflight` is the tenth
+([decision 0021](decisions/0021-a-limit-on-calls-at-once.md)): how many calls of a program run at once is the
+engine's to hold, since the calls of a level 0 program do not know of each other, and it is a word the
+protocol already had (3.2).
 
 ### 2.9 Confinement (normative)
 
@@ -442,17 +476,18 @@ written on the entry.
 | | In the neuron file | On the entry that names it |
 |---|---|---|
 | the kind and its command or URL; `cwd`; `effect` | yes | never |
-| `may`, `env`, `timeout` | yes | to narrow only |
+| `may`, `env`, `timeout`, `maxInflight` | yes | to narrow only |
 | `description` | yes | yes; the entry's is the neuron's when both have one |
 | `id`, `at`, `threshold`, `within`, `maxHops`, `cost` | never | yes |
 
 Each option is allowed only where it is on an inline neuron of the file's kind (2.4). An option on the
 wrong side is an error (2.7).
 
-**Narrowing.** The entry may restate three of the neuron's options, each only to ask for less:
+**Narrowing.** The entry may restate four of the neuron's options, each only to ask for less:
 `timeout` at most the file's (its default of 30000 when the file sets none); `env` a subset of the
 file's names; `may`, on a `run` or `serve` neuron, for each member a subset of the file's entries,
-compared as written. An option the entry leaves out stands as the file wrote it; one the entry states
+compared as written; `maxInflight`, on a `run` or `http` neuron, at most the file's (a file that
+states none has no limit, so any value on the entry asks for less). An option the entry leaves out stands as the file wrote it; one the entry states
 replaces the file's. An entry that asks for more is an error (2.7), and the engine refuses to start.
 
 The fold of 2.4 reads the neuron as narrowed: a composed neuron's `may` covers what its neurons may
@@ -702,7 +737,8 @@ composed network's inner file MUST NOT declare one; the scope question waits.
 
 For input *s* at *N*: the hops check (5.3); then, if `threshold` is more than 1,
 hold *s* (5.2); then, when the program may start, run it (queued first at
-level 1 if all slots are running). Threshold 1 or none: no hold.
+level 1 if all slots are running, or, on a neuron with `maxInflight` (2.4), if
+all its places are taken). Threshold 1 or none: no hold.
 
 ### 5.2 Threshold
 
@@ -829,6 +865,17 @@ list.
    work caused: the reply and its forward and their delivery effects, or the `error`, the `unknown`, or the `drop`.
    A process note that belongs to that instant and follows its cause (the `kill` after the `error` of
    an over-long output) comes after `finished`.
+9. A call that waits for a place under `maxInflight` (2.4) starts **at the end of the step in which a place
+   of its neuron came free**. A step is one piece of work due (rule 1: one wake-up, or one thing a process
+   did) and everything it causes at that instant. So the start comes after every event of that step (the
+   outcome that freed the place, its forward and the delivery effects, `finished`, the notes) and before
+   any other work due at that instant. A place is given back only at the end of the step in which its call
+   ended, never inside it: an input delivered to the neuron later in that step waits too, behind the calls
+   already waiting. At the end of the step the call that has waited longest, among those whose neuron has
+   a free place, starts (the waiting calls of every neuron are in one order, the order they arrived); then
+   the next, one at a time, until none can. A call that ends as it starts (refused for its budget, 10.3)
+   gives its place to the next within the same end of step. What a call causes when it starts (its
+   `reserve` note, its wake-ups) is scheduled then, as for any call.
 
 ### 6.3 Process notes
 
@@ -846,8 +893,8 @@ The notes of a budget (10) are written only when the network has a `budget`:
   `error` (or `unknown`) comes at the timeout and the `commit` when the program is over.
 
 - `cancel`: when the engine cancels a call that has started (stale, timeout), after the drop or
-  error. A call that is only queued for a slot, or a held input, has not started: it is dropped
-  without a `cancel` note.
+  error. A call that is only queued (for a slot, or for a place under `maxInflight`), or a held input,
+  has not started: it is dropped without a `cancel` note.
 - `term`: when the engine sends SIGTERM to a process group that still has a live member (a
   cancelled level 0 call; a level 1 process that crashed, hung, or wrote a line over 1 MiB).
   Nothing is written for a group that is already empty. A group's members are the process and whatever it
@@ -1142,7 +1189,8 @@ When a call with a `cost` starts, the engine **reserves** the cost from its trac
 takes every unit of the cost out of the pool, and writes a `reserve` note (6.3). A call starts
 when its program is started (level 0), when its `signal` line is written (level 1: a call
 queued for a slot reserves when the slot frees, not before) or when the composed neuron's
-input enters its inside. A held input has not started a call and reserves nothing; the
+input enters its inside. A call waiting for a place under `maxInflight` (2.4) has not started: it
+reserves when it starts, at the place 6.2 rule 9 gives, and is refused then if the pool cannot cover it. A held input has not started a call and reserves nothing; the
 threshold call reserves once, when it acts. A call dropped before it starts (stale while held
 or queued) never reserved.
 
@@ -1226,8 +1274,8 @@ before.
 
 When work for an effect neuron goes stale (5.4):
 
-- **Waiting work** (a held input, a call queued for a level 1 slot) has not started anything: it is dropped as
-  usual, reason `replaced`, phase `waiting`.
+- **Waiting work** (a held input, a call queued for a level 1 slot or for a place under `maxInflight`) has not
+  started anything: it is dropped as usual, reason `replaced`, phase `waiting`.
 - **A started call is not cut.** No `drop` is reported, no `cancel` is sent (level 1) and no signal is sent to
   the process group (level 0), and no `cancel`, `term` or `kill` note is written. The call is marked stale and
   runs to its own end. For a threshold call, any input it was built from going stale marks it, as in 5.4.
@@ -1345,7 +1393,7 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
 - Passive and active channels (open; no field reserved); link attributes.
 - `http` authentication and headers; a `human` wait that survives a restart, several people and who may answer
   ([decision 0008](decisions/0008-human-neurons-on-a-page.md)); Wasm neurons;
-  Windows; concurrency limits at level 0; inspecting inside
+  Windows; inspecting inside
   a composed neuron; byte-level fixtures and real-process fixtures; hot reload.
 - Distribution: the engine will ship as a binary inside the npm and pip
   packages (the esbuild and ruff pattern).
@@ -1357,6 +1405,9 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
 - Confinement, later ([decision 0018](decisions/0018-confining-a-program-to-its-may.md)): confinement as the
   default; a program placed on another machine; a named host for a program that does not speak HTTP; a path
   that reaches a program through a variable named in `env`.
+- A limit on calls at once, later ([decision 0021](decisions/0021-a-limit-on-calls-at-once.md)): a bound on
+  how many calls may wait or for how long, at level 1 as well; a cap on connections to a peer; limits by
+  trace or by caller; backpressure to a live producer.
 - Effects, later: an engine-held `unknown` that blocks a key until reconciled, a retry policy, effects
   inside a composed file (11.5).
 - Budgets, later: usage claims in level 1 replies, an owed ledger, spend per source or per time
@@ -1424,10 +1475,15 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
   standard input (`run --inputs -`, `rust-engine/README.md`), writing its events to the stream as they happen
   and keeping none. A file it hosts for other engines (`peer --network`) takes the same injection as an
   `inject` line on a connection, and writes the file's own events to the worker's `--stream`.
-- **A limit on level 0 calls at once** (Appendix B): none in this engine, nor in the Python one. The Rust
-  engine takes one for the whole engine from the command line (`run --at-once <n>`, `peer --at-once <n>`,
+- **A limit on calls at once**: `maxInflight` (2.4) is held by this engine, the Python one and the Rust one,
+  for `run` and `network` neurons, and by the Rust one for `http` too (the only one that runs them). Here
+  the end of a step (6.2 rule 9) is a microtask: a place is given back, and the waiting call started,
+  after the callback that freed it has returned. Besides the option the Rust engine takes a limit for the
+  whole engine from the command line (`run --at-once <n>`, `peer --at-once <n>`,
   [decision 0021](decisions/0021-a-limit-on-calls-at-once.md)): a level 0 call over it is queued in arrival
-  order, and queued means what it means at level 1 (3.2, 5.4, 10.3, 11). A network file cannot state it.
+  order, and queued means what it means at level 1 (3.2, 5.4, 10.3, 11). A network file cannot state that
+  one. A call under both takes its neuron's place first and keeps it while it waits for the engine's; a
+  neuron placed on a peer has its `maxInflight` held by the engine that holds its calls.
 - **A neuron named by its own file** (2.10): read when the network file is (`readNetwork`), so the engine itself
   never sees the `neuron` kind. The Python and Rust engines do the same in their loaders.
 - **`may`** (2.4): checked, the fold included. This engine does not confine (2.9): a program runs with the rights
@@ -1542,6 +1598,8 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 2.6 | Step 3: the inside has nothing running, queued or held for the call | global (inside) | The end of a call's inner work, G2 below, one level down. |
 | 2.6 | Step 6: `cost` and the inner `budget` bound the inside (10.5) | local | The boundary owns the inner trace's pool. |
 | 2.4 | `may`: the shape, and a composed neuron covering its inside | static | |
+| 2.4 | `maxInflight`: the places of one neuron, its waiting calls and their order | local | The wrapper counts its own calls. |
+| 2.4, 6.2 | Rule 9: which waiting call starts first when places of several neurons come free in one step | global | One order across neurons (G3). |
 | 2.10 | A neuron named by its own file; narrowing | static | Read once, before anything runs; afterwards it is an ordinary neuron. |
 | 2.9 | Confinement: the baseline, paths, connections, a proxy per neuron | local | The wrapper starts the program, and holds it. |
 | 2.9 | A confined run is refused whole when one program cannot be held | global | One neuron's `may` decides for the network, as G6. |
@@ -1558,7 +1616,7 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 4.4 | Forward along outgoing links; key set, cleared or inherited; two hops per neuron | local | The neuron's links and the input's fields. |
 | 4.5 | The ground: a value per place, deposits, evaporation | global | Any reply may write any place, and a draw at one neuron reads its targets' places (G4). |
 | 4.5 | One generator per engine, one draw per omitted-`to` reply | global | The sequence of draws follows the order of every neuron's replies (G4, G3). |
-| 5.1 | Order at a delivery: hops, hold, run | local | |
+| 5.1 | Order at a delivery: hops, hold, wait for a place, run | local | |
 | 5.2 | Threshold: groups by (neuron, trace), distinct senders, `within` | local | The receiver's own inputs; the sender is on the signal. |
 | 5.3 | `maxHops` | local | `hops` is on the signal. |
 | 5.4 | Staleness, when the newer signal reaches the same target | local | The target sees the newer (sender, key) input and cuts its own older work. |

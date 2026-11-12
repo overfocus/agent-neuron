@@ -27,6 +27,9 @@
         "timeout": {
           "$ref": "#/$defs/ms"
         },
+        "maxInflight": {
+          "$ref": "#/$defs/inflight"
+        },
         "effect": {
           "const": true
         },
@@ -118,6 +121,9 @@
         "timeout": {
           "$ref": "#/$defs/ms"
         },
+        "maxInflight": {
+          "$ref": "#/$defs/inflight"
+        },
         "effect": {
           "const": true
         }
@@ -177,6 +183,11 @@
       "minimum": 1,
       "maximum": 86400000,
       "description": "A human neuron's timeout: up to a day (decision 0008); every other kind is capped at an hour."
+    },
+    "inflight": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The most calls of the neuron at once; the rest wait in arrival order (SPEC 2.4, decision 0021). Absent: no limit."
     },
     "hostPort": {
       "description": "A host or address and a port, `host:port`: lower-case letters, digits, dots and hyphens, then a port from 1 to 65535. No wildcard.",

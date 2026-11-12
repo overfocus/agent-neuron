@@ -1,0 +1,43 @@
+{
+  "version": 0,
+  "name": "a-place-freed-in-a-step-is-taken-at-the-end-of-the-step",
+  "description": "A place that comes free is taken when the step that freed it is over, by the call that has waited longest: `three` cuts `one` at 10 and waits behind `two`; the `reserve` of `two` at a follows everything else that signal caused (the `reserve` at b).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "maxInflight": 1,
+      "cost": {
+        "credits": 1
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "cost": {
+        "credits": 1
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "b"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "a-waiting-call-that-goes-stale-is-dropped",
+  "description": "A level 0 call waiting for a place under `maxInflight` that goes stale is dropped as replaced, phase waiting, with no cancel note, and never starts (5.4): the script has no entry for it.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "maxInflight": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

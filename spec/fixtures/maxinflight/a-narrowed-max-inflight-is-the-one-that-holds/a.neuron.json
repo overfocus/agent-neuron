@@ -1,0 +1,7 @@
+{
+  "version": 0,
+  "run": [
+    "neuron-a"
+  ],
+  "maxInflight": 2
+}
