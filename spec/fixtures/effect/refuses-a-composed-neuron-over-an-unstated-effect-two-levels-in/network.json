@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "refuses-a-composed-neuron-over-an-unstated-effect-two-levels-in",
+  "description": "A composed neuron inside a composed file counts by its own effect: the file of box has mid, which states effect, so box must state it too. Check refuses box, and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "mid.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    }
+  ]
+}

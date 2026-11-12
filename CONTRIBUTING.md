@@ -164,7 +164,7 @@ by them.
   need `"notes": true`, so a fixture about something else does not change when the trace gains an event.
 - The conformance runner checks the live stream (SPEC 9.1) against the events of every run it makes, so an engine
   change that reorders, drops or hands over its events fails every fixture. A neuron with `effect` is never cut by
-  staleness and fails as `unknown`, not `error` (SPEC 11); `effect` is refused inside a composed file.
+  staleness and fails as `unknown`, not `error` (SPEC 11); a composed neuron states `effect` exactly when its file has an effect neuron (11.5).
 - Other projects may copy `traces/` and `examples/trace/replay.mjs`, so a breaking format change bumps `version`
   (rules in `docs/TRACE.md`).
 

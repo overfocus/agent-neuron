@@ -977,3 +977,98 @@ fn each_fails_an_answer_that_is_not_an_array_and_forwards_nothing_for_an_empty_o
     assert!(!has(&trace, "\"from\":\"list\",\"to\":[\"one\"]"), "{}", trace);
     assert!(!has(&trace, "\"type\":\"error\""), "{}", trace);
 }
+
+// -- An effect inside a composed neuron (11.5) --------------------------------
+
+/// A composed effect neuron whose one inner neuron is the effect: `sh` reads
+/// the input, waits, appends it to `sent.log` beside the file and answers it.
+fn composed_effect_network(temp: &Temp, inner_neurons: &str, inner_links: &str, entry: &str, exit: &str, opts: &str) -> PathBuf {
+    temp.write(
+        "inner.network.json",
+        &format!(
+            "{{\n  \"version\": 0,\n  \"name\": \"inner\",\n  \"neurons\": [{inner_neurons}],\n  \"links\": [{inner_links}],\n  \"entry\": \"{entry}\",\n  \"exit\": \"{exit}\"\n}}\n"
+        ),
+    );
+    temp.write(
+        "network.json",
+        &network("", &[("box", "\"network\"", "\"inner.network.json\"", opts)]),
+    )
+}
+
+const SEND: &str = r#"{"id": "send", "description": "the effect", "run": ["/bin/sh", "-c", "read -r x; sleep 0.8; echo \"$x\" >> sent.log; echo \"$x\""], "effect": true}"#;
+
+/// A newer input does not cut a composed call whose effect has started
+/// (11.5): both effects happen, nothing is dropped, the older answer is
+/// recorded and not forwarded.
+#[test]
+fn a_composed_call_is_not_cut_once_its_effect_has_started() {
+    let temp = Temp::new("composed-effect-stale");
+    let net = composed_effect_network(&temp, SEND, "", "send", "send", ", \"effect\": true, \"timeout\": 5000");
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": 1, \"replaces\": \"k\"}\n{\"at\": 300, \"source\": \"src\", \"payload\": 2, \"replaces\": \"k\"}\n",
+    );
+    let trace_path = temp.path("trace.json");
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &trace_path.to_string_lossy()]);
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    let sent = std::fs::read_to_string(temp.path("sent.log")).unwrap_or_default();
+    assert_eq!(sent, "1\n2\n", "both effects happened");
+    let trace = std::fs::read_to_string(&trace_path).expect("the trace");
+    assert!(!has(&trace, "\"type\":\"drop\""), "the stale call was cut: {trace}");
+    assert_eq!(count(&trace, "\"forwarded\":false"), 1, "the older answer is marked: {trace}");
+    assert!(!has(&trace, "\"send\""), "the inside is sealed: {trace}");
+}
+
+/// The timeout of a composed effect call is `unknown` once its effect has
+/// started, and it ends the effect call inside (11.5): the program is
+/// killed before it writes, and the run does not wait for it.
+#[test]
+fn a_composed_effect_call_that_times_out_is_unknown_and_its_effect_is_killed() {
+    let temp = Temp::new("composed-effect-timeout");
+    let net = composed_effect_network(&temp, SEND, "", "send", "send", ", \"effect\": true, \"timeout\": 300");
+    let inputs = inputs_file(&temp, &[("0", "src", "1")]);
+    let trace_path = temp.path("trace.json");
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &trace_path.to_string_lossy()]);
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    assert_eq!(stdout(&out), "", "a timed-out call answers nothing");
+    let trace = std::fs::read_to_string(&trace_path).expect("the trace");
+    assert!(
+        has(&trace, "\"type\":\"unknown\"") && has(&trace, "\"code\":\"timeout\""),
+        "the trace reads: {trace}"
+    );
+    assert!(!has(&trace, "\"type\":\"error\""), "the timeout is not an error: {trace}");
+    assert!(!temp.path("sent.log").exists(), "the effect was killed at the timeout");
+}
+
+/// `exit` replies while the effect inside still runs (11.5): the reply is
+/// the composed neuron's at once, the effect is not cancelled, and the run
+/// ends only when it has: its line is in the log, and the trace's `finished`
+/// comes after the effect's 800 ms.
+#[test]
+fn an_effect_inside_outlives_the_reply_of_exit() {
+    let temp = Temp::new("composed-effect-exit");
+    let neurons = format!(
+        "{}, {}, {}",
+        r#"{"id": "entry", "description": "in", "run": ["/bin/cat"]}"#,
+        r#"{"id": "exit", "description": "answers first", "run": ["/bin/sh", "-c", "printf '{\"fast\":1}'"]}"#,
+        SEND
+    );
+    let links = r#"{"from": "entry", "to": "exit"}, {"from": "entry", "to": "send"}"#;
+    let net = composed_effect_network(&temp, &neurons, links, "entry", "exit", ", \"effect\": true, \"timeout\": 5000");
+    let inputs = inputs_file(&temp, &[("0", "src", "7")]);
+    let trace_path = temp.path("trace.json");
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &trace_path.to_string_lossy()]);
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "{\"fast\":1}", "the composed answer: {}", stdout(&out));
+    let sent = std::fs::read_to_string(temp.path("sent.log")).unwrap_or_default();
+    assert_eq!(sent, "7\n", "the effect ran to its end");
+    let trace = std::fs::read_to_string(&trace_path).expect("the trace");
+    let finished = trace.find("\"type\":\"finished\"").expect("a finished event");
+    let t: u64 = trace[finished..]
+        .split("\"t\":")
+        .nth(1)
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|n| n.parse().ok())
+        .expect("the finished event's t");
+    assert!(t >= 700, "the trace finished before the effect ended, at {t}: {trace}");
+}

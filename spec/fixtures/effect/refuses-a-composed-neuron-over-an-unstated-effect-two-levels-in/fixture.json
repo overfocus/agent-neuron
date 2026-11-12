@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "A composed neuron inside a composed file counts by its own effect: the file of box has mid, which states effect, so box must state it too. Check refuses box, and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

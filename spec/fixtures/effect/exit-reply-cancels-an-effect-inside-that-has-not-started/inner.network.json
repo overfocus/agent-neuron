@@ -1,0 +1,47 @@
+{
+  "version": 0,
+  "description": "The network inside a composed neuron.",
+  "neurons": [
+    {
+      "id": "e",
+      "run": [
+        "neuron-e"
+      ]
+    },
+    {
+      "id": "x",
+      "run": [
+        "neuron-x"
+      ]
+    },
+    {
+      "id": "slow",
+      "run": [
+        "neuron-slow"
+      ]
+    },
+    {
+      "id": "notify",
+      "run": [
+        "neuron-notify"
+      ],
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "e",
+      "to": "x"
+    },
+    {
+      "from": "e",
+      "to": "slow"
+    },
+    {
+      "from": "slow",
+      "to": "notify"
+    }
+  ],
+  "entry": "e",
+  "exit": "x"
+}

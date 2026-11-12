@@ -1,0 +1,22 @@
+{
+  "fixture": 0,
+  "description": "The effect neuron inside takes one call at a time, and the instance shares that place. The second call's effect waits behind the first call's, so nothing of it has started: the input that replaces it at 40 cuts it (a drop and a cancel note). The third call's effect starts when the place frees at 100.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":"a","replaces":"ka"},
+    {"at":10,"source":"s","payload":"b1","replaces":"kb"},
+    {"at":40,"source":"s","payload":"b2","replaces":"kb"}
+  ],
+  "script": {
+    "box/notify": {"calls":[{"after":100,"reply":{"answer":"sent-a"}},{"after":10,"reply":{"answer":"sent-b2"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"replaces":"ka","payload":{"type":"text","text":"a"}},
+    {"type":"signal","t":10,"id":"#2","from":"s","to":["box"],"trace":"#2","hops":0,"replaces":"kb","payload":{"type":"text","text":"b1"}},
+    {"type":"signal","t":40,"id":"#3","from":"s","to":["box"],"trace":"#3","hops":0,"replaces":"kb","payload":{"type":"text","text":"b2"}},
+    {"type":"drop","t":40,"id":"#2","from":"s","to":["box"],"trace":"#2","hops":0,"neuron":"box","reason":"replaced","phase":"running","payload":{"type":"text","text":"b1"}},
+    {"type":"note","t":40,"neuron":"box","what":"cancel"},
+    {"type":"answer","t":100,"id":"#4","from":"box","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"sent-a"}},
+    {"type":"answer","t":110,"id":"#5","from":"box","to":["s"],"trace":"#3","replyTo":"#3","hops":1,"payload":{"type":"text","text":"sent-b2"}}
+  ]
+}

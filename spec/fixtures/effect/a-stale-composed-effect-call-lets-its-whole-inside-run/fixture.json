@@ -1,0 +1,22 @@
+{
+  "fixture": 0,
+  "description": "The effect neuron inside answered at 20 and x, which is no effect, is running when the call goes stale at 40. The call is marked and its inside runs to its end, x included: the answer comes at 100 with forwarded false.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":"old","replaces":"k"},
+    {"at":40,"source":"s","payload":"new","replaces":"k"}
+  ],
+  "script": {
+    "box/notify": {"calls":[{"after":20,"reply":{"answer":"sent-old"}},{"after":10,"reply":{"answer":"sent-new"}}]},
+    "box/x": {"calls":[{"after":80,"reply":{"answer":"old"}},{"after":10,"reply":{"answer":"new"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"text","text":"old"}},
+    {"type":"signal","t":40,"id":"#2","from":"s","to":["box"],"trace":"#2","hops":0,"replaces":"k","payload":{"type":"text","text":"new"}},
+    {"type":"answer","t":60,"id":"#3","from":"box","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"new"}},
+    {"type":"finished","t":60,"trace":"#2","status":"done"},
+    {"type":"answer","t":100,"id":"#4","from":"box","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"forwarded":false,"payload":{"type":"text","text":"old"}},
+    {"type":"finished","t":100,"trace":"#1","status":"done"}
+  ]
+}

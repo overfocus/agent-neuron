@@ -1,0 +1,20 @@
+{
+  "fixture": 0,
+  "description": "The effect neuron inside started at 10 and hangs. The composed call's timeout at 100 is unknown, and it cancels the inside, the started effect call too: that call held the neuron's one place, and the second call's effect at 160 finds it free.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1},
+    {"at":150,"source":"s","payload":2}
+  ],
+  "script": {
+    "box/e": {"calls":[{"after":10,"reply":{"answer":1}},{"after":10,"reply":{"answer":2}}]},
+    "box/notify": {"calls":[{"reply":{"hang":true}},{"after":10,"reply":{"answer":"sent"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"unknown","t":100,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"neuron":"box","message":"timed out after 100 ms","code":"timeout","payload":{"type":"json","data":1}},
+    {"type":"note","t":100,"neuron":"box","what":"cancel"},
+    {"type":"signal","t":150,"id":"#2","from":"s","to":["box"],"trace":"#2","hops":0,"payload":{"type":"json","data":2}},
+    {"type":"answer","t":170,"id":"#3","from":"box","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"sent"}}
+  ]
+}

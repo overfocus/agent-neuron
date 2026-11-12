@@ -1,0 +1,16 @@
+{
+  "fixture": 0,
+  "description": "The effect neuron inside answered, then x fails and exit never replies. The outside cannot tell which neuron failed, and an effect had started: the composed neuron's failure is unknown, code inner.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "box/e": {"calls":[{"after":10,"reply":{"answer":1}}]},
+    "box/notify": {"calls":[{"after":20,"reply":{"answer":"sent"}}]},
+    "box/x": {"calls":[{"after":5,"reply":{"error":"secret inner failure"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"unknown","t":35,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"neuron":"box","message":"no answer: an inner neuron failed","code":"inner","payload":{"type":"json","data":1}}
+  ]
+}

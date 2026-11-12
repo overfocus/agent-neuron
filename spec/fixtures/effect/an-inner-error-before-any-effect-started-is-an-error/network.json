@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "an-inner-error-before-any-effect-started-is-an-error",
+  "description": "e fails before the effect neuron inside is called: nothing has started, so the composed effect neuron's failure is an error, code inner, as for any composed neuron.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json",
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    }
+  ]
+}

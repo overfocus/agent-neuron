@@ -1,0 +1,32 @@
+{
+  "version": 0,
+  "name": "a-composed-call-is-not-cut-once-an-effect-inside-has-started",
+  "description": "The effect neuron inside started at 10. The newer input at 40 does not cut the composed call: no drop, no cancel note. The call answers at its own time, the answer is recorded with forwarded false and not forwarded, and its trace is finished only then.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json",
+      "effect": true
+    },
+    {
+      "id": "after",
+      "run": [
+        "neuron-after"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    },
+    {
+      "from": "box",
+      "to": "after"
+    }
+  ]
+}

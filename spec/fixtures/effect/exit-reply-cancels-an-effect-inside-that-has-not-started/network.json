@@ -1,0 +1,32 @@
+{
+  "version": 0,
+  "name": "exit-reply-cancels-an-effect-inside-that-has-not-started",
+  "description": "When exit replies at 15 the effect neuron inside has not been called (slow is still running before it). The remaining inner work is cancelled as for any composed call, the effect neuron never starts (it has no script entry), and the trace is finished with the outer work at 16.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json",
+      "effect": true
+    },
+    {
+      "id": "after",
+      "run": [
+        "neuron-after"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    },
+    {
+      "from": "box",
+      "to": "after"
+    }
+  ]
+}

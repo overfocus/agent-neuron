@@ -107,6 +107,20 @@ pub fn may_fold_error(outer: &Node, inner: &Network) -> Option<String> {
     None
 }
 
+/// The other fold (SPEC 11.5, decision 0022): a composed neuron states
+/// `effect` exactly when a neuron of its file has it. A composed neuron
+/// inside counts by its own `effect`, as it does by its own `may`.
+pub fn effect_fold_error(outer: &Node, inner: &Network) -> Option<String> {
+    match (outer.opts.effect, inner.nodes.iter().find(|n| n.opts.effect)) {
+        (false, Some(n)) => Some(format!(
+            "'{}' does not state effect and its file has an effect neuron: '{}' (11.5)",
+            outer.id, n.id
+        )),
+        (true, None) => Some(format!("'{}' states effect and its file has no effect neuron (11.5)", outer.id)),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Node {
     pub id: String,
@@ -472,8 +486,8 @@ fn bare(message: String, out: &mut Vec<Diag>) {
 
 /// Parse and validate a network file (SPEC section 2, the errors of 2.7).
 /// `used_as_composed` adds the composed restrictions of 2.6: the file MUST
-/// have `entry` and `exit`, MUST NOT contain a `source` or a neuron with
-/// `effect`, and `exit` MUST NOT have outgoing links. The strings keep their
+/// have `entry` and `exit`, MUST NOT contain a `source`, and `exit` MUST NOT
+/// have outgoing links. The strings keep their
 /// `path: message` shape for the runner.
 pub fn load(path: &str, used_as_composed: bool) -> Result<Network, Vec<String>> {
     let text = std::fs::read_to_string(path).map_err(|e| vec![format!("{}: cannot read ({})", path, e)])?;
@@ -1273,7 +1287,7 @@ fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out
         let allowed = match k {
             "threshold" | "within" => !is_network,
             "maxHops" | "timeout" | "cost" => true,
-            "effect" => !is_network,
+            "effect" => true,
             "env" | "cwd" => is_command,
             "may" => is_command || is_network,
             "maxInflight" => matches!(kind, Kind::Run(_) | Kind::Http(_) | Kind::Network(_)),
@@ -1731,10 +1745,6 @@ fn composed_rules(net: &Network, used_as_composed: bool, scan: &Scan, out: &mut 
         let first = net.nodes.iter().position(|n| n.kind == Kind::Source).unwrap_or(0);
         let span = neuron_spans.get(first).copied().unwrap_or(NONE_SPAN);
         push(span, scan, "source", "a composed file contains a source", out);
-    }
-    if let Some((i, _)) = net.nodes.iter().enumerate().find(|(_, n)| n.opts.effect) {
-        let span = neuron_spans.get(i).copied().unwrap_or(NONE_SPAN);
-        push(span, scan, "effect", "a composed file contains a neuron with effect (11.5)", out);
     }
     match (&net.entry, &net.exit) {
         (Some(e), Some(x)) => {

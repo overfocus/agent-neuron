@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "an-inner-error-after-an-effect-started-is-unknown",
+  "description": "The effect neuron inside answered, then x fails and exit never replies. The outside cannot tell which neuron failed, and an effect had started: the composed neuron's failure is unknown, code inner.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json",
+      "effect": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    }
+  ]
+}

@@ -53,7 +53,7 @@ quiescence): [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
 | Per-trace budgets, effects that are never cut, a live event stream | A neuron reporting its own spend |
 | The engine, in Rust (`rust-engine/`): real processes, `http` neurons, `human` neurons on the desk, peers on other machines, the MCP server `neuron-engine mcp` | `https` (needs a dependency policy) and packaging of the engine binary for npm |
 | Composed neurons: a whole network behind one wrapper, sealed from outside | Anything that learns: today each call is its own process and nothing is kept |
-| 303 conformance fixtures any other engine must pass (decisions 0012, 0016's `may`, 0019's neuron file, 0021's `maxInflight` and 0022's `args` and `each` included); recorded traces | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
+| 318 conformance fixtures any other engine must pass (decisions 0012, 0016's `may`, 0019's neuron file, 0021's `maxInflight` and 0022's `args`, `each` and effects inside a composed file included); recorded traces | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
 
 ## Try it
 
@@ -305,7 +305,8 @@ call that has started (nothing is cancelled, its answer is recorded, its cost co
 that answer from being forwarded (`"forwarded": false` on the `answer` event); and if the call crashes, hangs
 or times out, the trace says `unknown`, not `error`, because nobody can tell whether the effect
 happened. The engine reconciles nothing: a producer or an observer injects the id from the payload into a
-declared source (SPEC 11.4). Every event is also offered as it happens, in written order,
+declared source (SPEC 11.4). A composed neuron whose file has an effect neuron states `effect` too, and the
+same two rules hold at its boundary from the moment an effect inside has started (SPEC 11.5). Every event is also offered as it happens, in written order,
 as JSON lines (`run --stream <path>`); a consumer that fails never changes the run
 (SPEC 9.1). See [SPEC section 11](docs/SPEC.md) and [decision 0007](docs/decisions/0007-effects-and-the-live-stream.md).
 
@@ -319,7 +320,7 @@ npm run demo:human    # a person approves, edits or refuses each proposed rewrit
 ### Conformance fixtures
 
 Any further engine must give the same events as this one on
-the same inputs. The shared test is [`spec/fixtures/`](spec/fixtures/): 303
+the same inputs. The shared test is [`spec/fixtures/`](spec/fixtures/): 318
 small fixtures, each a network file, scripted inputs, scripted neuron replies with
 latencies on a virtual clock, and the exact events expected, ids normalised. No
 process starts and no clock is read, so a run is exactly repeatable.
@@ -356,7 +357,7 @@ test that measured the fixtures is gone) is said plainly in the decision.
 
 ```sh
 cargo test --release --manifest-path rust-engine/Cargo.toml                  # the engine's own tests (npm run engine:test runs them one at a time)
-cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures    # 303 passed, 0 failed, 0 pending
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures    # 318 passed, 0 failed, 0 pending
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/probes      # 10 passed, 0 failed, 0 pending
 cargo run --manifest-path rust-engine/Cargo.toml -- mcp                      # the MCP server on stdio
 cargo run --manifest-path rust-engine/Cargo.toml -- run net.json --inputs in.jsonl --peers peers.json  # some calls run on another machine (P0, decision 0013)
@@ -455,7 +456,7 @@ All of these are up for debate; experiments should inform them.
 
 ## Status
 
-The specification is version 0.1, a draft, with 303 conformance fixtures, and one engine runs it: the Rust engine in
+The specification is version 0.1, a draft, with 318 conformance fixtures, and one engine runs it: the Rust engine in
 `rust-engine/` ([decision 0023](docs/decisions/0023-one-engine.md)). Built: network files with a closed schema; neurons
 of every kind (`run`, `serve`, `http`, `human`, composed, and a neuron named by its own file); a `threshold` of distinct
 senders on one trace, with a running call cut when any input it acted on is replaced; stale-work dropping by `replaces`;

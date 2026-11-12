@@ -1,6 +1,6 @@
 # Decision record 0022: what a swarm needs (2026-11-12)
 
-**Status: decided 2026-11-12, every recommendation accepted. Built: S1 (`--result`), S2 (`each`), S4 (`args`), S6 (a neuron's own settings). Not built: S3, S5.** A real job was put
+**Status: decided 2026-11-12, every recommendation accepted. Built: S1 (`--result`), S2 (`each`), S3 (effects in a composed file), S4 (`args`), S6 (a neuron's own settings). Not built: S5.** A real job was put
 to the engine: give each of 21 business types a private template repository, one neuron doing one
 type and another handing out the list. It ran (the branch `feat/template-swarm`, kept unmerged), and
 it showed six things missing between the contract and a swarm. One of them, a limit on calls at
@@ -371,3 +371,65 @@ Not done: the TypeScript and Python engines and the mutants in `test/conformance
 its row in DEMOS.md; the trace header does not list `each` among a neuron's `options`; the MCP
 server's description of a network does not show it; `each` on a neuron placed on a peer or in a
 hosted file is untested (the answer comes back through the same `call_replied`).
+
+## S3 as built (2026-11-12)
+
+The contract and the Rust engine, on `feat/s3-composed-effects`: `effect` on a `network` neuron in
+`spec/network.schema.json`, SPEC 2.4, 2.6 (steps 2, 3, 4 and 7), 2.7, 5.4, 6.1, section 8, 11.1, 11.5
+(rewritten), 11.6 and Appendix B and E, and 16 fixtures in `spec/fixtures/effect/`, their expected
+events written by hand from the text before the engine ran them. One of the 16 is the refusal that was
+there, renamed: it still refuses, now because the entry leaves `effect` out. The engine passes all 318.
+
+The gate, by fixture:
+
+| Check | Fixture (`effect/`) |
+|---|---|
+| the fold, both refusals | `refuses-a-composed-neuron-that-does-not-state-the-effect-inside`, `refuses-effect-on-a-composed-neuron-whose-file-has-none`, `refuses-a-composed-neuron-over-an-unstated-effect-two-levels-in` |
+| accepted, and an undisturbed call | `a-composed-neuron-with-an-effect-inside-answers-and-forwards` |
+| a call not cut after its inner effect started | `a-composed-call-is-not-cut-once-an-effect-inside-has-started`, `a-stale-composed-effect-call-lets-its-whole-inside-run`, `an-effect-two-levels-down-is-stated-at-each-level` |
+| cut before it | `a-composed-effect-call-is-cut-while-no-effect-inside-has-started`, `an-effect-inside-waiting-for-a-place-has-not-started` |
+| an inner `unknown` surfacing | `an-inner-unknown-is-the-composed-neurons-unknown` (with its `reserve` and `commit`), `an-inner-error-after-an-effect-started-is-unknown`, `an-inner-error-before-any-effect-started-is-an-error` |
+| a timeout before and after the inner start | `a-timeout-with-no-effect-started-is-an-error`, `a-timeout-after-an-effect-started-is-unknown-and-cancels-it` |
+| `exit` replying while an inner effect still runs | `exit-replies-while-an-effect-inside-still-runs`, `exit-reply-cancels-an-effect-inside-that-has-not-started` |
+
+Eight engines broken on purpose (the trace not held open, a timeout that does not reach a started
+effect, a call always or never counted as started, a failure always `unknown`, no word to the composed
+call around, `exit`'s reply cancelling a started effect, a waiting call counted as started) each fail
+at least one of them. Real processes: three tests in `rust-engine/tests/real.rs`, and three in
+`tests/check.rs` for the refusals.
+
+What the build settled that point 2 left loose. **All are for the maintainer to confirm.**
+
+1. **When an effect inside "has started"**: when a call of an effect neuron of the file starts for the
+   call, by 10.3's start. A call waiting for a slot or a place has started nothing, so the composed
+   call around it is still cut. A composed effect neuron inside passes it up: started two levels down
+   is started at every level.
+2. **Every failure after that is `unknown`, not only an inner `unknown`.** Point 2 said an inner
+   `unknown` is the composed neuron's. An inner *error* after an effect had started (the effect
+   answered, then another inner neuron failed and `exit` never replied) is `unknown` too: sealing
+   keeps the outside from telling which neuron failed, and an `error` on an effect neuron reads as
+   "nothing happened". It is the same test the timeout uses. The other reading keeps it an error.
+3. **A stale composed effect call lets its whole inside run**, the work that is not an effect included
+   ("the inside runs to its end"), and its answer is recorded with `forwarded: false`.
+4. **The timeout cancels the started effect calls inside**, as their own timeout would (11.3).
+5. **After `exit` has replied, a started effect call inside is marked stale**: it runs to its end,
+   nothing it answers is forwarded inside, and no new inner work starts for a call that is over. The
+   composed call's `commit`, and its place under `maxInflight`, are given at the reply, not when the
+   effect ends.
+6. **What that effect does after the reply is lost to the outside**, its failure included: the call's
+   one outcome is already reported. The SPEC says so and says where to put an effect whose failure
+   must be seen (on the way to `exit`, or in the outer file). Appendix B lists the report as later.
+7. **The message of the `unknown` is the error's**, `no answer: an inner neuron failed`.
+8. **`effect` on the entry is required exactly when the file has one**: stating it over a file with
+   none is refused too, as point 2 said. A composed neuron inside counts by its own `effect`.
+9. **A composed effect neuron placed on a peer counts as started at dispatch** (the Rust engine, not
+   the SPEC): the driver cannot see what the peer's file has started.
+
+Found on the way and fixed: an inner neuron that is not `exit` and has no outgoing links had its answer
+printed among the run's answers (2.6's sealing; the trace was always sealed). No fixture sees printed
+answers; the real-process test of `exit` replying first pins it.
+
+Not done: a demo and its row in DEMOS.md (the template job is to be it); a fixture that pins where
+`finished` stands against the `cancel` note of a cut or timed-out composed call (no fixture pinned it
+before either); an inner effect that is a `serve`, `http` or `human` neuron, a composed effect neuron
+on a peer and a hosted file are untested.
