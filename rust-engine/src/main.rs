@@ -1,6 +1,7 @@
 // The command line: `neuron-engine conform <dir> [--only <text>]` and
 // `neuron-engine run <file> --inputs <jsonl> [--trace <out.json>] [--grants <json>] [--stream
-// <path>] [--ping <ms>]`.
+// <path>] [--ping <ms>]`. `neuron-engine --version` prints the crate version and
+// the commit the binary was built from (`build.rs`).
 //
 // `conform` is the contract of CONFORMANCE 8: one line per fixture, `pass`/
 // `fail` (first difference, two more indented lines)/`pending`, a last summary
@@ -21,6 +22,7 @@ fn usage() -> ! {
     eprintln!("       neuron-engine check <file>");
     eprintln!("       neuron-engine mcp");
     eprintln!("       neuron-engine peer --listen <host:port> --token <hex> [--name <name>]");
+    eprintln!("       neuron-engine --version");
     std::process::exit(2);
 }
 
@@ -59,6 +61,7 @@ fn main() {
         "check" => check::main(&args[1..]),
         "mcp" => mcp::main(&args[1..]),
         "peer" => peers::main(&args[1..]),
+        "--version" => println!("neuron-engine {} {}", env!("CARGO_PKG_VERSION"), env!("NEURON_ENGINE_COMMIT")),
         _ => usage(),
     }
 }
