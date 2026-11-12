@@ -5,7 +5,7 @@ to the engine: give each of 21 business types a private template repository, one
 type and another handing out the list. It ran (the branch `feat/template-swarm`, kept unmerged), and
 it showed six things missing between the contract and a swarm. One of them, a limit on calls at
 once, is [decision 0021](0021-a-limit-on-calls-at-once.md)'s `maxInflight` and is being built as
-decided there. This record decides the other five. Nothing here changes the SPEC, the schema or a
+decided there. This record decides the other five, and a sixth that came up while they were being built. Nothing here changes the SPEC, the schema or a
 fixture until each step's own contract commit.
 
 ## What the job showed
@@ -116,6 +116,40 @@ fails, the engine starts it again with the same input after `wait` ms, at most `
   start is `unknown` (11.3).
 - It is the neuron's own (0019): a using entry may lower `times` and never raise it.
 
+### 6. A neuron's own settings: `.env` beside the file that declares it (added 2026-11-12)
+
+A neuron's `env` is names only (2.4), and until now every value came from the environment of the
+engine that starts the program. So two neurons under one engine cannot hold different values for one
+name, and a neuron that runs as a daemon, or under somebody else's engine, gets whatever that
+process was started with: nothing travels with the neuron. The template job met this at once (a
+token for the neuron that creates, another for the one that only reads), and its first answer was
+programs that load a file themselves, which every program would then have to do.
+
+The engine does it instead. **The settings file of a neuron is `.env` in the directory of the file
+that declares its program**: the neuron's own file for an entry that names one (2.10), the network
+file for a neuron written inline. For each name in the neuron's `env`, the value is the file's if the
+file has the name, and the engine's environment's otherwise.
+
+- **Only the names in `env` are passed**, as before. The file never widens what a program sees; a
+  name in the file that the neuron does not list is not passed.
+- **The file wins over the engine's environment.** The common convention is the other way round. Here
+  the point is that a neuron behaves the same whoever starts the engine.
+- **No file, or a name the file lacks: exactly as today.** A default that does nothing.
+- **The format is lines of `NAME=value`.** Blank lines and lines that start with `#` are skipped; a
+  value in single or double quotes loses them; there is no interpolation, no `export`, no escape. A
+  line that is anything else is an error: `check` reports its file and line (never its text), and the
+  engine refuses to start.
+- **A value is never reported**: not in an event, a note, the trace, or a `check` message.
+- **`run` and `serve` neurons**, the only kinds with an `env`. An entry that narrows `env` (2.10)
+  narrows which names are filled, from the same file.
+- **The engine reads the file, not the program**, so the program needs nothing in its `may` for it.
+- **Where the program is started is where the file is read.** An engine that hosts a file
+  (`peer --network`) reads the settings beside that file, on its own machine, and no value crosses
+  the wire. A single program placed on a program worker is sent its environment by the driver, as
+  today; that is the driver's file and the driver's values.
+
+It is not a field: nothing in the network file or the neuron file names the settings file.
+
 ## The field budget
 
 2.8 allows nine options. `maxInflight` is the tenth (0021). `each` and `retry` are the eleventh and
@@ -161,14 +195,17 @@ Each step is a `feat/` branch and a merge of its own.
   effect with `retry` and not without, `wait` in virtual time, narrowing from a neuron's file, and
   each refusal.
 
+- **S6: a neuron's own settings.** Gate, on real processes: a program sees the file's value for a
+  listed name and not for an unlisted one; the file wins over the engine's environment; two neurons
+  with their own files see their own values for one name; a `serve` program sees its own; no file is
+  as before; a malformed line refuses the start and names the line without its text.
+
 Then the template job again, as one file: `dispatch` with `each`, the one-type network as a composed
 effect neuron with `maxInflight` and `retry`, `args` for the dry run, `--result` for the answer.
 
 **One more criterion for that job, from Kevin (2026-11-12):** its neurons must not depend on the `gh`
 command line. They call GitHub's API themselves, with what they need (the token, the owner) read from
-`.env` settings that belong to the neuron. That is a change to the example's programs, not to the
-contract: a program may read a file its `may` lets it read. Whether an engine should load such a file
-for a neuron's `env` names is not decided here.
+`.env` settings that belong to the neuron: point 6.
 
 ## Decided (2026-11-12)
 
@@ -179,5 +216,7 @@ Kevin accepted every recommendation, and extending the field budget.
 3. **`--result`**, opt-in, exit 3 on any error or unknown.
 4. **`retry` on an effect covers `unknown`**: the file says the program is idempotent.
 5. **`args` on the entry**, reversing 0019 on that one line.
+7. **A neuron's own settings** (point 6), the file winning over the engine's environment. Asked for
+   by Kevin for a neuron that can stand alone as a daemon; accepted the same day.
 6. **The order**: `maxInflight` (0021 L2), `--result`, `each`, effects in a composed file, `args`,
    `retry`.
