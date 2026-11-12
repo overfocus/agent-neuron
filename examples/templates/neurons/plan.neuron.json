@@ -1,0 +1,8 @@
+{
+  "$schema": "../../../spec/neuron.schema.json",
+  "version": 0,
+  "description": "Names the repo one business type gets: { owner, template, type } in, { id, repo, template, type } out, the repo being <owner>/<type>-template. Pure; refuses a type that is not a slug.",
+  "run": ["node", "plan.mjs"],
+  "timeout": 10000,
+  "may": { "read": ["."] }
+}

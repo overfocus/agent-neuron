@@ -1,0 +1,21 @@
+{
+  "$schema": "../../spec/network.schema.json",
+  "version": 0,
+  "name": "all-templates",
+  "description": "A list of business types, one template repo each. The list enters at `list`; `dispatch` answers the first type and the rest, and that answer goes two ways: to `plan` (the same three neurons as one.network.json, named by their files) and back to `dispatch`, which hands out the next. The loop ends when the list is empty, at maxHops, or when the budget of repos is spent.",
+  "budget": { "repos": 30 },
+  "neurons": [
+    { "id": "list", "description": "Where the list enters: { owner, template, types: [slug, ...] }.", "source": true },
+    { "id": "dispatch", "description": "Hands out the list one type per call (neurons/dispatch.mjs) and answers quiet when it is empty. Two hops a turn, so maxHops 80 is forty types at most.", "run": ["node", "neurons/dispatch.mjs"], "timeout": 10000, "maxHops": 80, "may": { "read": ["."] }, "cost": { "repos": 0 } },
+    { "id": "plan", "neuron": "neurons/plan.neuron.json", "cost": { "repos": 0 } },
+    { "id": "create", "neuron": "neurons/create.neuron.json", "cost": { "repos": 1 } },
+    { "id": "verify", "neuron": "neurons/verify.neuron.json", "cost": { "repos": 0 } }
+  ],
+  "links": [
+    { "from": "list", "to": "dispatch" },
+    { "from": "dispatch", "to": "plan" },
+    { "from": "dispatch", "to": "dispatch" },
+    { "from": "plan", "to": "create" },
+    { "from": "create", "to": "verify" }
+  ]
+}
