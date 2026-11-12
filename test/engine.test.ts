@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, constants, existsSync, mkdtempSync, openSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -178,6 +178,26 @@ describe('routing and level 0 processes', () => {
     process.env.AN_TEST_HIDDEN = 'no';
     const t = await run([sh('e', 'printf \'"%s|%s"\' "$AN_TEST_VISIBLE" "$AN_TEST_HIDDEN"', { env: ['AN_TEST_VISIBLE'] })], [['s', 'e']], [inject(0, 1)]);
     expect(events(t, 'answer')[0]!.payload).toEqual({ type: 'text', text: 'yes|' });
+  });
+
+  it('fills the names in env from the neuron\'s own settings file, before the engine\'s environment, and passes no other name', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'engine-settings-'));
+    const show = ['sh', '-c', 'printf \'"%s|%s|%s"\' "$AN_COLOR" "$AN_SHAPE" "$AN_EXTRA"'];
+    mkdirSync(join(dir, 'own'));
+    writeFileSync(join(dir, 'own', 'show.neuron.json'), JSON.stringify({ version: 0, run: show, env: ['AN_COLOR'] }));
+    writeFileSync(join(dir, 'own', '.env'), 'AN_COLOR=amber\n');
+    writeFileSync(join(dir, '.env'), '# the network\'s own\nAN_COLOR="teal"\nAN_EXTRA=never\n');
+    const file = join(dir, 'n.network.json');
+    writeFileSync(file, JSON.stringify({ version: 0, neurons: [{ id: 's', source: true }, { id: 'inline', run: show, env: ['AN_COLOR', 'AN_SHAPE'] }, { id: 'named', neuron: 'own/show.neuron.json' }], links: [{ from: 's', to: 'inline' }, { from: 's', to: 'named' }] }));
+    process.env.AN_COLOR = 'red';
+    process.env.AN_SHAPE = 'square';
+    const t = await runNetwork(file, [inject(0, 1)]);
+    const said = Object.fromEntries(events(t, 'answer').map((e) => [e.from, (e.payload as { text: string }).text]));
+    expect(said).toEqual({ inline: 'teal|square|', named: 'amber||' });
+    writeFileSync(join(dir, '.env'), 'AN_COLOR=teal\na secret sentence\n');
+    const found = check(file).filter((f) => f.severity === 'error').map((f) => f.message).join('\n');
+    expect(found).toContain('.env line 2: not NAME=value');
+    expect(found).not.toContain('secret');
   });
 
   it('cuts a payload over 2000 characters to a preview, as the recorder does', async () => {

@@ -9,7 +9,7 @@ import { spawn, type ChildProcessWithoutNullStreams as Proc } from 'node:child_p
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { VERSION } from '../index.js';
-import { check, formatFinding, readNetwork, type GroundSpec, type NeuronSpec } from './check.js';
+import { check, formatFinding, readNetwork, settingsOf, type GroundSpec, type NeuronSpec } from './check.js';
 
 export type Units = Record<string, number>;
 export type Injection = { at: number; source: string; payload: unknown; replaces?: string; budget?: Units };
@@ -83,11 +83,15 @@ const groupGone = async (pid: number | undefined, ms: number) => {
   for (let waited = 0; waited < ms && alive(pid); waited += 20) await sleep(20);
 };
 const withKey = (replaces: string | undefined) => (replaces === undefined ? {} : { replaces });
-/** A program in its own process group, with only PATH and its `env` names (SPEC 2.4); the group is registered in `groups`. */
+/** A program in its own process group, with only PATH and its `env` names (SPEC 2.4), each from the neuron's own settings before the engine's environment; the group is registered in `groups`. */
 function launch(node: { spec: NeuronSpec; dir: string }): Proc {
   const spec = node.spec, cmd = (spec.run ?? spec.serve)!;
   const env: Record<string, string> = { PATH: process.env.PATH ?? '' };
-  for (const name of spec.env ?? []) if (process.env[name] !== undefined) env[name] = process.env[name]!;
+  const own = settingsOf(spec, node.dir);
+  for (const name of spec.env ?? []) {
+    const value = own[name] ?? process.env[name];
+    if (value !== undefined) env[name] = value;
+  }
   const child = spawn(cmd[0]!, cmd.slice(1), { cwd: resolve(node.dir, spec.cwd ?? '.'), env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
   if (child.pid !== undefined) groups.add(child.pid);
   return child;

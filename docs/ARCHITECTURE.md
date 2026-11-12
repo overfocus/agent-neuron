@@ -21,6 +21,7 @@ MODEL
     network  composed: a whole network file as one neuron (entry in, first exit reply out; inside sealed)
     neuron   named by its own neuron file (0019); using entry may NARROW timeout/env/may only
   options (9)   threshold, within, maxHops, timeout, env, cwd, cost, effect, may{connect,listen,read,write}   (SPEC 2.4; maxInflight would be the 10th, 0021 L2)
+  settings      .env beside the declaring file (neuron file, or network file for inline) fills `env` names; wins over the engine's environment; never reported (0022 S6; settings.rs)
   input         {at, source, payload, replaces?, budget?}; `replaces` is the staleness key and rides the signal
   signal        payload + trace id + cause; link from->to carries answers; `to`-less reply routes by links
   trace         one root signal and everything it causes; ends with `finished`

@@ -16,4 +16,5 @@ pub mod proxy;
 pub mod result;
 pub mod run;
 pub mod runner;
+pub mod settings;
 pub mod trace;
