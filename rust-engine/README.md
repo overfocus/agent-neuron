@@ -1,4 +1,10 @@
-# agent-neuron engine, second implementation (Rust, M3)
+# agent-neuron engine (Rust)
+
+**Since [decision 0023](../docs/decisions/0023-one-engine.md) (2026-11-12) this is the only engine in the
+repository, and the reference.** It began as the second implementation, beside a TypeScript reference engine and a
+Python engine that are now deleted. The sections below were written milestone by milestone and keep their dates and
+their measurements; where one names the TypeScript or Python engine, `node dist/engine/cli.js` or `py/probes`, it
+describes the tree of its day (the probes are in `spec/probes/` now).
 
 This crate is the Rust engine of [`agent-neuron`](../), milestones M0-M3: the
 M0 sans-IO conformance core, the process layer (real `run`, the `check`
@@ -8,7 +14,7 @@ Context Protocol's stable core subset. It is written from
 [SPEC.md](../docs/SPEC.md), [CONFORMANCE.md](../docs/CONFORMANCE.md),
 [spec/network.schema.json](../spec/network.schema.json), the fixtures
 themselves and [TRACE.md](../docs/TRACE.md)
-([conformance-python.md](../docs/conformance-python.md) is an engine's
+(`docs/conformance-python.md`, the Python engine's account, since deleted with it, was an engine's
 documentation, not engine source). The TypeScript and Python engines were used
 only as black boxes: `node dist/engine/cli.js conform <dir>` and probe fixtures
 of my own, written into a scratch directory outside the repository.
@@ -63,7 +69,7 @@ of my own, written into a scratch directory outside the repository.
   this engine's minimal reading of an optional v1 field, added (not renamed),
   set down here because the trace format's doc lives outside this crate's
   tree; the values name the family's schemes (the TypeScript recorder's ids
-  are random UUIDs, the reference engine's are numbered per scope: decision
+  were random UUIDs, the TypeScript reference engine's were numbered per scope: decision
   0001).
 - The live stream (`--stream <path>`): a file or a pipe fed one event per line
   as they happen, never holding the run up. A pipe with no reader is off,
@@ -100,9 +106,9 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 187: mcp 22, real 31, check 20, confine 22, desk 17, http 13, live 5, peers 43, result 5, settings 7, unit 2
-cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 298, 0, 0
-cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes       # 10, 0, 0
+cargo test                                          # 191: mcp 22, real 31, check 20, confine 22, desk 17, http 13, live 5, peers 43, result 5, settings 7, args 4, unit 2
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 303, 0, 0
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/probes     # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
 target/debug/neuron-engine run spec/examples/alerts-python-serve.network.json --inputs spec/examples/alerts.inputs.jsonl
 target/debug/neuron-engine run spec/examples/alerts-budget.network.json --inputs spec/examples/alerts.inputs.jsonl
@@ -159,7 +165,7 @@ end-to-end one.
   neuron names 'https://…', and this engine has no TLS").
 - `check` keeps its `http` warning (2.7's table; an engine cannot reach the
   network without asking for it), and `run` now RUNS it — the M2 choice,
-  where Appendix C's reference engine still refuses.
+  where the TypeScript reference engine of the day refused.
 - Covered by `tests/http.rs` (11): answers, quiet, errors, refusal,
   timeout/error and timeout/`unknown` for an effect, staleness cancel with
   the late reply discarded, the threshold body shape, a composed instance,
@@ -432,7 +438,10 @@ event, and a graph spread over two engines answers as a wholly local run does.
 `env` and `may`, and hands the rest of the validator the neuron as it would be written inline, its
 working directory written whole (the file's relative paths are the file's own). Nothing after the
 loader knows the kind: the engine, the trace, the peers and confinement see an ordinary neuron.
-Findings are anchored at the entry and name the file. Covered by the 14 fixtures of
+Findings are anchored at the entry and name the file. The entry's `args` (decision 0022) are appended
+to the file's command there too, where the file is a `run` or `serve` neuron, and are gone from the
+neuron handed on; `tests/args.rs` starts real programs that answer with the arguments they received.
+Covered by the 19 fixtures of
 `spec/fixtures/neuronfile/`, `tests/check.rs` (each refusal's message) and two real-process tests in
 `tests/confine.rs`.
 
@@ -821,7 +830,7 @@ outcome path, the placed-instance guard, the host-event check), `run.rs` 201,
 `main.rs` 202, `lib.rs` 16 (the ground's earlier growth included: `net.rs` 1298,
 `trace.rs` 249).
 
-For scale: the TypeScript reference engine (`src/engine/`) is 1353 by
+For scale: the TypeScript reference engine (`src/engine/`, deleted by decision 0023) was 1353 by
 `wc -l` (decision 0005's table). This crate is larger for the same honest
 reasons as at M0 — the std-only JSON layer and the conformance runner — plus
 the M1 process layer (host, run, trace, check) and the M3 std-only MCP server

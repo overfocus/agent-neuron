@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "The strings of `args` are literals, as every value in the file is (2, 2.10): one that holds `${...}` is refused by check, so the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

@@ -59,8 +59,8 @@ whose flags came before confirmed incidents counts for more.
 neuron deciding for itself. *Risk:* a learned weight could mute the one
 source that matters in a new kind of failure.
 
-*Built, except the learned weight:* `npm run demo:alerts` runs this with
-invented data (see [DEMOS.md](DEMOS.md)).
+*Built, except the learned weight:* `npm run demo:network` runs this from a
+network file with invented data (see [DEMOS.md](DEMOS.md)).
 
 ### 3. Building fault triage
 

@@ -1,11 +1,14 @@
 # Trace format
 
-A trace is a JSON file that records one run of a demo: which neurons there
+A trace is a JSON file that records one run: which neurons there
 were, and everything the network reported, in order, with times. It is made
-to be replayed without running the library: a page can read the file and show
+to be replayed without running anything: a page can read the file and show
 the run again on one clock. Traces are public and contain only invented data.
 
-Files are in `traces/`. Format name `agent-neuron-trace`, version `1`.
+The engine writes one with `neuron-engine run <file> --inputs <jsonl> --trace <out.json>`. The files in
+`traces/` are older: recordings of the TypeScript library's demos, made by its recorder before
+[decision 0023](decisions/0023-one-engine.md) deleted both. They stay as examples of the format and cannot be
+recorded again. Format name `agent-neuron-trace`, version `1`.
 
 ## Compatibility
 
@@ -14,33 +17,19 @@ Files are in `traces/`. Format name `agent-neuron-trace`, version `1`.
 - Removing or renaming a field, changing what a field means, or changing the replay
   rules (below) bumps `version`. The replay rules are part of version 1.
 - Ids (signal ids, trace ids) are opaque strings: compare them, never parse them.
-- `record` never writes a failed run, so `fail` events appear only in the network
-  view's live stream, never in a file.
+- No file holds a `fail` event: the deleted recorder never wrote a failed run, and the event appeared only in
+  the live stream of the deleted network view.
 - Other projects may copy `traces/` and `examples/trace/replay.mjs`; a breaking change
   to either bumps `version`.
 
-## Record
-
-```sh
-npm run record -- alerts                  # traces/alerts.json
-npm run record -- typing
-npm run record -- suggest
-npm run record -- alerts --threshold 1 --out traces/alerts-threshold-1.json
-```
-
-It builds first, runs the demo once and writes the file. `--out` picks another
-file. Record on an idle machine: the demos are timing-dependent (alerts 150 ms
-apart or 900+ ms apart, a shell detector under 150 ms), and the numbers in a
-trace are what that run produced, not constants. Re-record after changing a
-demo, its timing or a neuron's options (`test/recording.test.ts` replays every
-committed trace and fails if a summary no longer matches).
+## The committed recordings
 
 The alert storm is committed three times: `alerts.json` (`hypothesis` acts when
 2 detectors agree, the demo's own setting), `alerts-threshold-1.json` and
-`alerts-threshold-3.json`. Each is a separate real run, recorded with
-`--threshold`, so its numbers are that run's own; the three share the same
+`alerts-threshold-3.json`. Each is a separate real run of the deleted library's demo,
+so its numbers are that run's own; the three share the same
 summary fields and are not slices of one run. Threshold 3 may call nothing
-at all, which is a result.
+at all, which is a result. `typing.json` and `suggest.json` record two more of its demos.
 
 ## Shape
 
@@ -53,8 +42,8 @@ version      1
 demo         a free name for the run: "alerts", "typing", "suggest", or an engine's network `name` (readers must not assume one of the three)
 description  one line about the run
 library      the library or engine VERSION that ran it (no dates, hosts or paths anywhere)
-engine       optional: the name of the engine that wrote it, when it is not the TypeScript library
-parameters   (alerts only) { threshold }: the setting this run was recorded with
+engine       optional: the name of the engine that wrote it; absent in the recordings of the deleted TypeScript library
+parameters   (the alerts recordings only) { threshold }: the setting this run was recorded with
 budget       optional, from engines following docs/SPEC.md: the network file's `budget`, units to whole-number ceilings
 neurons      [ ... ]   declared up front, including neurons that never send
 links        [ ... ]   the connections, declared up front, so the network can be drawn before any traffic
@@ -78,11 +67,11 @@ A composed neuron is one neuron: its inner network never appears.
 ### links
 
 ```
-from, to     two neuron ids; a link is one-way in the format (the TypeScript library links both ways, and records both)
+from, to     two neuron ids; a link is one-way in the format (the TypeScript library linked both ways, and its recordings hold both)
 strength     optional number: how much a signal from `from` counts toward `to`'s threshold. Default 1
 ```
 
-Nothing in the library uses strength yet, so no trace sets it. Replay already honours it (see Replay).
+No engine writes strength yet, so no trace sets it. Replay already honours it (see Replay).
 
 ### events
 
@@ -106,7 +95,7 @@ Every event except `fail` carries the signal's fields: `id`, `from`, `to` (list)
 that answers or follows it. A threshold neuron groups its held inputs by it. It is not
 the file or the run: one file holds many traces.
 A `signal` event may also carry `via`: `"emit"` or `"send"`, how it was sent. Absent means
-`emit`. The recorder does not write it yet (the library does not report it).
+`emit`. No committed recording carries it.
 
 Optional fields from docs/SPEC.md, which readers may ignore: `forwarded` (`false`) on `answer`: the answer of an effect call whose
 input went stale was recorded and not forwarded; `replaces` on `signal` (the stale-work key);
@@ -143,7 +132,7 @@ instead of `data`). The committed traces have none that long.
 
 ### summary
 
-The demo's own numbers.
+The demo's own numbers, in the committed recordings; a trace the engine writes has an empty one.
 
 - alerts: `threshold`, `alerts`, `flags`, `calls` (started), `finished`, `cut`
   (cut short as stale), `heldReplaced`, `expired`, `diagnoses`, `final` (the last
@@ -153,7 +142,7 @@ The demo's own numbers.
 ## Replay
 
 `examples/trace/replay.mjs` is plain JavaScript with no imports and no Node or
-browser APIs, so it can be copied as is into a bundle. Types: `replay.d.mts`.
+browser APIs, so it can be copied as is into a bundle. `examples/network.mjs` reads the engine's trace with it.
 
 ```js
 import { replay, start, step } from './replay.mjs';
@@ -175,9 +164,8 @@ enough senders have an input held on one trace, all that trace's
 inputs leave and the neuron has `acted`; a `drop` at the neuron removes its
 signal. Each distinct sender counts for the `strength` of its link to the neuron
 (`links`; default 1) and the neuron acts when the sum reaches `threshold`. A signal
-with `via: "send"` is not held (the library does not hold `send`), and neither is one
-whose `hops` exceed the receiver's declared `maxHops` (the library refuses it).
-The network view uses `step` too, so there is one implementation.
+with `via: "send"` is not held, and neither is one
+whose `hops` exceed the receiver's declared `maxHops`.
 
 Derived from a replay to the end, the alerts summary is: `calls` = `acted` at
 `hypothesis`, `finished` = its `answers`, `cut` = the difference,

@@ -4,7 +4,7 @@
 
 Any program (a shell script, a Python file, a model call) goes inside the same wrapper, a JSON stdin/stdout contract, so they can be wired together in any shape. Instead of a central controller deciding what runs, each wrapper carries its own rules: how many inputs must agree before it acts, when work has gone stale and gets cut, how much it may spend.
 
-This is an experiment at concept stage: a specification (version 0.1, draft), three engines — the TypeScript reference, a protocol test in Python and a complete second engine in Rust — and a set of demos. Nothing is on npm yet.
+This is an experiment at concept stage: a specification (version 0.1, draft), its conformance fixtures, one engine that runs it (in Rust, `rust-engine/`) and a set of demos. Until [decision 0023](docs/decisions/0023-one-engine.md) there were three engines (a TypeScript reference with the library it grew from, a protocol test in Python, and the Rust one); the Rust engine is now the only one. Nothing is on npm yet.
 
 The idea as a protocol, for agent and framework developers: [docs/WHITEPAPER.md](docs/WHITEPAPER.md) (a draft).
 
@@ -46,38 +46,37 @@ quiescence): [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
 | Built | Planned |
 |---|---|
 | A shared decision surface: desk items for several people, quorum by `threshold`, a lead's gate on an `effect`, the merge a real git commit (`npm run demo:team`) | Grants validated at the desk's POST, a `human` hold that survives a restart, presence, run quiescence ([issue #30](https://github.com/overfocus/agent-neuron/issues/30)) |
-| Wrapper for scripts, executables, HTTP APIs and a human on stdin (`src/adapters/`); `human` neurons in network files, answered on a local page (`npm run demo:human`) | A network that rewires itself; durable trails between runs ([issue #30](https://github.com/overfocus/agent-neuron/issues/30) item 1) |
-| Many-to-many links, broadcast or targeted signals, each signal tracing its chain; trail strength as engine state: `ground` — deposits kept per place, evaporation, a seeded one-link routing for replies that name no `to` ([decision 0012](docs/decisions/0012-the-ground.md)) | Ignore conditions, passive and active channels |
+| Neurons that wrap scripts and executables (`run`, `serve`), HTTP APIs (`http`) and a person (`human`, answered on a local page: `npm run demo:human`) | A network that rewires itself; durable trails between runs ([issue #30](https://github.com/overfocus/agent-neuron/issues/30) item 1) |
+| Many-to-many links, signals to every link or to named neurons, each signal tracing its chain; trail strength as engine state: `ground` — deposits kept per place, evaporation, a seeded one-link routing for replies that name no `to` ([decision 0012](docs/decisions/0012-the-ground.md)) | Ignore conditions, passive and active channels |
 | Per-neuron `threshold` (N distinct senders must agree), `within`, `replaces` (a newer input cuts stale work) and `maxHops` (loops stop) | Limits other than `maxHops` |
-| Network files: a JSON format, a closed schema, a validator and a reference engine that runs them (`npm run engine`) | A `human` wait that survives a restart |
+| Network files: a JSON format, a closed schema, a validator and an engine that runs them (`neuron-engine check`, `neuron-engine run`) | A `human` wait that survives a restart |
 | Per-trace budgets, effects that are never cut, a live event stream | A neuron reporting its own spend |
-| A second complete engine in Rust (`rust-engine/`): real processes, `http` neurons (from a network file), `human` neurons on the desk, the MCP server `neuron-engine mcp` | `https` (needs a dependency policy) and packaging of the engine binary for npm |
+| The engine, in Rust (`rust-engine/`): real processes, `http` neurons, `human` neurons on the desk, peers on other machines, the MCP server `neuron-engine mcp` | `https` (needs a dependency policy) and packaging of the engine binary for npm |
 | Composed neurons: a whole network behind one wrapper, sealed from outside | Anything that learns: today each call is its own process and nothing is kept |
-| 298 conformance fixtures any other engine must pass (decisions 0012, 0016's `may`, 0019's neuron file and 0021's `maxInflight` included; the 26 of decision 0022's `each` pass on the Rust engine only); recorded traces; a local page that draws a run | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
+| 303 conformance fixtures any other engine must pass (decisions 0012, 0016's `may`, 0019's neuron file, 0021's `maxInflight` and 0022's `args` and `each` included); recorded traces | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
 
 ## Try it
 
-You need Node 22 or later. You do not need Rust for this one (the Rust engine's tests, the two Rust demos and `npm run check` do), and it makes no network requests. Run it on macOS or Linux.
+You need a Rust toolchain (`cargo`; the engine uses the standard library only, so the build fetches nothing) and Node 22 or later (the demo's neurons are small Node and shell programs; there is nothing to `npm install`). It makes no network requests. Run it on macOS or Linux.
 
 ```sh
 git clone https://github.com/overfocus/agent-neuron && cd agent-neuron
-npm install
 npm run demo:network
 ```
 
-Output (a run takes about 7 seconds; the counts vary a little with machine load):
+It builds the engine first (`cargo build --release --manifest-path rust-engine/Cargo.toml`; the binary is `rust-engine/target/release/neuron-engine`). Output (a run takes about 7 seconds):
 
 ```
 Alert storm from alerts.network.json: 40 alerts over 5.6 s, run by the engine.
-40 alerts -> 52 flags -> 17 hypothesis calls instead of 40
-10 calls cut short as stale, 11 waiting flags replaced, 7 gave up waiting
+40 alerts -> 36 flags -> 10 hypothesis calls instead of 40
+3 calls cut short as stale, 9 waiting flags replaced, 7 gave up waiting
 7 diagnoses; the last: {"alert":35,"service":"checkout","detectors":["deploys","logs"],"root":"gateway","deploy":"dep-8b21","minutes":14}
-321 events in the trace; no inner id of diagnosis in it: true
+324 events in the trace; no inner id of diagnosis in it: true
 ```
 
-A live run on real processes varies slightly from run to run (17 or 16 calls, say); the fixed numbers quoted elsewhere come from the recorded trace, `traces/alerts.json`.
+A live run starts real processes on the real clock, so the counts move from run to run and with what else the machine is doing (a busy machine cuts more detectors short, so fewer flags and fewer calls); the seven diagnoses do not move. The fixed numbers quoted elsewhere (52 flags, 17 calls) come from a recorded trace, `traces/alerts.json`, made on an idle machine with the TypeScript library's version of this demo before decision 0023.
 
-That is a made-up storm of 40 alerts for five services. Cheap detectors flag alerts, a slow neuron stands in for a model call (a 500 ms timer) and runs only when two detectors agree, and a composed neuron answers with a diagnosis. The summary says 17 slow calls ran instead of 40.
+That is a made-up storm of 40 alerts for five services. Cheap detectors flag alerts, a slow neuron stands in for a model call (a 500 ms timer) and runs only when two detectors agree, and a composed neuron answers with a diagnosis. The summary says how many slow calls ran instead of 40.
 
 ### The network file
 
@@ -109,12 +108,12 @@ The whole storm is this file, `spec/examples/alerts.network.json`. The programs 
 }
 ```
 
-`hypothesis` has `threshold: 2` and `within: 500`: it acts only when two distinct senders (here `logs`, `deploys` and `metrics` are the candidates) have each flagged the same alert, and a flag that waits longer than 500 ms for a partner is dropped. `replaces` is not in the file: the producer puts it on each input (here, the alert's service), and a newer input with the same key cuts older work for that key that is still waiting or running, which is where the "cut short as stale" and "replaced" counts come from. Edit the file, run `npm run engine -- check spec/examples/alerts.network.json` to validate it, and run it again.
+`hypothesis` has `threshold: 2` and `within: 500`: it acts only when two distinct senders (here `logs`, `deploys` and `metrics` are the candidates) have each flagged the same alert, and a flag that waits longer than 500 ms for a partner is dropped. `replaces` is not in the file: the producer puts it on each input (here, the alert's service), and a newer input with the same key cuts older work for that key that is still waiting or running, which is where the "cut short as stale" and "replaced" counts come from. Edit the file, run `rust-engine/target/release/neuron-engine check spec/examples/alerts.network.json` to validate it, and run it again.
 
 ## How it compares
 
 - **Unix pipes.** A level-0 neuron is a filter: a program that reads JSON on stdin and writes JSON on stdout. The difference is that neurons form a graph (many in, many out, loops allowed and bounded), not a line.
-- **Node-RED and similar flow files.** The shape is similar: a JSON file lists nodes and links. The difference I am trying for is that each node carries its own firing rules (threshold, staleness, budget, effect), and that those rules have a written specification and conformance fixtures, so another engine can be checked against the first. That has now happened three times: the TypeScript reference, a Python protocol test, and a complete Rust engine — all three pass the same 272 fixtures (the 21 of decision 0012, the 7 of decision 0016's `may`, the 14 of decision 0019's neuron file and the 26 of decision 0021's `maxInflight` included).
+- **Node-RED and similar flow files.** The shape is similar: a JSON file lists nodes and links. The difference I am trying for is that each node carries its own firing rules (threshold, staleness, budget, effect), and that those rules have a written specification and conformance fixtures, so another engine can be checked against the first. That happened three times: a TypeScript reference, a Python protocol test written from the text alone, and the Rust engine all passed the same fixtures, until [decision 0023](docs/decisions/0023-one-engine.md) kept only the Rust engine. It passes all 277.
 - **Agent frameworks.** They usually put a controller or planner in the middle. Here nothing in the middle decides; and no model is required, since a neuron can be any program. And the top-level deciding can belong to the team: quorum, gates and budgets are neuron fields, so three people agreeing on a merge is the same graph that triages forty alerts by itself (`npm run demo:team`).
 
 I have not benchmarked any of these against it, and this one is far smaller and younger than all of them.
@@ -172,12 +171,11 @@ which ones, and how a wrapper converts between them and what its contents
 expect, is one of the things to experiment with.
 
 Every signal has an `id` and a `trace`, the id of the first signal of its
-chain. An answer from `send` or `emit` has `replyTo`, the id of the signal it
-answers, and shares that signal's `trace`. Outside code that passes an answer
-on gives the next `send` or `emit` `{ cause: answer }`: the new signal records
-`cause` (the answer's id) and joins its trace. Nothing passes answers on by
-itself yet, and the network does not store signals; keep a map by id if you
-need to look one up.
+chain. An answer has `replyTo`, the id of the signal it answers, and shares
+that signal's `trace`. When the engine forwards an answer along a link, the
+new signal records `cause` (the answer's id) and stays on the trace. The
+engine keeps no store of signals between runs; the [trace](docs/TRACE.md) is
+the record.
 
 ## Many inputs, one neuron
 
@@ -186,34 +184,23 @@ set per neuron. By default it acts on each input as it arrives. Two more ways
 are expected: combining all inputs into one picture before acting, and
 weighing senders differently. One is built:
 
-**Threshold.** `new Neuron(id, adapter, { threshold: 2, within: 5000 })` acts
+**Threshold.** A neuron with `"threshold": 2, "within": 5000` acts
 only when two distinct senders have each sent it an input on the same trace
-(inputs in different traces never combine). The adapter then runs once, and
-`context.inputs` holds the inputs that met the threshold, the one that
-crossed it last. Details:
+(inputs in different traces never combine). Its program then runs once, with
+the inputs that met the threshold. Details ([SPEC section 5](docs/SPEC.md)):
 
 - Each sender counts once; its newer input replaces its older one (the older
-  is reported as `onDrop(..., 'replaced')`).
-- Held inputs get no answer of their own, and no drop once consumed, even if
-  the run is aborted or fails. The run's answer is for the input that crossed
-  the threshold.
-- A running call is cut when any input it acted on is replaced by a newer emit
-  (same sender, same `replaces` key), not only the one that crossed: its adapter
-  is aborted and `onDrop(crossingInput, id, 'replaced')` is reported once. The
-  other inputs report nothing. The trace tells it from a held input's drop by
-  `phase` (`running` or `waiting`) in new recordings (the committed traces predate it).
-- An input still held after `within` ms (default 10000) is dropped with
-  `onDrop(..., 'expired')`. An input whose `emit` is replaced (same `replaces`
-  key, newer emit) is dropped as `'replaced'` and stops counting.
-- It applies to `emit`. `send` is a direct exchange, like `Neuron.query`, so it
-  skips the threshold and runs the adapter at once, without `context.inputs`.
-- `idle()` does not wait for held inputs: they are waiting, not working, and
-  waiting 10 s for them would help nobody. Their timers do not keep the process
-  alive, so a program that exits first never sees the `'expired'` drop.
+  is reported as a drop, reason `replaced`).
+- Held inputs get no answer of their own. The call's answer is for the input
+  that crossed the threshold.
+- A running call is cut when any input it acted on is replaced by a newer one
+  (same sender, same `replaces` key), not only the one that crossed. The trace
+  tells it from a held input's drop by `phase` (`running` or `waiting`).
+- An input still held after `within` ms (default 10000) is dropped as `expired`.
 - Once a trace has acted, a later input on it starts a new hold.
 - Without `threshold` nothing is held and no timer is made.
 
-Run `npm run demo:suggest` to watch one.
+`hypothesis` in the alert storm is one: run `npm run demo:network` to watch it.
 
 ## Loops and finishing
 
@@ -223,15 +210,12 @@ per wrapper: each neuron carries its own limits and its own idea of done,
 rather than the network having one global rule.
 
 The first limit is built: every signal carries `hops`, its place in its chain
-(0 for a root, one more than the signal it answers or follows through
-`replyTo` or `cause`). A neuron created with `new Neuron(id, adapter, { maxHops: 3 })`
-refuses a signal with more than 3 hops: `emit` reports it through
-`onDrop(signal, id, 'hops')` and the adapter never runs, and a waiting `send`
-leaves that neuron's answer out. Without `maxHops` there is no limit.
-A refused signal is still reported to `onSignal` (refusal is per neuron, and on a broadcast others may accept it), and `send` leaves the refusing neuron's answer out without an `onDrop`. `Neuron.query` is a direct ask and skips it. Hops only count along a trace:
-code that passes an answer on without `{ cause }` starts a new trace at 0, so
-forward with `cause` if you want the limit to see the loop. The idiom: an answerer passes its answer on with `network.emit(answer.from, answer.payload, { to: answer.to, cause: answer })`. Run
-`npm run demo:loop` to watch one being cut.
+(0 for a root, one more than the signal it answers or follows). A neuron with
+`"maxHops": 3` refuses a signal with more than 3 hops: its program never
+runs and the trace records a drop, reason `hops`. Without `maxHops` there is
+no limit, and `check` refuses a cycle in which no neuron has one. Hops count
+along a trace, two for each neuron on the path (the reply, then the forward):
+[SPEC 4.4](docs/SPEC.md), with fixtures under `spec/fixtures/hops/`.
 
 ## Composition
 
@@ -255,27 +239,27 @@ that crosses the boundary goes through the composed neuron's own interface.
 - **Each use learns on its own (planned).** The same composed network used in
   two places would become two neurons that learn separately.
 
-The first working example is `npm run demo:composed`: a Rust program
-`music` with a tiny inner network (tracks, artist and lyrics neurons) that
-the outer network sees as one neuron. The boundary is sealed by
-construction: `music` is a separate process, its inner handlers can only
-return text, and the outer network has no way to name an inner neuron (a
-test checks that no inner id appears outside). The trace exists inside
-only: the outer signals are one request and one answer, while
-`music --inspect` run on its own prints the inner signals. Running it
-standalone is looking inside, not the outer network reaching in. It does
-not show learning, which does not exist yet: each call is its own process,
+The working example is `diagnosis` in the alert storm (`npm run demo:network`):
+a network file of its own, `spec/examples/diagnosis.network.json`, that the outer
+network names as one neuron (`"network": "diagnosis.network.json"`). The
+boundary is sealed by the engine: the outer file has no way to name an inner
+neuron, and the outer trace holds one request and one answer (the demo's last
+line checks that no inner id appears in it). A whole network can also sit on
+another engine and be one neuron to this one (`npm run demo:p2p`). It does
+not show learning, which does not exist yet: nothing is kept between runs,
 so "each use learns on its own" holds only because nothing is kept.
 
 ## Run a network file
 
-A network can be a file instead of code: neurons, one-way links, thresholds,
-and each neuron's program as a command. The reference engine (`src/engine/`,
-also importable as `agent-neuron/engine`) reads it, with no caller code:
+A network is a file: neurons, one-way links, thresholds,
+and each neuron's program as a command. The engine (`rust-engine/`, the
+`neuron-engine` binary) reads it, with no caller code:
 
 ```sh
-npm run engine -- check spec/examples/alerts.network.json
-npm run engine -- run spec/examples/alerts.network.json \
+cargo build --release --manifest-path rust-engine/Cargo.toml    # or: npm run engine:build
+alias neuron-engine=rust-engine/target/release/neuron-engine
+neuron-engine check spec/examples/alerts.network.json
+neuron-engine run spec/examples/alerts.network.json \
   --inputs spec/examples/alerts.inputs.jsonl --trace storm.json
 npm run demo:network        # the alert storm from its file, summarised from the trace
 ```
@@ -285,8 +269,8 @@ npm run demo:network        # the alert storm from its file, summarised from the
 `maxHops`, a budget or cost that is not a whole number or names an unknown unit), with line and column. `run` injects the timed inputs into the
 file's sources (one JSON object per line: `at` in ms, `source`, `payload`,
 optional `replaces`, optional `budget` to lower that trace's budget), runs every neuron as a process, forwards answers along
-links, and writes a [trace](docs/TRACE.md) that the replay module and the
-network view read. A neuron is any program: `spec/examples/neurons/` has the
+links, and writes a [trace](docs/TRACE.md) that the replay module
+(`examples/trace/replay.mjs`) reads. A neuron is any program: `spec/examples/neurons/` has the
 same `hypothesis` neuron in JavaScript and in Python, and
 `alerts-python.network.json` swaps one for the other. A neuron can also be one
 long-lived process speaking JSON lines (`"serve"`, level 1): the engine starts it
@@ -294,9 +278,9 @@ once, matches replies to calls, sends it `cancel` for stale work, pings it, and
 restarts it with backoff if it dies. `hypothesis_serve.py` is that neuron in 29
 lines of standard-library Python, and `alerts-python-serve.network.json` runs the
 storm with it (`npm run demo:network -- spec/examples/alerts-python-serve.network.json`).
-This engine runs `source`, level 0 (`run`), level 1 (`serve`) and composed
-(`network`) neurons; the rest of the
-[specification](docs/SPEC.md) (version 0.1, draft) and the gaps are in its
+The engine runs every kind of neuron: `source`, level 0 (`run`), level 1 (`serve`),
+`http`, `human` and composed (`network`). What it adds to the
+[specification](docs/SPEC.md) (version 0.1, draft), and what it leaves out, are in its
 Appendix C.
 
 ### Budgets
@@ -321,28 +305,29 @@ call that has started (nothing is cancelled, its answer is recorded, its cost co
 that answer from being forwarded (`"forwarded": false` on the `answer` event); and if the call crashes, hangs
 or times out, the trace says `unknown`, not `error`, because nobody can tell whether the effect
 happened. The engine reconciles nothing: a producer or an observer injects the id from the payload into a
-declared source (SPEC 11.4). Every event is also offered as it happens, in written order, to a library
-callback (`onEvent`) and as JSON lines (`run --stream <path>`); a consumer that fails never changes the run
+declared source (SPEC 11.4). Every event is also offered as it happens, in written order,
+as JSON lines (`run --stream <path>`); a consumer that fails never changes the run
 (SPEC 9.1). See [SPEC section 11](docs/SPEC.md) and [decision 0007](docs/decisions/0007-effects-and-the-live-stream.md).
 
 ```sh
-npm run demo:notify   # a notification that a newer build update does not cancel, and a crash recorded as unknown
+# a notification that a newer build update does not cancel, and a crash recorded as unknown
+SENT_LOG=/tmp/sent.log neuron-engine run spec/examples/notify.network.json \
+  --inputs spec/examples/notify.inputs.jsonl --stream notify.jsonl
 npm run demo:human    # a person approves, edits or refuses each proposed rewrite on a local page
 ```
 
 ### Conformance fixtures
 
 Any further engine must give the same events as this one on
-the same inputs (the first Rust attempt was tried and stopped:
-[decision 0005](docs/decisions/0005-rust-engine-experiment.md); the engine now on
-`main` restarted from the text under the same terms —
-[decision 0009](docs/decisions/0009-rust-engine.md), covered below). The shared test is [`spec/fixtures/`](spec/fixtures/): 298
+the same inputs. The shared test is [`spec/fixtures/`](spec/fixtures/): 303
 small fixtures, each a network file, scripted inputs, scripted neuron replies with
 latencies on a virtual clock, and the exact events expected, ids normalised. No
 process starts and no clock is read, so a run is exactly repeatable.
 
 ```sh
-npm run engine -- conform spec/fixtures   # pass or fail per fixture; non-zero exit on a failure
+neuron-engine conform spec/fixtures   # pass or fail per fixture; non-zero exit on a failure
+neuron-engine conform spec/probes     # ten more, kept apart from the contract
+npm run conform                       # builds, then both
 ```
 
 The format and the command-line contract any engine implements are in
@@ -352,40 +337,38 @@ of version 0.1 and the `finished` event, `effect/` the effect option and the `un
 `neuronfile/` a neuron described in a file of its own, which the network that names it may only narrow ([decision 0019](docs/decisions/0019-the-neuron-file.md)), and
 `may/` what a neuron's program is declared to touch ([decision 0016](docs/decisions/0016-the-self-describing-neuron.md): checked by every engine; the Rust engine holds a program to it on macOS when a run asks with `--confine`, [decision 0018](docs/decisions/0018-confining-a-program-to-its-may.md)).
 
-#### A second engine, in Python
+#### The engines there were
 
-[`py/`](py/) holds an engine written from the specification and the fixtures alone, in Python 3.11 or later with the standard
-library only (no `pip install`), to test whether the specification is a protocol and not just the TypeScript code. It reads
-the same network files and fixtures and implements the command-line contract of CONFORMANCE section 8. It has no process
-layer: it runs scripted programs on the virtual clock, as the fixtures require, and refuses `http` and `human` neurons (it has no scripted person yet).
+The fixtures were first checked against a TypeScript reference engine. A first Rust attempt was tried and stopped
+([decision 0005](docs/decisions/0005-rust-engine-experiment.md)). An engine in Python, written from the specification
+and the fixtures alone with the standard library only, then tested whether the specification is a protocol and not
+just the TypeScript code: it passed every fixture, found places where the fixtures pin more than the text says, and
+left the ten probes now in [`spec/probes/`](spec/probes/). The Rust engine restarted from the text under the same
+terms ([decision 0009](docs/decisions/0009-rust-engine.md)) and passed them too. Each contract step was then built
+three times, and [decision 0023](docs/decisions/0023-one-engine.md) deleted the TypeScript library, the TypeScript
+engine and the Python engine: the commit before its build has them, with `docs/conformance-python.md`, the Python
+engine's account. What that costs (three engines no longer cross-check each hand-written expectation, and the mutant
+test that measured the fixtures is gone) is said plainly in the decision.
 
-```sh
-npm run conformance:py                                        # all of spec/fixtures; pass or fail per fixture, then the totals
-PYTHONPATH=py python3 -m agent_neuron conform spec/fixtures --only staleness/   # a subset
-PYTHONPATH=py python3 -m agent_neuron conform py/probes       # extra fixtures, which the TypeScript engine also passes
-```
+#### The engine, in Rust
 
-What it passed, what the specification left open and where the two engines differ: [docs/conformance-python.md](docs/conformance-python.md).
-
-#### The second complete engine, in Rust
-
-[`rust-engine/`](rust-engine/) is the engine the fixtures were asking for: written from [SPEC](docs/SPEC.md), [CONFORMANCE](docs/CONFORMANCE.md), the network schema and the fixtures alone (the TypeScript engine was used as a black box), in Rust with the standard library only (a one-package `Cargo.lock`, nothing fetched). It is the only engine so far that runs a real network end to end: the process layer (level 0 `run`, level 1 `serve`, pings, restart backoff, SIGTERM then SIGKILL after the kill grace with the 6.3 notes), real `http` neurons (`https` is refused honestly — no TLS in a std-only crate), `human` neurons answered on the desk of Appendix D ([decision 0008](docs/decisions/0008-human-neurons-on-a-page.md)), budgets, effects and the live stream. It carries the family's MCP surface: `neuron-engine mcp` speaks JSON-RPC 2.0 over stdio with `check_network`, `describe_network` (the shape of a network file tree, composed networks inside, for drawing it before any traffic), `run_network`, `start_run`/`poll_run` (a run as a job, with live `run://{id}` resources and notifications) and `read_trace`, and serves SPEC, CONFORMANCE, TRACE and the schema as embedded `spec://` resources. `conform`, the fixtures and human networks are deliberately unexposed there: the desk is the person's surface, not an MCP surface. Every trace it writes declares its ids scheme in the header (`{"signal":"run-numbered","trace":"run-numbered"}` — ids are opaque strings, compared, never parsed, per [TRACE.md](docs/TRACE.md)). P0 of the peer layer is built ([decision 0013](docs/decisions/0013-p2p.md)): `run --peers <file>` names the machines that execute some of the network's `run` neurons, and `neuron-engine peer` is the worker. A dispatched call runs the same level 0 contract on the peer and comes back through the engine's queue, so the run is the run a local one is — same answers, same events, wall-clock stamps aside. It is the seam, not yet the protocol: placement covers `run` neurons and whole networks, and cancel, `serve`, the ground and quiescence are P1–P4 in [docs/P2P.md](docs/P2P.md). A peer can also *be* one neuron whose inside is a network (`peer --network <file>`), which is the composability Kevin asked for: an outer run places a `network` node on a peer and composes with it exactly as with a composed neuron planted locally, down to the `inner` error and the sealing — and the hosted graph can itself place its nodes on other peers. `npm run demo:p2p` launches four peer engines and a driver from this repo and prints the answer, the trace and where the run lives: `classify` on one engine forwards to `review` on the next, whose `wrap` runs on a third and whose `audit` — a whole network — runs on a fourth.
+[`rust-engine/`](rust-engine/) is the engine the fixtures were asking for: written from [SPEC](docs/SPEC.md), [CONFORMANCE](docs/CONFORMANCE.md), the network schema and the fixtures alone (the TypeScript engine of the day was used as a black box), in Rust with the standard library only (a one-package `Cargo.lock`, nothing fetched). It runs a real network end to end: the process layer (level 0 `run`, level 1 `serve`, pings, restart backoff, SIGTERM then SIGKILL after the kill grace with the 6.3 notes), real `http` neurons (`https` is refused honestly — no TLS in a std-only crate), `human` neurons answered on the desk of Appendix D ([decision 0008](docs/decisions/0008-human-neurons-on-a-page.md)), budgets, effects and the live stream. It carries the family's MCP surface: `neuron-engine mcp` speaks JSON-RPC 2.0 over stdio with `check_network`, `describe_network` (the shape of a network file tree, composed networks inside, for drawing it before any traffic), `run_network`, `start_run`/`poll_run` (a run as a job, with live `run://{id}` resources and notifications) and `read_trace`, and serves SPEC, CONFORMANCE, TRACE and the schema as embedded `spec://` resources. `conform`, the fixtures and human networks are deliberately unexposed there: the desk is the person's surface, not an MCP surface. Every trace it writes declares its ids scheme in the header (`{"signal":"run-numbered","trace":"run-numbered"}` — ids are opaque strings, compared, never parsed, per [TRACE.md](docs/TRACE.md)). P0 of the peer layer is built ([decision 0013](docs/decisions/0013-p2p.md)): `run --peers <file>` names the machines that execute some of the network's `run` neurons, and `neuron-engine peer` is the worker. A dispatched call runs the same level 0 contract on the peer and comes back through the engine's queue, so the run is the run a local one is — same answers, same events, wall-clock stamps aside. It is the seam, not yet the protocol: placement covers `run` neurons and whole networks, and cancel, `serve`, the ground and quiescence are P1–P4 in [docs/P2P.md](docs/P2P.md). A peer can also *be* one neuron whose inside is a network (`peer --network <file>`), which is the composability Kevin asked for: an outer run places a `network` node on a peer and composes with it exactly as with a composed neuron planted locally, down to the `inner` error and the sealing — and the hosted graph can itself place its nodes on other peers. `npm run demo:p2p` launches four peer engines and a driver from this repo and prints the answer, the trace and where the run lives: `classify` on one engine forwards to `review` on the next, whose `wrap` runs on a third and whose `audit` — a whole network — runs on a fourth.
 
 ```sh
-cargo test --manifest-path rust-engine/Cargo.toml                            # 123 tests, 0 failed
-cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures    # 224 passed, 0 failed, 0 pending
-cargo run --manifest-path rust-engine/Cargo.toml -- conform py/probes        # 10 passed, 0 failed, 0 pending
+cargo test --release --manifest-path rust-engine/Cargo.toml                  # the engine's own tests (npm run engine:test runs them one at a time)
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures    # 303 passed, 0 failed, 0 pending
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/probes      # 10 passed, 0 failed, 0 pending
 cargo run --manifest-path rust-engine/Cargo.toml -- mcp                      # the MCP server on stdio
 cargo run --manifest-path rust-engine/Cargo.toml -- run net.json --inputs in.jsonl --peers peers.json  # some calls run on another machine (P0, decision 0013)
 cargo run --manifest-path rust-engine/Cargo.toml -- peer --listen 127.0.0.1:7301 --token <hex>   # the worker that side of the wire
 npm run demo:p2p                                                             # four engines, three graphs, one answer: the composability demo
 ```
 
-Gates, standing rules (black-box engines, rustfmt at 140, clippy `-D warnings`) and the size tables: [rust-engine/README.md](rust-engine/README.md). The direction record — why a second engine, what complete means against the first attempt's no-go, and the gates rerun on merged `main` — is [decision 0009](docs/decisions/0009-rust-engine.md). The voice-rewrite tool timbre runs this engine as one built binary: the dependency is a binary, not a package.
+Gates, standing rules (rustfmt at 140, clippy `-D warnings`) and the size tables: [rust-engine/README.md](rust-engine/README.md). The direction record — why a second engine, what complete means against the first attempt's no-go, and the gates rerun on merged `main` — is [decision 0009](docs/decisions/0009-rust-engine.md). The voice-rewrite tool timbre runs this engine as one built binary: the dependency is a binary, not a package.
 
-## The first example
+## The first example (history)
 
-Three neurons wrapping three very different things:
+The project began as a TypeScript library with one example: three neurons wrapping three very different things.
 
 - **a website with an API**, wrapped so its requests and responses become
   signals;
@@ -395,7 +378,9 @@ Three neurons wrapping three very different things:
   neuron like any other.
 
 If those three can be connected and exchange signals through the same
-interface, the wrapper idea works.
+interface, the wrapper idea works. It did. The library and that example went with
+[decision 0023](docs/decisions/0023-one-engine.md); in a network file the three are the `http`, `run` and `human`
+kinds of neuron.
 
 ## A second example (planned)
 
@@ -415,10 +400,9 @@ Every neuron hears every keystroke; each one's wrapper decides whether the
 input is worth acting on. Nothing in the middle decides for them. The example
 will use a made-up catalogue.
 
-It needs three things the first example does not have. Two are built: a send
-that does not wait for answers (`emit`) and a way to drop work made stale by
-a newer keystroke (`replaces`), shown in a terminal demo,
-`npm run demo:typing`. Still missing: a page to watch it happen on. It is
+It needs three things the first example did not have. Two are built: answers
+forwarded along links without anyone waiting for them, and a way to drop work made stale by
+a newer keystroke (`replaces`). Still missing: a page to watch it happen on. It is
 also a test bed for the open questions below: keystrokes are a candidate for passive traffic, the concerts neuron is a
 chain inside the network rather than routing by outside code, and the
 results a person clicks are a candidate signal for strengthening a
@@ -471,112 +455,47 @@ All of these are up for debate; experiments should inform them.
 
 ## Status
 
-The first example works: shell, HTTP and human adapters, neurons with
-bidirectional links, and a network that broadcasts or targets signals
-(`src/`). A send that does not wait for answers (`emit`) can replace older work from
-the same sender, and adapters stop when it is dropped. A neuron can wait for a `threshold` of distinct senders on one trace (`npm run demo:suggest`); its running call is cut when any input it acted on is replaced. An alert storm demo (`npm run demo:alerts`) puts threshold, stale-work dropping, wrapped scripts and a composed diagnosis neuron together. The trail layer
-(`ground`, [decision 0012](docs/decisions/0012-the-ground.md)) is built; carry-over between runs, rewiring, ignore conditions, limits other than `maxHops`, and passive/active channels are not
-built yet. Every signal carries a `trace` shared by everything it leads to;
-answers record the signal they answer (`replyTo`), and `send` and `emit` take
-an optional `cause` to continue a trace. Nothing passes answers on by itself,
-and the network keeps no store of past signals. Listeners for `emit` work (`onSignal`, `onError`, `onDrop`) are
-called safely: if one throws, the error is swallowed. A small Rust program also runs as a neuron through the shell adapter (`npm run demo:rust`), showing the wrapper is not tied to one language. A local page draws any of three demos live as they run (`npm run view`). The team demo (`npm run demo:team`) runs the same engine's desk as a shared decision surface for three people over real git branches, the merge among them an effect — the multiplayer protocol pieces around it (grants at the desk's POST, durable holds, presence, quiescence) are [issue #30](https://github.com/overfocus/agent-neuron/issues/30)'s SPEC gaps, positioned in [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md). Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md). The decision-surface demos
+The specification is version 0.1, a draft, with 303 conformance fixtures, and one engine runs it: the Rust engine in
+`rust-engine/` ([decision 0023](docs/decisions/0023-one-engine.md)). Built: network files with a closed schema; neurons
+of every kind (`run`, `serve`, `http`, `human`, composed, and a neuron named by its own file); a `threshold` of distinct
+senders on one trace, with a running call cut when any input it acted on is replaced; stale-work dropping by `replaces`;
+`maxHops`; budgets; effects; `may` and confinement on macOS; `maxInflight`; the live stream; peers; the MCP server. The
+trail layer (`ground`, [decision 0012](docs/decisions/0012-the-ground.md)) is built; carry-over between runs, rewiring,
+ignore conditions, limits other than `maxHops`, and passive/active channels are not built yet. Every signal carries a
+`trace` shared by everything it leads to; answers record the signal they answer (`replyTo`), and a forwarded signal its
+`cause`. An alert storm (`npm run demo:network`) puts threshold, stale-work dropping, wrapped scripts and a composed
+diagnosis neuron together. The team demo (`npm run demo:team`) runs the engine's desk as a shared decision surface for
+three people over real git branches, the merge among them an effect — the multiplayer protocol pieces around it (grants
+at the desk's POST, durable holds, presence, quiescence) are
+[issue #30](https://github.com/overfocus/agent-neuron/issues/30)'s SPEC gaps, positioned in
+[docs/MULTIPLAYER.md](docs/MULTIPLAYER.md). Every demo is listed in [docs/DEMOS.md](docs/DEMOS.md). The decision-surface demos
 series — `quorum`, `backlog`, `spend`, `refunds`, `oncall` and `colony` ([decision 0012](docs/decisions/0012-the-ground.md)'s
 first user: the ants' returns routed by the engine's ground) — lives in
 [agent-neuron-demos](https://github.com/overfocus/agent-neuron-demos), watched in 3D by
 [agent-neuron-viz](https://github.com/overfocus/agent-neuron-viz), and rendered from
 their own recorded runs as social videos in that repo's `video/`.
 
-## Run the first example
+## Run the demos
 
 ```sh
-echo "approve" | npm run example
+npm run demo:network                    # the alert storm from its network file (about 7 s)
+npm run demo:network -- spec/examples/alerts-budget.network.json   # the same with a budget; also alerts-python and alerts-python-serve (need python3)
+npm run demo:human                      # a person in the loop: open the address it prints on stderr and answer the three items
+npm run demo:team                       # the team decision on three pages; `-- --headless` and `-- --headless --tie` need no browser
+npm run demo:p2p                        # four peer engines and a driver on this machine
 ```
 
-A shell script summarises some text, then its two linked neurons, a local
-HTTP API and a human on stdin, each receive the summary. Every signal is
-printed as it travels, then the human's reply. Nothing leaves localhost.
-
-## Run the typing demo
-
-```sh
-npm run demo:typing
-```
-
-A search box types a query one letter at a time; three neurons with
-different latencies answer or stay quiet, and work made stale by the next
-letter is aborted and printed as dropped. Answers do not repeat the prefix:
-the demo finds it through `replyTo`. Made-up catalogue, no network.
-
-## Watch a demo
-
-```sh
-npm run view
-```
-
-Builds, then prints a `http://127.0.0.1:<port>/` address (a free port, this machine only). Open it, pick
-the alert storm, typing or suggest demo and press Run: the network is drawn
-from its traffic as it happens, with answers, dropped work and held inputs
-labelled, and a log of the same events beside or below it. Stop the server with Ctrl+C. No
-framework, no outside requests.
-
-## Record a trace
-
-```sh
-npm run record -- alerts      # also: typing, suggest; writes traces/<demo>.json
-```
-
-Runs a demo and writes every signal, answer, drop and error, with its time, as
-one JSON file that can be replayed later without running anything. The alert
-storm is also recorded with `--threshold 1` and `3`. Format and replay:
-[docs/TRACE.md](docs/TRACE.md).
-
-## Run the Rust demo
-
-```sh
-npm run demo:rust
-```
-
-The typing demo again, with the tracks neuron replaced by a small Rust
-program (`rust/catalogue`, standard library only) wrapped by the shell
-adapter. The output shows `tracks (rust)` answering the same queries, and
-stale work still dropped. Needs a Rust toolchain (`cargo` on your PATH).
-
-## Run the composed demo
-
-```sh
-npm run demo:composed
-```
-
-The search box sends every keystroke to one neuron, `music`: a Rust program
-(`rust/music`, standard library only) wrapped by the shell adapter. Inside
-it is its own network of tracks, artist and lyrics neurons. The output
-shows answers combining all three and stale work dropped (the inner lyrics neuron takes 250 ms once it acts, as in the typing demo), then the inside
-view: one standalone `music --inspect` run printing the inner trace. Needs
-a Rust toolchain.
-
-## Run the alert storm demo
-
-```sh
-npm run demo:alerts
-```
-
-Forty invented alerts arrive in about six seconds. Two shell scripts and a
-JavaScript function look at each one; a stand-in for a model runs only when
-two of them agree, and a composed neuron answers with one diagnosis. The
-output ends with how many expensive calls were avoided and how much stale
-work was dropped; the numbers are the same on an idle machine.
+Each builds the engine first. What each shows: [docs/DEMOS.md](docs/DEMOS.md).
 
 ## Development
 
-Node 22 or later. A Rust toolchain (`cargo` on your PATH) is needed for the Rust engine (its tests and build run inside `npm run check`), the two Rust demos (`demo:rust`, `demo:composed`) and the conformance gates. The TypeScript engine is POSIX only (macOS or Linux); Python 3 is optional, for the Python variants of the alert storm. The Rust engine is POSIX too, and refuses `https` (no TLS in a std-only crate).
+A Rust toolchain (`cargo` on your PATH) for the engine, and Node 22 or later for `npm run` and the demos; `package.json` has no dependencies, so there is nothing to install. The engine is POSIX only (macOS or Linux) and refuses `https` (no TLS in a std-only crate). Python 3 is optional, for the Python variants of the alert storm and some of the engine's tests.
 
 ```sh
-npm install
-npm run check   # typecheck, Rust test and build, test, build
+npm run check   # cargo fmt --check, clippy -D warnings, the engine's tests, a release build, the fixtures and the probes
 ```
 
-`npm test` on its own does not build the Rust binaries: two test files run them and fail, with the fix in the message, until you run `npm run rust:build`. `npm run check` builds them first. See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

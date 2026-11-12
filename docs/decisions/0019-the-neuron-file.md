@@ -1,5 +1,9 @@
 # Decision record 0019: the neuron file (2026-11-11)
 
+**One sentence reversed (2026-11-12):** [decision 0022](0022-what-a-swarm-needs.md), point 4, reverses this
+record's "two uses that differ in a command argument are two files": an entry that names a `run` or
+`serve` neuron's file may add `args` to its command. The rest of this record stands as written.
+
 **Status: decided (Kevin, 2026-11-11: every recommendation), nothing built.** This is S3 of
 [decision 0016](0016-the-self-describing-neuron.md), which decided that a neuron describes itself
 in a file of its own and that the file which uses it may narrow it and never widen it, and left

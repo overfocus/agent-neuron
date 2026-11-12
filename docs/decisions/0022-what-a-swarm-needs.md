@@ -1,6 +1,6 @@
 # Decision record 0022: what a swarm needs (2026-11-12)
 
-**Status: decided 2026-11-12, every recommendation accepted. Built: S1 (`--result`), S6 (a neuron's own settings), S2 (`each`, in the Rust engine). Not built: S3 to S5.**
+**Status: decided 2026-11-12, every recommendation accepted. Built: S1 (`--result`), S2 (`each`), S4 (`args`), S6 (a neuron's own settings). Not built: S3, S5.** A real job was put
 to the engine: give each of 21 business types a private template repository, one neuron doing one
 type and another handing out the list. It ran (the branch `feat/template-swarm`, kept unmerged), and
 it showed six things missing between the contract and a swarm. One of them, a limit on calls at
@@ -245,6 +245,40 @@ Three things the build settled.
    for one hears every event whether or not `--stream` was given. The engine itself is unchanged
    but for handing out the whole answers with their neurons.
 
+## S4 as built (2026-11-12)
+
+`args` on an entry that names a neuron's file, in the three loaders (`readNetwork` and `check` in
+`src/engine/check.ts`, `_resolve` in `py/agent_neuron/check.py`, `neuron_of_file` in
+`rust-engine/src/net.rs`): the entry is folded into the inline neuron with the longer command, and no
+engine proper changed. The contract commit: `spec/network.schema.json` (the `neuron` entry gains
+`args`, nothing else does), SPEC 2.2, 2.7, 2.8, 2.10 and Appendix B, and five fixtures in
+`spec/fixtures/neuronfile/`.
+
+| Check | Result |
+|---|---|
+| `args-are-appended-to-the-neurons-command`: a `run` file and a `serve` file, each entry with `args` | the events of the worked fixture (8.4), in all three engines |
+| `refuses-args-on-an-inline-neuron` | refused: an unknown field |
+| `refuses-args-on-an-http-neuron-file`, `refuses-args-on-a-human-neuron-file` | refused: the file has no command |
+| `refuses-args-that-are-not-literals` (`${NAME}`) | refused |
+| Real processes, `rust-engine/tests/args.rs`: a `run` and a `serve` program that answer with their arguments | `["own","--apply","two words","--apply"]`, and the run's output is that of the inline neuron |
+
+Four things the build settled.
+
+1. **A fixture cannot see an argument.** The scripted programs are keyed by instance path and nothing
+   runs a command (CONFORMANCE 2, 5), and the trace header carries no command (7.1). So the fixture
+   pins what it can, that the network is accepted and the run reports what the inline neuron's does,
+   and the proof that the arguments arrive is outside the fixtures: the real-process tests of the Rust
+   engine, and a unit test of each of the other two loaders (`test/spec.test.ts`,
+   `py/tests/test_args.py`) that the neuron handed to the engine is the inline one.
+2. **A string of `args` is what a string of a command is**: a literal, with no further limit. An empty
+   string and a repeated one stand, and the array is not a set.
+3. **On an inline neuron `args` is an unknown field**, of every kind, a source and a composed neuron
+   included: the schema's own refusal, with no rule added. A neuron file that holds `args` is refused
+   the same way, by its own closed schema.
+4. **The appended arguments come after everything the file wrote**, with nothing put between them:
+   a file whose command ends in an option that takes a value gives that value to the first of `args`.
+   That is the file author's to know; no engine looks inside a command.
+
 ## S6 as built (2026-11-12)
 
 SPEC 2.4 (normative), section 0, 2.7 and Appendix C; the Rust engine (`src/settings.rs`, the loader's
@@ -282,7 +316,7 @@ schemas (`run`, `serve`, `http` and `network` neurons; `run`, `serve` and `http`
 2.4, 2.7, 2.8, 2.10, 3.1, 3.2, 4.4, 4.5, 5.4, 6.1, 6.2 rule 3, 11.2 and Appendix B, C and E,
 CONFORMANCE 4.1, and 26 fixtures in `spec/fixtures/each/`, their expected events written by hand from
 the text. The Rust engine passes all 298 fixtures, the 272 that were there untouched. **The TypeScript
-and Python engines were not changed** (they are to be removed): they accept the option in `check` and
+and Python engines were not changed** (they were removed the same day, [decision 0023](0023-one-engine.md)): they accept the option in `check` and
 do not act on it.
 
 The gate, by fixture:

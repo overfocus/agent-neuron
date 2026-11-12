@@ -26,7 +26,7 @@ Contents
 11. Effects (normative)
 
 Appendices (informative): A. Walk-through: one alert. B. Out of version 0.1.
-C. How the TypeScript library differs. D. A page for `human` neurons. E. Where each rule lives.
+C. The engine in this repository. D. A page for `human` neurons. E. Where each rule lives.
 
 ## 0. Quick start for neuron authors (informative)
 
@@ -113,14 +113,14 @@ Rules you will hit:
   its input went stale, and if the call crashes or times out it records `unknown`, not
   an error: nobody can tell whether it happened. Make such a program idempotent by an id
   in its payload (section 11).
-- **Running a network.** `npm run engine -- check <file>` validates a network file
-  (schema and the findings of section 2.7, with line and column). `npm run engine --
+- **Running a network.** `neuron-engine check <file>` validates a network file
+  (schema and the findings of section 2.7, with line and column). `neuron-engine
   run <file> --inputs <jsonl> [--trace <out.json>]` runs it: the inputs file holds one
   JSON object per line, `{"at": ms, "source": id, "payload": ..., "replaces": key, "budget": units}`
   (`replaces` and `budget` optional), and the run prints the answers of the neurons with no
-  outgoing links. Try `npm run demo:network` (the alert storm below). The TypeScript
-  library does not read network files; the reference engine is `src/engine/`
-  (Appendix C). `http` and `human` neurons are not run yet.
+  outgoing links. Try `npm run demo:network` (the alert storm below). `neuron-engine` is the
+  engine in `rust-engine/`, built with `cargo build --release --manifest-path rust-engine/Cargo.toml`
+  (the binary is `rust-engine/target/release/neuron-engine`; Appendix C).
 - **Running a level 1 neuron.** Put the quick-start program above in a file,
   say `flag.py`, and name it in a network file as
   `{ "id": "flag", "serve": ["python3", "flag.py"] }`; the engine starts it with the
@@ -192,7 +192,8 @@ it was written; it may become a URL later.
 `id` (required, `^[A-Za-z][A-Za-z0-9_-]{0,63}$`, unique in the file),
 `description` (string; SHOULD be set, it reaches the trace), `at` (optional), exactly one kind
 field (2.3), and the options its kind allows (2.4). An entry whose kind field is `neuron` takes the kind
-and the rest from the neuron's own file (2.10).
+and the rest from the neuron's own file (2.10). Such an entry, and no other, may carry `args`: arguments
+added to that file's command (2.10). It is not an option.
 
 `at` is `[x, y, z]`, three numbers from -1000000 to 1000000 in any unit the author
 picks: where a drawing of the network puts the neuron. It is a **descriptive
@@ -392,14 +393,17 @@ neuron's own on the entry), and a `timeout`, `env`, `may` or `maxInflight` on th
 a `maxInflight` that is not an integer of at least 1, or one on a `serve`, `human` or `source` neuron, in a network
 file or in a neuron's own file (2.4) (errors); an `each` that is not `true`, or one on a `human` or `source` neuron, in a network
 file or in a neuron's own file (2.4) (errors); a settings file of a neuron that lists `env` names with a line that is not
-`NAME=value` (2.4) (error, naming the file and the line, never the text).
+`NAME=value` (2.4) (error, naming the file and the line, never the text); `args` on an entry whose file is an `http` or `human` neuron (error; on a neuron written
+inline `args` is an unknown field, and a string of it that is not a literal is a schema violation, 2).
 
 ### 2.8 Field budget (informative)
 
 10 top-level fields (`budget` is the ninth, `ground` the tenth — [decision
 0012](decisions/0012-the-ground.md)); per neuron `id`, `description`, `at`, one kind field, at most 11
 options; 2 per link. The kinds are seven: `neuron` is the seventh, admitted by
-[decision 0019](decisions/0019-the-neuron-file.md) and costing no option. A new field must answer one question: does it say how
+[decision 0019](decisions/0019-the-neuron-file.md) and costing no option. `args` (2.10,
+[decision 0022](decisions/0022-what-a-swarm-needs.md)) is a field of the entry that names a neuron's file, not an
+option: it counts against none of the nine. A new field must answer one question: does it say how
 neurons connect, or how one decides? Deciders are programs. A second, closed
 class of field is descriptive (for people and tools, acted on by no engine):
 `description` and `at` are the only two, and another needs its own decision record
@@ -500,6 +504,7 @@ written on the entry.
 | `may`, `env`, `timeout`, `maxInflight` | yes | to narrow only |
 | `description` | yes | yes; the entry's is the neuron's when both have one |
 | `id`, `at`, `threshold`, `within`, `maxHops`, `cost` | never | yes |
+| `args` | never | yes, where the file is a `run` or `serve` neuron: added to its command |
 
 Each option is allowed only where it is on an inline neuron of the file's kind (2.4). An option on the
 wrong side is an error (2.7).
@@ -510,6 +515,17 @@ file's names; `may`, on a `run` or `serve` neuron, for each member a subset of t
 compared as written; `maxInflight`, on a `run` or `http` neuron, at most the file's (a file that
 states none has no limit, so any value on the entry asks for less). An option the entry leaves out stands as the file wrote it; one the entry states
 replaces the file's. An entry that asks for more is an error (2.7), and the engine refuses to start.
+
+**`args`.** The entry may add arguments to the neuron's command:
+`{ "id": "create", "neuron": "create.neuron.json", "args": ["--apply"] }`. `args` is a non-empty array of
+literal strings (2), and the neuron's command is the file's command with them appended in order, after
+the file's own arguments, each passed verbatim (2.3). It can add and never remove or replace: the
+command is the neuron's, and what this network adds to it is the network's. It is allowed only where the
+file is a `run` or `serve` neuron; on an entry whose file is an `http` or `human` neuron, and on any
+neuron written inline, it is an error (2.7), and the engine refuses to start. It is a field of the entry,
+not an option (2.8), and it changes no rule an engine applies, only the command it starts: the run
+reports what a run with the neuron written inline, with the longer command, reports. A value known only
+when the run starts remains an `env` name ([decision 0022](decisions/0022-what-a-swarm-needs.md)).
 
 The fold of 2.4 reads the neuron as narrowed: a composed neuron's `may` covers what its neurons may
 touch after their own entries have narrowed them. A `network` neuron's own `may` is not narrowed by the
@@ -895,7 +911,7 @@ list.
    reports their `expired` drops. A pending restart delay or idle ping is not work: it does not keep the run
    open, and the engine stops the process silently when the run ends (no `restart` note). A fixture runs the virtual clock until nothing
    is due. A real engine's "wait until idle" MAY stop earlier, ignoring held
-   inputs (the TypeScript `idle` does); then their drops are not reported.
+   inputs; then their drops are not reported.
 7. A call's outcome due at the same instant as its `timeout` is processed first: a call
    times out only if it is strictly longer than `timeout`. (A level 0 program's reply, a
    level 1 reply, the exit of a composed neuron: whatever ends the call at that instant.) A timeout has no
@@ -1155,16 +1171,16 @@ mode), is not addressable, is not on any path, and cannot send along links.
   root replaces key (the producer), memory across level 0 calls (use `serve`),
   not diagnosing a known cause again (an ordinary neuron on the path, quiet for
   a known cause).
-- The TypeScript library's listeners (`onSignal`, `onDrop`, `onError`) are the
-  in-process observer. Routing done inside them, as the alert storm demo does,
-  belongs to the routing rule (section 4); an engine does it itself.
+- A library's listeners (the TypeScript library's `onSignal`, `onDrop`, `onError`, until
+  [decision 0023](decisions/0023-one-engine.md)) are an in-process observer. Routing done inside them, as that
+  library's alert storm demo did, belongs to the routing rule (section 4); an engine does it itself.
 - There is no `watch` link: it would settle the open passive/active question by
   the back door.
 
 ### 9.1 The live stream (normative)
 
 An engine MUST offer the events of the trace as they happen, to a consumer of the caller's choosing, in
-two forms: a library option (the reference engine's is `onEvent` on `runNetwork`) and a command-line flag
+two forms: a library option (the reference engine's is the `sink` of `run_with_stream`) and a command-line flag
 that writes one JSON object per line as they happen (the reference engine's is `run --stream <path>`).
 
 - **The stream is the trace.** It carries every event of the trace of the outer network (7.2: signals, replies,
@@ -1367,8 +1383,7 @@ The `unknown` event carries the payload of the input, so the id can be read from
 carries only the crossing input's payload (the others are not in the event), so a threshold effect should have its id on every
 input. Three cautions: `lookup` answering "not sent" is only as good as the other system's consistency, since a timed-out
 or killed call may still land later; any retry the producer makes must itself be idempotent by the id; and the engine
-guarantees none of this. The demo
-(`npm run demo:notify`) and the fixture `observer/an-observer-reconciles-an-unknown-effect` do this.
+guarantees none of this. The fixture `observer/an-observer-reconciles-an-unknown-effect` does this.
 
 ### 11.5 Composed neurons
 
@@ -1387,7 +1402,7 @@ where the trace shows it; a composed neuron may feed it.
   met the call is a started call (11.2), and any of its inputs going stale marks it.
 - **Levels.** At level 0 and level 1 alike a stale input starts nothing: no signal to the process group, no
   `cancel` line. The slot of a level 1 effect call is its own until it replies or `timeout` ends it.
-  `http` neurons are not run by the reference engine; the rules apply to them when an engine does. A `human` effect
+  `http` neurons are not run by every engine; the rules apply to them when an engine does. A `human` effect
   call is as any other: an answer is committed, and a `timeout` is `unknown`.
 - **`finished`.** A trace is finished when nothing is running, queued or held (7.2); a running effect call
   that went stale is still running, so the trace waits for it.
@@ -1397,7 +1412,7 @@ where the trace shows it; a composed neuron may feed it.
 Files: [alerts.network.json](../spec/examples/alerts.network.json),
 [diagnosis.network.json](../spec/examples/diagnosis.network.json); programs in
 `spec/examples/neurons/` and `examples/alerts/`. The producer injects, at their
-`at` times, the 40 alerts of `examples/alerts/alerts.json` (a timed schedule that
+`at` times, the 40 alerts of `spec/examples/alerts.inputs.jsonl` (a timed schedule that
 is the producer's, not the file's), each with its service as key. Alert 5:
 `{"id":5,"service":"checkout","severity":"warn",...}`.
 
@@ -1440,7 +1455,8 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
   `may` on a source that carries a program.
 - The neuron file, later ([decision 0019](decisions/0019-the-neuron-file.md)): a neuron's file on another
   machine; an entry that adds `effect` to a neuron that does not claim it; versioning a neuron file apart from
-  the network format; parameters (a neuron file is literals, so two uses that differ in an argument are two files).
+  the network format; parameters beyond the `args` of 2.10 ([decision 0022](decisions/0022-what-a-swarm-needs.md)):
+  for a composed file, and a value that reaches a program from the payload other than as its input.
 - Confinement, later ([decision 0018](decisions/0018-confining-a-program-to-its-may.md)): confinement as the
   default; a program placed on another machine; a named host for a program that does not speak HTTP; a path
   that reaches a program through a variable named in `env`.
@@ -1454,136 +1470,88 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
 - Budgets, later: usage claims in level 1 replies, an owed ledger, spend per source or per time
   window, settlement (10.8).
 
-## Appendix C. How the TypeScript library differs (informative)
+## Appendix C. The engine in this repository (informative)
 
-The library in `src/` is the first engine to be brought into line. Deliberate
-differences:
+One engine lives here: the Rust engine in `rust-engine/` (the `neuron-engine` binary). It is the reference any
+further engine is compared with. Until [decision 0023](decisions/0023-one-engine.md) there were three more pieces,
+a TypeScript library that predated this text, a TypeScript reference engine and a Python engine written from the
+text alone; they are deleted, and this appendix, which listed how each differed, now says what the one engine adds
+to the text, what it leaves out and what it chose where the text is silent. Its own account, with the reasons, is
+`rust-engine/README.md`.
 
-- one-way links (`connect` links both ways today);
-- automatic forwarding along links (callers forward today); `emit` `to` limited
-  to outgoing links;
-- a composed neuron is one shared inner network per instance (the demo builds a
-  fresh one per call);
-- a default `timeout` of 30 s (none today);
-- a minimal environment (the shell adapter inherits the engine's);
-- process-group kill with SIGKILL after 2 s (the adapter kills the child only);
-- level 0 is JSON both ways (the shell adapter writes text raw and reads
-  non-JSON as text);
-- a cut (running) drop is reported when the adapter settles, not when the work goes
-  stale (5.4, 6.2 rule 4): an adapter that ignores abort delays it, and one that never
-  settles never reports it (and `idle()` waits on it);
-- `emit` reports the drops a signal causes before that signal's own event (the abort
-  runs before the notification), the reverse of 6.2 rule 2;
-- `phase` on drops (`onDrop` reports one reason today; the recorder and the view add `phase` from the
-  held inputs they replay);
-- the threshold stdin shape applies above 1 only.
-
-### The reference engine (`src/engine/`, `npm run engine`)
-
-A second engine, written to this specification, reads network files. It is
-separate from the library (`src/index.ts` is unchanged) and is the reference
-any further engine is compared with (a Rust one was tried and stopped: decision 0005). It follows the specification, including the
-6.2 event order, where the library differs (the list above). Conformance gaps:
-
-- **Neuron kinds**: `source`, `run`, `serve`, `network` and `human`. `human` needs a desk: the command line's `run`
-  serves the page of Appendix D, and the library's `runNetwork` takes a `desk` option and refuses a `human` neuron
-  without one. `http` is reported by `check` as a warning and refused by `run`. The conformance runner scripts a
-  person (CONFORMANCE 5.5), and `spec/fixtures/human/` holds its fixtures.
-- **Fixtures** (section 8): `npm run engine -- conform spec/fixtures` runs them on a
-  virtual clock with scripted programs (`src/engine/virtual.ts`, a `Host` the engine takes in
-  place of real time and processes). Its other tests run real processes (`sh`, `cat`) for what
-  the fixtures cannot reach: bytes, process groups, the environment.
-- **Observers** (section 9): the `observer` option of `runNetwork` (a function called with each outer event, the
-  `finished` event included, that returns injections; the fixtures' scripted observer is one, and the notify demo
-  another), with the `inject` note. `run` returns the finished trace.
-- **The live stream** (9.1): the `onEvent` option of `runNetwork` and `run --stream <path>` (a file, or a pipe). Events are queued
-  and offered from a microtask, as copies; a consumer's exception or rejected promise is ignored. The buffer is
-  unbounded, so a consumer that never keeps up holds the events in memory.
-- **`each`** (2.4, [decision 0022](decisions/0022-what-a-swarm-needs.md)) is built in the Rust engine only. This engine
-  and the Python one accept the option in `check` (it is in the schema) and do not act on it, so they fail
-  most of `spec/fixtures/each/`.
-- **Same-instant order** (6.2 rules 1 and 5) holds because the engine is one
-  synchronous event loop, not because a clock orders it; a call whose process
-  ends in the same millisecond its input goes stale can go either way.
-- **Notes**: `cancel`, `term`, `kill`, `restart` and `junk` are written; `inject` only for a scripted observer;
-  `reserve` and `commit` with a budget.
-- **A run-level result** (4.4): not written by this engine, nor by the Python one. The Rust engine writes one
-  when asked (`run --result <path | ->`, [decision 0022](decisions/0022-what-a-swarm-needs.md)): each trace's
-  answers, failures and drops and the totals, read off the events; with it the run exits 3 when a call ended
-  in an error or an unknown.
-- **A neuron's own settings** (2.4): read by this engine and the Rust one, the two that start programs. The
-  Python engine starts none and ignores the file. In the Rust engine a single program placed on a peer
-  (`--peers`) is started by the peer with the peer's environment, and the settings file is not sent.
+- **Neuron kinds**: all of them. `source`, `run`, `serve`, `network` and the `neuron` kind; `http` over plain HTTP
+  (`https` is refused: the engine has no TLS); `human` on the desk, the page of Appendix D, whose address `run`
+  prints on stderr. The conformance runner scripts a person instead (CONFORMANCE 5.5), and `spec/fixtures/human/`
+  holds its fixtures.
+- **Fixtures** (section 8): `neuron-engine conform spec/fixtures` runs them on a virtual clock with scripted
+  programs. The engine's other tests (`rust-engine/tests/`) run real processes for what the fixtures cannot
+  reach: bytes, process groups, the environment.
+- **Observers** (section 9): the conformance runner scripts one, with the `inject` note. On a real run an
+  observer is a program outside the engine: it reads the live stream and injects through a live producer (below).
+- **The live stream** (9.1): the `sink` of `run_with_stream` (`rust-engine/src/run.rs`) and `run --stream <path>`
+  (a file, or a pipe). A consumer that fails never changes the run.
+- **A run-level result** (4.4): written when asked (`run --result <path | ->`,
+  [decision 0022](decisions/0022-what-a-swarm-needs.md)): each trace's answers, failures and drops and the
+  totals, read off the events; with it the run exits 3 when a call ended in an error or an unknown.
+- **A neuron's own settings** (2.4): read. A single program placed on a peer (`--peers`) is started by the peer
+  with the peer's environment, and the settings file is not sent.
 - **Effects** (section 11): all of it. `unknown` is a separate event type; the `forwarded` mark is on the `answer` event.
-- **A live producer** (4.1): not taken by this engine, nor by the Python one. The Rust engine takes one on
-  standard input (`run --inputs -`, `rust-engine/README.md`), writing its events to the stream as they happen
-  and keeping none. A file it hosts for other engines (`peer --network`) takes the same injection as an
-  `inject` line on a connection, and writes the file's own events to the worker's `--stream`.
-- **A limit on calls at once**: `maxInflight` (2.4) is held by this engine, the Python one and the Rust one,
-  for `run` and `network` neurons, and by the Rust one for `http` too (the only one that runs them). Here
-  the end of a step (6.2 rule 9) is a microtask: a place is given back, and the waiting call started,
-  after the callback that freed it has returned. Besides the option the Rust engine takes a limit for the
-  whole engine from the command line (`run --at-once <n>`, `peer --at-once <n>`,
-  [decision 0021](decisions/0021-a-limit-on-calls-at-once.md)): a level 0 call over it is queued in arrival
-  order, and queued means what it means at level 1 (3.2, 5.4, 10.3, 11). A network file cannot state that
-  one. A call under both takes its neuron's place first and keeps it while it waits for the engine's; a
-  neuron placed on a peer has its `maxInflight` held by the engine that holds its calls.
-- **A neuron named by its own file** (2.10): read when the network file is (`readNetwork`), so the engine itself
-  never sees the `neuron` kind. The Python and Rust engines do the same in their loaders.
-- **`may`** (2.4): checked, the fold included. This engine does not confine (2.9): a program runs with the rights
-  of whoever started it, whatever its `may` says. The Python engine starts no process. The Rust engine confines
-  on macOS when a run asks (`run --confine`, `rust-engine/README.md`): files by path, loopback ports directly, a
-  named host through a proxy of its own, `localhost` and `127.0.0.1` taken as one, and a listen address other
-  than those or `0.0.0.0` refused; on any other platform it refuses a run that asks.
-- **Budgets** (section 10): all of it. A call's `ms` is read from `performance.now()` in real runs, rounded to whole ms.
+- **A live producer** (4.1): taken on standard input (`run --inputs -`, `rust-engine/README.md`), writing its
+  events to the stream as they happen and keeping none. A file the engine hosts for other engines
+  (`peer --network`) takes the same injection as an `inject` line on a connection, and writes the file's own
+  events to the worker's `--stream`.
+- **A limit on calls at once**: `maxInflight` (2.4) is held for `run`, `network` and `http` neurons. Besides
+  the option the engine takes a limit for the whole engine from the command line (`run --at-once <n>`,
+  `peer --at-once <n>`, [decision 0021](decisions/0021-a-limit-on-calls-at-once.md)): a level 0 call over it is
+  queued in arrival order, and queued means what it means at level 1 (3.2, 5.4, 10.3, 11). A network file
+  cannot state that one. A call under both takes its neuron's place first and keeps it while it waits for the
+  engine's; a neuron placed on a peer has its `maxInflight` held by the engine that holds its calls.
+- **A neuron named by its own file** (2.10): read when the network file is, in the loader, so the engine itself
+  never sees the `neuron` kind, nor the entry's `args`: the command it is handed is already the longer one.
+- **`may`** (2.4): checked, the fold included. The engine confines (2.9) on macOS when a run asks
+  (`run --confine`, `rust-engine/README.md`): files by path, loopback ports directly, a named host through a
+  proxy of its own, `localhost` and `127.0.0.1` taken as one, and a listen address other than those or
+  `0.0.0.0` refused; on any other platform it refuses a run that asks. A run that does not ask is not confined:
+  a program runs with the rights of whoever started it, whatever its `may` says.
+- **Budgets** (section 10): all of it.
+- **Peers** ([decision 0013](decisions/0013-p2p.md), `docs/P2P.md`): `run --peers <file>` places some of a
+  network's neurons on other engines (`neuron-engine peer`). The text does not specify it.
 - **Process start failure** (no such executable) is an `exit` error, `exit 127:`
   then the reason; the table in 6.1 has no row for it.
-- **The inside of a composed neuron** is available only through the `inner`
-  option of `runNetwork` (CLI `--inner <out.json>`), an operator's tool outside
-  the trace (2.6); it is not specified.
-- **Payloads over 2000 characters** are cut to a preview in the trace (TRACE.md),
-  as the recorder does; the program still gets the whole value.
+- **The inside of a composed neuron** is not available from a run: its events are discarded (2.6). An operator's
+  view of the inside is not specified.
+- **Payloads over 2000 characters** are cut to a preview in the trace (TRACE.md);
+  the program still gets the whole value.
 - **POSIX only**: process groups, `kill(-pid)` and `sh`-style programs; no Windows.
 - **Engine defaults** (decision 0001): when a call ends the engine kills its
   program's process group; a call settles 100 ms after the process exits even if
-  a child still holds stdout open; ids are numbered per scope, so outer ids do not
-  reveal inside work; the CLI kills every running group on SIGINT or SIGTERM.
-- **The staleness map is not pruned**: a list of finished work stays under its
-  (sender, key) until that key is next replaced, the same known limit as the
-  library, so a very long run with many distinct keys grows in memory.
-- **`check` positions** point at the key of the offending member, or the item of
-  an array, not at its value.
+  a child still holds stdout open; the CLI kills every running group on SIGINT or SIGTERM.
+- **Ids** are numbered per run, and every trace says so in its header
+  (`"ids": {"signal":"run-numbered","trace":"run-numbered"}`); they are opaque strings (TRACE.md).
+- **`check` positions** point at the key of the offending member.
 - **Level 1 (`serve`)** follows 3.2 and 6.1. Where the text is silent the engine chose:
-  - a queued call (waiting for a slot) that goes stale is dropped as `replaced`, phase
-    `waiting`, with no `cancel` note; if it belongs to a threshold call, the whole call
-    is removed and one drop is written, for the crossing input;
   - a hung process (3.2) is killed with `term`, then `kill` after 2 s if anything of its
-    group remains, whether or not its leader has exited, and restarted; the calls still
-    running fail with `crash`. The run is not over until a cancelled call's slot is free,
-    so the trace records the kill. A serve process is noticed as down when it exits (after a
-    100 ms grace, so its last lines are read) or closes stdout, so a helper that inherited
-    stdout does not hide a crash;
+    group remains, and restarted; the calls still running fail with `crash`. The run is not over until a
+    cancelled call's slot is free, so the trace records the kill. A serve process is noticed as down when it
+    exits (after a 100 ms grace, so its last lines are read) or closes stdout;
   - the failed-start rule, the over-long line, junk and cancelled calls, and the `restart` note are
     specified in 3.2 and 6.3 (decision 0001 and 0004 give the reasons);
   - before `ready`, any first line other than a valid `ready` (junk, a wrong `v`, a bad
     `maxInflight`) is a failed start; the engine does not restart a neuron whose first start
     fails, it refuses to start. After a later start fails, backoff and the limit of 5 apply;
   - `ping` is sent every 10 s while nothing is running (the text gives no interval;
-    `runNetwork`'s `pingEvery` option changes it); the time to answer is in 3.2;
-  - the `error` message of a `crash` is `process failed`, then the first 500 bytes of stderr;
+    `run --ping <ms>` changes it); the time to answer is in 3.2;
   - the engine's clock starts when every serve neuron is ready, so `at` in an inputs file
     does not include start-up;
   - at the end of the run stdin is closed and a process that has not exited is sent SIGTERM
-    after 2 s and SIGKILL 2 s later, silently; the run returns after the processes are gone;
-  - a `term` or `kill` note for a process that dies on its own is written only if part of its
-    process group is still alive.
-- **Measured** on one machine (Apple M3, macOS, Python 3.14, an idle machine; not a benchmark, not asserted
-  by any test): per signal, a level 0 Python neuron costs a process start, median 19.7 ms (p95 21.6 ms, 40
-  runs of `hypothesis.py`); a level 1 neuron costs a round trip over the pipe, median 0.04 ms (p95 0.07 ms,
-  300 calls of `hypothesis_serve.py` with a 0 ms model call, one thread per call included). Against the alert
-  storm's detector budget of about 150 ms, a level 0 Python detector spends about 13% of it on start-up, a
-  level 1 one under 0.1%. A level 1 neuron pays its start once, at engine start (about the same 20 ms). The
-  engine adds routing on top of both.
+    after 2 s and SIGKILL 2 s later, silently; the run returns after the processes are gone.
+- **Measured** on one machine before decision 0023, with the TypeScript reference engine (Apple M3, macOS,
+  Python 3.14, an idle machine; not a benchmark, not asserted by any test): per signal, a level 0 Python neuron
+  cost a process start, median 19.7 ms (p95 21.6 ms, 40 runs of `hypothesis.py`); a level 1 neuron cost a round
+  trip over the pipe, median 0.04 ms (p95 0.07 ms, 300 calls of `hypothesis_serve.py` with a 0 ms model call,
+  one thread per call included). Against the alert storm's detector budget of about 150 ms, a level 0 Python
+  detector spent about 13% of it on start-up, a level 1 one under 0.1%. A level 1 neuron pays its start once,
+  at engine start (about the same 20 ms). The numbers have not been taken again with the Rust engine.
 
 ## Appendix D. A page for `human` neurons (informative)
 
@@ -1612,7 +1580,7 @@ interface to the engine.
   The page shows each person what waits on them and on the others, and the answers taken so far, with who gave them.
   An input with an `options` array of `{id, label, text}` is shown as its title, notes and one button per option (not
   as JSON); choosing one replies with its `text`, else its `id`. A one-line *why* may ride on any answer, for the record only: it is never sent.
-- **Nothing is fetched from elsewhere.** The page loads its fonts from its own origin and runs one inline script under
+- **Nothing is fetched from elsewhere.** The page uses the system's fonts and runs one inline script under
   a nonce; every value from an input is shown as text, never parsed as HTML.
 
 

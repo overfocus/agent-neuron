@@ -1,11 +1,11 @@
 # Architecture map (informative)
 
-A dense index of how agent-neuron is put together: the model, the three engines, the inside of the
+A dense index of how agent-neuron is put together: the model, the engine, the inside of the
 Rust engine, the wire between engines, and the ways to run. It is written to be read fast by
 someone (or some agent) who needs to find the right file and function, not as an introduction; for
 that, read the [README](../README.md).
 
-**This is a snapshot, taken 2026-11-12 with decision 0021's `maxInflight` option (L2) and decision 0022's `each` (S2, Rust engine only) built.** Nothing here is
+**This is a snapshot, taken 2026-11-12 with decision 0021's `maxInflight` option (L2) and decision 0022's `each` (S2) built, and decision 0023 (one engine) carried out.** Nothing here is
 normative. The contract is [SPEC.md](SPEC.md), [`spec/fixtures/`](../spec/fixtures/) and the
 [decision records](decisions/). A name below that no longer greps is this file's error: fix it here.
 
@@ -20,6 +20,7 @@ MODEL
     human    a person answers at the desk (page)
     network  composed: a whole network file as one neuron (entry in, first exit reply out; inside sealed)
     neuron   named by its own neuron file (0019); using entry may NARROW timeout/env/may/maxInflight only (effect, each: the file's, never the entry's)
+             and may ADD args[] to a run/serve file's command (0022 S4; an entry field, gone after the loader)
   options (11)  threshold, within, maxHops, timeout, env, cwd, cost, effect, may{connect,listen,read,write}, maxInflight (run|http|network: calls at once, rest wait in arrival order; 0021 L2), each (run|serve|http|network: answer is an array, one forward per item; 0022 S2)   (SPEC 2.4)
   settings      .env beside the declaring file (neuron file, or network file for inline) fills `env` names; wins over the engine's environment; never reported (0022 S6; settings.rs)
   input         {at, source, payload, replaces?, budget?}; `replaces` is the staleness key and rides the signal
@@ -34,11 +35,10 @@ MODEL
   each          one `answer` event (whole array) -> one forward per item, array order, same cause/trace/hops/to/key; ONE emission for staleness (items never cut each other; a later answer on the key cuts all); non-array => error/unknown code `output`; [] forwards nothing; no join
   cut sequence  cancel note -> SIGTERM group (`term`) -> 2000 ms grace -> SIGKILL (`kill`) -> commit -> done
 
-THREE ENGINES (same fixtures; conformance = scripted host, virtual time)
-  TypeScript  src/ (engine/, network.ts, neuron.ts, signal.ts, adapters/) + test/   reference
-  Python      py/
-  Rust        rust-engine/   the product engine: real processes, peers, desk, confine, mcp
-  gate        `npm run check` (needs Rust); rust: cargo test / fmt / clippy; fixtures by area in spec/fixtures/<area>/
+ONE ENGINE (conformance = scripted host, virtual time)
+  Rust        rust-engine/   the engine and the reference: real processes, peers, desk, confine, mcp
+  history     a TypeScript library, a TypeScript reference engine and a Python engine passed the same fixtures until decision 0023 deleted them
+  gate        `npm run check` = cargo fmt --check, clippy -D warnings, cargo test --release, then conform spec/fixtures and spec/probes; fixtures by area in spec/fixtures/<area>/
 
 RUST ENGINE  rust-engine/src
   engine.rs 5.5k  the Engine: nodes, works, sigs, heap of wake-ups, all rules
@@ -77,8 +77,7 @@ RUST ENGINE  rust-engine/src
       Serve     free slot ? signal_line : Queued in serves[node].queue (drain_serve on slot free)
       Human     desk      Http  thread -> HttpDone      Composed  start_composed (inner instance or remote graph)
     both limits on one call: the neuron's place first (kept while it waits), then the cap gate in start_l0; a placed neuron's maxInflight is held by the driver
-    TypeScript: Node.places, Run.waiting, vacate -> drain in a microtask (its end of step); Python: Neuron.places, Run.waiting, drain after each scheduler item
-    each (Rust only): call_replied turns a non-array Answer into Fail `output`; forward_answer loops forward_one per item (a ground draw per item); `fanning` keeps the trace from `finished` between items; StaleEnt.emission (= cause, else own id) is what new_signal and stale_and_cut compare
+    each: call_replied turns a non-array Answer into Fail `output`; forward_answer loops forward_one per item (a ground draw per item); `fanning` keeps the trace from `finished` between items; StaleEnt.emission (= cause, else own id) is what new_signal and stale_and_cut compare
     end: host_l0_done -> l0_finished -> call_replied(Outcome) | fail_call ; cut: cut_work -> terminate_l0 -> L0Grace -> fire_l0_grace
   COMPOSED / HOSTED
     composed call: inner trace root = works[cw].inner_root; first reply at exit answers the call (composed_exit_replied) then composed_cancel_inner; quiet inside -> quiet; inner failure -> error `inner` (cause sealed)

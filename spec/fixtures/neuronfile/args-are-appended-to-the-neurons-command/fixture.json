@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "SPEC 8.4's worked fixture with both programs named by a file of their own, each entry adding `args` to the file's command (2.10, decision 0022): a level 0 neuron and a level 1 neuron. `args` changes the command started and no rule: the events are those of the same network with each neuron written inline with the longer command, which are those of routing/chain-forward-with-cause. The scripted programs stand in for the processes, so a fixture cannot see the arguments themselves.",
+  "inputs": [
+    {"at":0,"source":"s","payload":{"n":1},"replaces":"k"}
+  ],
+  "script": {
+    "a": {"calls":[{"after":10,"reply":{"answer":{"n":2}}}]},
+    "b": {"calls":[{"after":5,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"json","data":{"n":1}}},
+    {"type":"answer","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":{"n":2}}},
+    {"type":"signal","t":10,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"replaces":"k","payload":{"type":"json","data":{"n":2}}},
+    {"type":"quiet","t":15,"id":"#4","from":"b","to":["a"],"trace":"#1","replyTo":"#3","hops":3}
+  ]
+}

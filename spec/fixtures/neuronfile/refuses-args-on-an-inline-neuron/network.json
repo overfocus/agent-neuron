@@ -1,0 +1,26 @@
+{
+  "version": 0,
+  "name": "refuses-args-on-an-inline-neuron",
+  "description": "`args` adds to the command of a neuron named by its own file (2.10): on a neuron written inline, whose command is already the network's to write, it is an unknown field, refused by check, so the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "args": [
+        "--apply"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

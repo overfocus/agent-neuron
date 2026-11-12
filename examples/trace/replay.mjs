@@ -1,5 +1,5 @@
 // Folds a trace's events (docs/TRACE.md) into derived state. Pure: no Node or browser APIs, no imports, so it can be
-// copied into a bundle as is. The network view uses it live, one event at a time; any reader can replay a trace file with it.
+// copied into a bundle as is. Any reader can replay a trace file with it, whole or one event at a time.
 //
 //   replay(trace, t)  state after every event with e.t <= t (default: all of them)
 //   start(trace)      an empty state with the trace's declared neurons
