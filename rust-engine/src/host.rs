@@ -96,6 +96,10 @@ pub enum Ev {
     Inject(Box<crate::fixture::Input>),
     /// The live producer is done: no injection is still to come (6.2 rule 6).
     InputsClosed,
+    /// Nothing happened in the host: something beside the queue is waiting
+    /// for the engine (a call or a cancel for a hosted graph, decision 0020),
+    /// and this ends the engine's wait so it looks.
+    Nudge,
 }
 
 pub struct HostMsg {

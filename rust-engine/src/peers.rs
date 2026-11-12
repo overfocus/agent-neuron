@@ -28,7 +28,7 @@
 // as the http client's is; a peer that stops answering fails its call at the
 // call's timeout, never retried. P0 carries `run` neurons only, and the worker
 // holds a call's connection until its own backstop: the `cancel` message is P1.
-use crate::engine::{Engine, GraphOut};
+use crate::engine::{Engine, GraphOut, HostedCall};
 use crate::host::{self, L0Out};
 use crate::json::{self, Obj, Value};
 use crate::net::{Kind, NetFile, Network, Node};
@@ -192,47 +192,38 @@ impl Graph {
 }
 
 /// The one engine of a hosted graph's instance, for the whole peer process
-/// (finding 3, 0014). The old shape planted a fresh standalone engine per
-/// call, so the file's serve programs restarted (state restated) and a fast
-/// `exit` was waited out to the whole inside's end. Here the file plants once
-/// — instance 0 is one composed boundary whose inside is the file — and every
-/// call enters that boundary: 2.6's per-call rules run through the engine's
-/// own composed machinery (the first reply of `exit` is the call's answer,
-/// the rest of the inside is cut; an inside with nothing left is quiet; an
-/// inner failure is `inner`), and the serve programs and their state persist
-/// across the instance's calls. Calls never interleave: a connection takes
-/// one call at a time, and the mutex makes it true across connections.
+/// (finding 3, 0014). The file plants once — instance 0 is one composed
+/// boundary whose inside is the file — and every call enters that boundary:
+/// 2.6's per-call rules run through the engine's own composed machinery (the
+/// first reply of `exit` is the call's answer, the rest of the inside is cut;
+/// an inside with nothing left is quiet; an inner failure is `inner`), and
+/// the serve programs and their state persist across the instance's calls.
+///
+/// The engine lives on a thread of its own and runs the run's loop, fed from
+/// outside (decision 0020, S4c): a connection hands it a call and waits for
+/// that call's outcome, and calls from different connections overlap as
+/// traces do in a run. This is the handle a connection holds.
+#[derive(Clone)]
 struct Hosted {
-    /// The boundary's id: an id no network file can declare (the engine's id
-    /// rule bars a leading underscore), so no answer of the inside can be
-    /// mistaken for the boundary's.
-    boundary: String,
-    /// Instance 0: one composed boundary, no links — its answer is the call's
-    /// answer, and its calls are the wire's calls.
-    wrapper: Network,
-    /// The file tree, the hosted file re-keyed under the boundary's node.
-    files: HashMap<String, NetFile>,
-    base: PathBuf,
-    /// The file's own outbound peers, the placement keyed under the boundary
-    /// (its nodes plant as `<boundary>/<id>`, P2's paths).
-    out: Option<Peers>,
+    calls: std::sync::mpsc::Sender<HostedCall>,
+    /// Ends the engine's wait so it looks: after a call is sent, and when a
+    /// cancel is in or a connection is gone. `None` when the plant refused
+    /// (nothing waits on a host then).
+    post: Option<host::Post>,
     /// The file's name, for the worker's stderr cause (sealing keeps the
     /// inside out of anything the wire reports).
     net_name: String,
-    engine: Option<Engine>,
-    /// The instance's serve programs started once, at the first call; the
-    /// state they keep is the instance's (2.6).
-    started: bool,
-    /// A refusal of the plant or of the serve start: it is about the
-    /// instance, so it repeats for every call.
-    refused: Option<String>,
 }
 
 impl Hosted {
-    /// The instance, from the file the worker hosts. Nothing runs yet: the
-    /// engine plants at the first call, so a file this route cannot host is
-    /// an `inner` refusal per call, as the per-call plant was.
+    /// The instance, from the file the worker hosts. The engine is planted
+    /// here and nothing runs yet: the serve programs start with the first
+    /// call, and a file this route cannot host is an `inner` refusal of
+    /// every call.
     fn boot(g: Graph) -> Hosted {
+        // The boundary's id is one no network file can declare (the engine's
+        // id rule bars a leading underscore), so no answer of the inside can
+        // be mistaken for the boundary's.
         let mut boundary = "__hosted".to_string();
         while g.net.node(&boundary).is_some() {
             boundary.push('_');
@@ -253,7 +244,7 @@ impl Hosted {
         // plant under `<boundary>/`, so the keys shift with them before the
         // plant reads them — and a peers file that will not load is the
         // instance's refusal from the first call.
-        let (out, refused) = match &g.peers {
+        let (out, mut refused) = match &g.peers {
             None => (None, None),
             Some(file) => match Peers::load(file) {
                 Ok(mut p) => {
@@ -265,92 +256,89 @@ impl Hosted {
                 Err(e) => (None, Some(format!("the graph's peers: {}", e))),
             },
         };
-        Hosted {
-            boundary: boundary.clone(),
-            wrapper: Network {
-                name: g.net.name.clone(),
-                description: "the peer's own composed boundary (decision 0013)".to_string(),
-                budget: None,
-                ground: None,
-                entry: Some(boundary.clone()),
-                exit: Some(boundary.clone()),
-                nodes: vec![Node {
-                    id: boundary.clone(),
-                    desc: "the hosted file, as one neuron".to_string(),
-                    at: None,
-                    kind: Kind::Network(key),
-                    opts: Default::default(),
-                }],
-                links: Vec::new(),
-            },
-            files,
-            base: g.base.clone(),
-            out,
-            net_name: g.net.name.clone(),
-            engine: None,
-            started: false,
-            refused,
-        }
-    }
-
-    /// The engine, if the first call has not planted it yet (finding 3,
-    /// 0014): the file is planted once, and a refusal of that plant is the
-    /// instance's refusal from here on.
-    fn plant(&mut self) {
-        if self.engine.is_some() {
-            return;
-        }
-        let mut eng = Engine::new_real(Vec::new(), 10_000);
-        // A person answers at a desk on their own machine; a worker's
-        // surface has none (3.4), so a graph with a human neuron is refused
-        // at its plant, as the per-call plant refused.
-        eng.set_no_desk();
-        if let Some(peers) = self.out.take() {
-            eng.set_peers(peers);
-        }
-        if let Err(e) = eng.plant(&self.wrapper, &self.files, Some(&self.base)) {
-            eng.kill_leftovers();
-            self.refused = Some(format!("cannot plant: {}", e));
-            return;
-        }
-        self.engine = Some(eng);
-    }
-
-    /// One wire call to the instance: plant once, start the serve programs
-    /// once, and enter the boundary (the engine's own composed call).
-    fn call(&mut self, payload: Value, timeout_ms: u64, cancelled: &dyn Fn() -> bool) -> GraphOut {
-        self.plant();
-        if let Some(why) = self.refused.clone() {
-            return GraphOut::Failed(Some(why));
-        }
-        let eng = self.engine.as_mut().expect("the instance's engine");
-        // The call's budget on the real clock: the start waits of the serve
-        // programs (the first call's) are covered too, as the run's deadline
-        // covers them (finding 5, 0014).
-        eng.set_deadline_ms(timeout_ms.saturating_add(BACKSTOP_MS));
-        if !self.started {
-            match eng.start_serves() {
-                Err(why) => {
-                    eng.stop_after_refusal();
-                    self.refused = Some(format!("the graph refused the run: {}", why));
-                    return GraphOut::Failed(self.refused.clone());
+        // Instance 0: one composed boundary, no links — its answer is the
+        // call's answer, and its calls are the wire's calls.
+        let wrapper = Network {
+            name: g.net.name.clone(),
+            description: "the peer's own composed boundary (decision 0013)".to_string(),
+            budget: None,
+            ground: None,
+            entry: Some(boundary.clone()),
+            exit: Some(boundary.clone()),
+            nodes: vec![Node {
+                id: boundary.clone(),
+                desc: "the hosted file, as one neuron".to_string(),
+                at: None,
+                kind: Kind::Network(key),
+                opts: Default::default(),
+            }],
+            links: Vec::new(),
+        };
+        let mut engine = None;
+        if refused.is_none() {
+            let mut eng = Engine::new_real(Vec::new(), 10_000);
+            // A person answers at a desk on their own machine; a worker's
+            // surface has none (3.4), so a graph with a human neuron is
+            // refused at its plant.
+            eng.set_no_desk();
+            if let Some(peers) = out {
+                eng.set_peers(peers);
+            }
+            match eng.plant(&wrapper, &files, Some(&g.base)) {
+                Ok(()) => engine = Some(eng),
+                Err(e) => {
+                    eng.kill_leftovers();
+                    refused = Some(format!("cannot plant: {}", e));
                 }
-                Ok(()) => self.started = true,
             }
         }
-        eng.hosted_call(&self.boundary, payload, timeout_ms, cancelled)
-    }
-}
-
-/// The worker's ending: whatever the instance kept running is stopped without
-/// ceremony. A signal has the host's teardown for that (the engine's program
-/// groups are registered there); a polite close has nothing left to answer —
-/// this is the guard for a run that ends any other way.
-impl Drop for Hosted {
-    fn drop(&mut self) {
-        if let Some(eng) = self.engine.as_mut() {
-            eng.kill_leftovers();
+        let (calls, taken) = std::sync::mpsc::channel::<HostedCall>();
+        let post = engine.as_mut().map(|eng| eng.post_handle());
+        host::spawn_thread("hosted-graph", move || match engine {
+            Some(mut eng) => {
+                eng.serve_calls(&boundary, taken, BACKSTOP_MS);
+                // The worker's ending any other way than a signal (which has
+                // the host's teardown): what the instance kept running stops.
+                eng.kill_leftovers();
+            }
+            None => {
+                let why = refused.unwrap_or_else(|| "the graph cannot be hosted".to_string());
+                for call in taken {
+                    let _ = call.reply.send(GraphOut::Failed(Some(why.clone())));
+                }
+            }
+        });
+        Hosted {
+            calls,
+            post,
+            net_name: g.net.name.clone(),
         }
+    }
+
+    /// End the engine's wait: there is something for it beside its queue.
+    fn nudge(&self) {
+        if let Some(post) = &self.post {
+            post.post(host::Ev::Nudge);
+        }
+    }
+
+    /// One wire call to the instance, and its outcome when the engine has
+    /// one. Other connections' calls run meanwhile.
+    fn call(&self, payload: Value, timeout_ms: u64, cancelled: Box<dyn Fn() -> bool + Send>) -> GraphOut {
+        let (reply, outcome) = std::sync::mpsc::channel();
+        let call = HostedCall {
+            payload,
+            timeout_ms,
+            cancelled,
+            reply,
+        };
+        if self.calls.send(call).is_err() {
+            return GraphOut::Failed(Some("the graph's engine is gone".to_string()));
+        }
+        self.nudge();
+        outcome
+            .recv()
+            .unwrap_or_else(|_| GraphOut::Failed(Some("the graph's engine is gone".to_string())))
     }
 }
 
@@ -996,10 +984,10 @@ pub fn main(args: &[String]) {
     // A peer without `--network` runs programs; with it, the peer *is* one
     // neuron whose inside is a graph — one engine for the process's life
     // (finding 3, 0014), its instance shared by every call the worker takes.
-    let graph: Option<Arc<Mutex<Hosted>>> = match &network {
+    let graph: Option<Hosted> = match &network {
         None => None,
         Some(file) => match Graph::open(file, peers.as_deref()) {
-            Ok(g) => Some(Arc::new(Mutex::new(Hosted::boot(g)))),
+            Ok(g) => Some(Hosted::boot(g)),
             Err(why) => {
                 eprintln!("peer {}: cannot host the network: {}", name, why);
                 std::process::exit(1);
@@ -1095,7 +1083,7 @@ fn handshake(stream: TcpStream, token: &str, name: &str, mode: &str) -> Option<(
 }
 
 /// One connection: the handshake, then calls until the driver closes it.
-fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Arc<Mutex<Hosted>>>) {
+fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Hosted>) {
     let mode = if graph.is_some() { "graph" } else { "program" };
     let Some((reader, mut writer)) = handshake(stream, token, name, mode) else {
         return;
@@ -1115,6 +1103,14 @@ fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Arc<Mutex<Hos
     let dead = Arc::new(AtomicBool::new(false));
     let reader_cancels = cancels.clone();
     let reader_dead = dead.clone();
+    // A hosted graph's engine waits on its own queue, so a cancel or a dead
+    // wire ends that wait for it to look (decision 0020, S4c).
+    let reader_graph = graph.clone();
+    let nudge = move || {
+        if let Some(g) = &reader_graph {
+            g.nudge();
+        }
+    };
     host::spawn_thread("peer-read", move || {
         let mut reader = reader;
         loop {
@@ -1129,16 +1125,19 @@ fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Arc<Mutex<Hos
                         if let Ok(mut ids) = reader_cancels.lock() {
                             ids.insert(wire_call_id(&msg));
                         }
+                        nudge();
                         let _ = tx.send(Msg::Cancel);
                     }
                     _ => {
                         reader_dead.store(true, Ordering::SeqCst);
+                        nudge();
                         let _ = tx.send(Msg::Eof);
                         break;
                     }
                 },
                 Err(_) => {
                     reader_dead.store(true, Ordering::SeqCst);
+                    nudge();
                     let _ = tx.send(Msg::Eof);
                     break;
                 }
@@ -1168,13 +1167,10 @@ fn serve(stream: TcpStream, token: &str, name: &str, graph: Option<Arc<Mutex<Hos
                     continue;
                 }
                 let done = match &graph {
-                    // One engine for the process (finding 3, 0014): the
-                    // instance's calls take their turn, whatever connection
-                    // they came on.
-                    Some(hosted) => {
-                        let mut hosted = hosted.lock().expect("the instance's engine");
-                        execute_graph(&mut hosted, &call, name, &cancels, &dead)
-                    }
+                    // One engine for the process (finding 3, 0014): this
+                    // connection waits for its call, and the instance runs it
+                    // beside the calls of other connections (0020, S4c).
+                    Some(hosted) => execute_graph(hosted, &call, name, &cancels, &dead),
                     None => execute_program(&call, name, &cancels, &dead),
                 };
                 if write_line(&mut writer, &done).is_err() {
@@ -1494,7 +1490,7 @@ fn execute_program(call: &Value, name: &str, cancels: &Mutex<HashSet<i64>>, dead
 /// keeps only the call's own shape: the boundary's answer is the inside's
 /// `exit` (2.6 step 2), a quiet inside (step 3), the boundary's `inner` for a
 /// failure (the inside's cause on stderr only, sealing), a cut's signal.
-fn execute_graph(hosted: &mut Hosted, call: &Value, name: &str, cancels: &Mutex<HashSet<i64>>, dead: &AtomicBool) -> Value {
+fn execute_graph(hosted: &Hosted, call: &Value, name: &str, cancels: &Arc<Mutex<HashSet<i64>>>, dead: &Arc<AtomicBool>) -> Value {
     let id = call.get("id").and_then(Value::as_i64).unwrap_or(0);
     // The flag rides the wire for uniformity; the composed boundary reports
     // `inner` failures, which 6.1 keeps an error whatever started.
@@ -1523,7 +1519,8 @@ fn execute_graph(hosted: &mut Hosted, call: &Value, name: &str, cancels: &Mutex<
     // The wire's cancel, as the engine's loop reads it one step at a time:
     // the decision is this call's id (a cancel held for another call never
     // cuts this one), recorded by the connection's reader.
-    let cut = || wire_cancelled(cancels, dead, id);
+    let (cut_ids, cut_dead) = (cancels.clone(), dead.clone());
+    let cut = Box::new(move || wire_cancelled(&cut_ids, &cut_dead, id));
     // Sealing (2.6): the inside's cause stays on the worker's stderr, and
     // the boundary says only what a composed neuron says. A log line that
     // cannot be written is dropped: a closed stderr pipe must not take the
@@ -1533,7 +1530,7 @@ fn execute_graph(hosted: &mut Hosted, call: &Value, name: &str, cancels: &Mutex<
         let _ = writeln!(std::io::stderr(), "peer {}: graph {:?} failed: {}", name, what, why);
         inner("no answer: an inner neuron failed".to_string(), true)
     };
-    match hosted.call(payload, timeout, &cut) {
+    match hosted.call(payload, timeout, cut) {
         GraphOut::Answer(payload) => reply(Obj::new().str("kind", "answer").set("payload", payload).build(), true),
         GraphOut::Quiet => reply(Obj::new().str("kind", "quiet").build(), true),
         GraphOut::Failed(why) => why_logged(why.unwrap_or_else(|| "an inner neuron failed".to_string())),
