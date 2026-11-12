@@ -17,7 +17,7 @@ use std::path::Path;
 
 fn usage() -> ! {
     eprintln!("usage: neuron-engine conform <dir> [--only <text>]");
-    eprintln!("       neuron-engine run <file> --inputs <jsonl | -> [--trace <out.json>] [--stream <path>] [--ping <ms>] [--grants <json>] [--peers <json>] [--confine <json>] [--at-once <n>]");
+    eprintln!("       neuron-engine run <file> --inputs <jsonl | -> [--trace <out.json>] [--stream <path>] [--ping <ms>] [--grants <json>] [--peers <json>] [--confine <json>] [--at-once <n>] [--result <path | ->]");
     eprintln!("       neuron-engine check <file>");
     eprintln!("       neuron-engine mcp");
     eprintln!("       neuron-engine peer --listen <host:port> --token <hex> [--name <name>]");
@@ -127,7 +127,7 @@ fn run(args: &[String]) {
     if flags.named.iter().any(|(n, _)| {
         !matches!(
             n.as_str(),
-            "inputs" | "trace" | "stream" | "ping" | "grants" | "peers" | "confine" | "at-once"
+            "inputs" | "trace" | "stream" | "ping" | "grants" | "peers" | "confine" | "at-once" | "result"
         )
     }) {
         usage();
@@ -182,7 +182,8 @@ fn run(args: &[String]) {
             }
         }
     }
-    let opts = RunOpts {
+    let mut opts = RunOpts {
+        result: false,
         inputs: inputs.clone(),
         ping_every,
         grants: get("grants"),
@@ -196,6 +197,8 @@ fn run(args: &[String]) {
             },
         },
     };
+    let result_out = get("result");
+    opts.result = result_out.is_some();
     match run::run_with_stream(&file, &opts, sink) {
         Ok(result) => {
             run::print_answers(&result.answers);
@@ -216,6 +219,20 @@ fn run(args: &[String]) {
                 result.network.name
             };
             eprintln!("ran {}: {} events", demo, result.event_count);
+            // The run-level result (decision 0022): written last, and with it
+            // the run exits 3 when a call ended in an error or an unknown.
+            if let (Some(out), Some((value, ok))) = (&result_out, &result.result) {
+                let line = json::write(value);
+                if out == "-" {
+                    println!("{}", line);
+                } else if let Err(e) = std::fs::write(out, format!("{}\n", line)) {
+                    eprintln!("{}: cannot write the result ({})", out, e);
+                    std::process::exit(1);
+                }
+                if !ok {
+                    std::process::exit(3);
+                }
+            }
         }
         Err(why) => {
             eprintln!("{}", why);

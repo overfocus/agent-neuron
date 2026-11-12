@@ -510,6 +510,15 @@ impl RunOutcome {
         self.answers.iter().map(|(_, payload)| printed(payload)).collect()
     }
 
+    /// The answers whole, each with its neuron, in the order they happened:
+    /// for a run-level result (decision 0022).
+    pub fn whole_answers(&self) -> Vec<(String, Value)> {
+        self.answers
+            .iter()
+            .map(|(neuron, payload)| (neuron.clone(), payload.as_full()))
+            .collect()
+    }
+
     fn empty() -> RunOutcome {
         RunOutcome {
             events: Vec::new(),
