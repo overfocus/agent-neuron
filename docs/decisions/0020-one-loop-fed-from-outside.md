@@ -192,7 +192,7 @@ wire, and events a caller can read are both changes to the wire, and neither has
    composed file, and a file that is fed and never called is no longer only composed; that wants the
    SPEC's word on what a hosted file is, which is the wire's contract commit (0013's P5).
 
-**S4c, second half, is built** on `feat/s4c-inject` (2026-11-11): the `inject` line, a file that is
+**S4c, second half, is built and merged** (2026-11-11): the `inject` line, a file that is
 called, fed or both, and `peer --network <file> --stream <path>`. Five more real-process tests in
 `tests/peers.rs`. The SPEC gains one sentence in Appendix C; the wire still has no text of its own
 (0013's P5).
@@ -209,12 +209,14 @@ What building it found:
 - **The work that answered a composed call was itself cut.** When `exit` replied, the engine
   cancelled the rest of the call's inside, the replying work included, before marking it done. It
   was never seen, because the inside is sealed. It is done first now. Conformance is unchanged.
-- **A reading that wants a yes or no: the cut of the rest is in the worker's stream.** When `exit`
+- **The cut of the rest is in the worker's stream**, accepted (Kevin, 2026-11-11): it stays visible, and its own
+  reason word is a SPEC change for later. When `exit`
   answers a call, the work still running for that call is cut (2.6 step 2, "without reports"). To the
   caller nothing is reported, as before. In the worker's own stream the cut shows as it would in any
   run: a `drop`, a `cancel` note, a `term` note, and the drop's reason is the word `replaced`, which
   is the only reason a cut has today. That word is wrong here; a right one is a SPEC change.
-- **`__call` is a name in the stream that no file declares.** It cannot collide (an id may not begin
+- **`__call` is a name in the stream that no file declares**, accepted (Kevin, 2026-11-11), to be documented with
+  the wire. It cannot collide (an id may not begin
   with an underscore), and a reader that looks every `from` up in the file will not find it.
 
 Not done: S4d; an `inject` cannot say which connection it came from (identity, 0016 point 3); the
