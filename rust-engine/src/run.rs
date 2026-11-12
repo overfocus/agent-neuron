@@ -41,6 +41,9 @@ pub struct RunOpts {
     /// A confine file (decision 0018): asks for every program of the run to
     /// be held to its neuron's `may`. Absent: nothing is confined.
     pub confine: Option<String>,
+    /// The engine's cap (decision 0021): at most this many level 0 programs
+    /// at once, the rest queued. Absent: no cap.
+    pub at_once: Option<u64>,
 }
 
 /// The inputs file: JSONL entries `{ at, source, payload, replaces?, budget? }`
@@ -131,6 +134,9 @@ pub fn run_with_stream(file: &str, opts: &RunOpts, sink: Option<StreamSink>) -> 
     if let Some(p) = &opts.peers {
         let peers = crate::peers::Peers::load(p).map_err(|e| format!("cannot run: {e}"))?;
         eng.set_peers(peers);
+    }
+    if let Some(n) = opts.at_once {
+        eng.set_at_once(n);
     }
     if let Some(confine) = confine {
         eng.set_confine(confine);

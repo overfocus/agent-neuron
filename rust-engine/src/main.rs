@@ -17,7 +17,7 @@ use std::path::Path;
 
 fn usage() -> ! {
     eprintln!("usage: neuron-engine conform <dir> [--only <text>]");
-    eprintln!("       neuron-engine run <file> --inputs <jsonl | -> [--trace <out.json>] [--stream <path>] [--ping <ms>] [--grants <json>] [--peers <json>] [--confine <json>]");
+    eprintln!("       neuron-engine run <file> --inputs <jsonl | -> [--trace <out.json>] [--stream <path>] [--ping <ms>] [--grants <json>] [--peers <json>] [--confine <json>] [--at-once <n>]");
     eprintln!("       neuron-engine check <file>");
     eprintln!("       neuron-engine mcp");
     eprintln!("       neuron-engine peer --listen <host:port> --token <hex> [--name <name>]");
@@ -124,11 +124,12 @@ fn run(args: &[String]) {
     }
     let file = flags.free[0].clone();
     let get = |name: &str| flags.named.iter().find(|(n, _)| n == name).map(|(_, v)| v.clone());
-    if flags
-        .named
-        .iter()
-        .any(|(n, _)| !matches!(n.as_str(), "inputs" | "trace" | "stream" | "ping" | "grants" | "peers" | "confine"))
-    {
+    if flags.named.iter().any(|(n, _)| {
+        !matches!(
+            n.as_str(),
+            "inputs" | "trace" | "stream" | "ping" | "grants" | "peers" | "confine" | "at-once"
+        )
+    }) {
         usage();
     }
     let Some(inputs) = get("inputs") else { usage() };
@@ -187,6 +188,13 @@ fn run(args: &[String]) {
         grants: get("grants"),
         peers: get("peers"),
         confine: get("confine"),
+        at_once: match get("at-once") {
+            None => None,
+            Some(v) => match v.parse::<u64>() {
+                Ok(n) if n >= 1 => Some(n),
+                _ => usage(),
+            },
+        },
     };
     match run::run_with_stream(&file, &opts, sink) {
         Ok(result) => {

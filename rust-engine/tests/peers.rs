@@ -2296,3 +2296,247 @@ fn a_worker_refuses_a_file_nothing_can_reach() {
         stderr(&out)
     );
 }
+
+// ---------------------------------------------------------------------------
+// The engine's cap (decision 0021, L1): `--at-once <n>`
+// ---------------------------------------------------------------------------
+
+/// Two neurons whose programs count how many of them are alive: each makes a
+/// directory of its own under `live`, counts the directories, waits, and
+/// removes its own. The count it answers is what was on the machine with it.
+fn counting_net(live: &Path) -> String {
+    let prog = format!(
+        "read line; mkdir {live}/$$; n=$(ls {live} | wc -l | tr -d ' '); sleep 0.1; rmdir {live}/$$; printf '{{\"alive\":%s}}' \"$n\"",
+        live = live.to_string_lossy(),
+    );
+    format!(
+        r#"{{
+  "version": 0,
+  "name": "counting",
+  "neurons": [
+    {{"id": "src", "description": "in", "source": true}},
+    {{"id": "one", "description": "counts", "run": ["/bin/sh", "-c", "{prog}"], "timeout": 5000}},
+    {{"id": "two", "description": "counts too", "run": ["/bin/sh", "-c", "{prog}"], "timeout": 5000}}
+  ],
+  "links": [{{"from": "src", "to": "one"}}, {{"from": "src", "to": "two"}}]
+}}
+"#,
+        prog = prog.replace('\\', "\\\\").replace('"', "\\\""),
+    )
+}
+
+/// The numbers after `"alive":` in a run's answers.
+fn alive_counts(answers: &str) -> Vec<u64> {
+    answers
+        .split("\"alive\":")
+        .skip(1)
+        .map(|rest| {
+            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            digits.parse().expect("a count")
+        })
+        .collect()
+}
+
+/// With `--at-once 5`, a burst of 100 calls across two neurons never has more
+/// than 5 programs alive, by the programs' own count, and every call answers.
+/// A call's timeout counts from its start: the last call waits about two
+/// seconds for its place and its 5 s timeout never fires. Without the flag
+/// the same burst runs all at once, as it always did.
+#[test]
+fn a_run_never_has_more_programs_at_once_than_its_cap() {
+    let temp = Temp::new("cap");
+    let live = temp.path("live");
+    std::fs::create_dir_all(&live).expect("the live directory");
+    let net = temp.write("net.json", &counting_net(&live));
+    let burst: String = (0..50)
+        .map(|n| format!("{{\"at\": 0, \"source\": \"src\", \"payload\": {{\"n\": {n}}}}}\n"))
+        .collect();
+    let inputs = temp.write("inputs.jsonl", &burst);
+
+    let capped = run(&temp, &net, &inputs, &temp.path("capped.json"), &["--at-once", "5"], &[]);
+    assert!(capped.status.success(), "the capped run failed: {}", stderr(&capped));
+    let counts = alive_counts(&stdout(&capped));
+    assert_eq!(counts.len(), 100, "every call answered: {}", stdout(&capped));
+    let most = counts.iter().copied().max().unwrap_or(0);
+    assert!(most <= 5, "at most 5 programs were alive at once, and one saw {most}");
+    assert!(most >= 2, "the cap is not one at a time: the most alive was {most}");
+    let text = std::fs::read_to_string(temp.path("capped.json")).expect("the trace");
+    assert_eq!(count(&text, "\"type\":\"error\""), 0, "no call failed: {text}");
+
+    let free = run(&temp, &net, &inputs, &temp.path("free.json"), &[], &[]);
+    assert!(free.status.success(), "the uncapped run failed: {}", stderr(&free));
+    let counts = alive_counts(&stdout(&free));
+    assert_eq!(counts.len(), 100, "every call answered: {}", stdout(&free));
+    assert!(
+        counts.iter().copied().max().unwrap_or(0) > 5,
+        "without the flag nothing is held back: {counts:?}"
+    );
+}
+
+/// A call that goes stale while it waits for a place is dropped as `waiting`
+/// and its program never starts (5.4, with level 1's meaning of queued).
+#[test]
+fn a_call_that_goes_stale_waiting_for_a_place_never_starts() {
+    let temp = Temp::new("cap-stale");
+    let log = temp.path("log.txt");
+    let net = temp.write(
+        "net.json",
+        &format!(
+            r#"{{
+  "version": 0,
+  "name": "stale",
+  "neurons": [
+    {{"id": "src", "description": "in", "source": true}},
+    {{"id": "slow", "description": "slow", "run": ["/bin/sh", "-c", "read line; echo \"begin $line\" >> {log}; sleep 0.6; printf '{{\"did\":%s}}' \"$line\""], "timeout": 5000}}
+  ],
+  "links": [{{"from": "src", "to": "slow"}}]
+}}
+"#,
+            log = log.to_string_lossy(),
+        ),
+    );
+    // The first holds the one place. The second waits; the third replaces it
+    // while it waits, and takes the place when the first ends.
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 1}}\n\
+         {\"at\": 100, \"source\": \"src\", \"payload\": {\"n\": 2}, \"replaces\": \"k\"}\n\
+         {\"at\": 200, \"source\": \"src\", \"payload\": {\"n\": 3}, \"replaces\": \"k\"}\n",
+    );
+    let out = run(&temp, &net, &inputs, &temp.path("trace.json"), &["--at-once", "1"], &[]);
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    let begun = std::fs::read_to_string(&log).expect("the programs' log");
+    assert_eq!(count(&begun, "begin"), 2, "two programs started: {begun}");
+    assert!(!begun.contains("\"n\":2"), "the replaced call never started: {begun}");
+    let answers = stdout(&out);
+    assert!(answers.contains("{\"did\":{\"n\":1}}"), "the first answered: {answers}");
+    assert!(answers.contains("{\"did\":{\"n\":3}}"), "the newest answered: {answers}");
+    let drops: Vec<Value> = events(&temp.path("trace.json"))
+        .into_iter()
+        .filter(|e| field(e, "type") == "drop")
+        .collect();
+    assert_eq!(drops.len(), 1, "one drop: {drops:?}");
+    assert_eq!(field(&drops[0], "reason"), "replaced");
+    assert_eq!(field(&drops[0], "phase"), "waiting", "it had not started: {:?}", drops[0]);
+    let text = std::fs::read_to_string(temp.path("trace.json")).expect("the trace");
+    assert_eq!(count(&text, "\"what\":\"cancel\""), 0, "nothing running was cut: {text}");
+}
+
+/// A hosted file takes the worker's cap: with `--at-once 1` three calls that
+/// would overlap run one at a time, and each is still answered.
+#[test]
+fn a_hosted_file_holds_the_workers_cap() {
+    let temp = Temp::new("cap-graph");
+    let log = temp.path("log.txt");
+    let inner = temp.write("inner.network.json", &logging_inner(&log));
+    let outer = temp.write("outer.network.json", OUTER_MANY);
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 1}}\n\
+         {\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 2}}\n\
+         {\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 3}}\n",
+    );
+    let port = free_port();
+    let _peer = start_worker(
+        port,
+        TOKEN,
+        "b",
+        &[],
+        &["--network", inner.to_str().expect("a path"), "--at-once", "1"],
+    );
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"graph\": \"b\"}"));
+    let out = run(
+        &temp,
+        &outer,
+        &inputs,
+        &temp.path("trace.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    for n in 1..=3 {
+        assert!(
+            stdout(&out).contains(&format!("{{\"did\":{{\"n\":{n}}}}}")),
+            "call {n} was not answered: {}",
+            stdout(&out)
+        );
+    }
+    let lines: Vec<String> = std::fs::read_to_string(&log)
+        .expect("the programs' log")
+        .lines()
+        .map(|l| l.to_string())
+        .collect();
+    assert_eq!(lines, ["begin", "end", "begin", "end", "begin", "end"], "one program at a time");
+}
+
+/// A worker that runs programs holds its own cap: with `--at-once 1` three
+/// placed calls sent at once run one at a time, in the order they arrived.
+#[test]
+fn a_program_worker_holds_its_cap() {
+    let temp = Temp::new("cap-worker");
+    let log = temp.path("log.txt");
+    let net = temp.write(
+        "net.json",
+        &format!(
+            r#"{{
+  "version": 0,
+  "name": "placed",
+  "neurons": [
+    {{"id": "src", "description": "in", "source": true}},
+    {{"id": "worker", "description": "slow", "run": ["/bin/sh", "-c", "read line; echo begin >> {log}; sleep 0.5; echo end >> {log}; printf '{{\"did\":%s}}' \"$line\""], "timeout": 20000}}
+  ],
+  "links": [{{"from": "src", "to": "worker"}}]
+}}
+"#,
+            log = log.to_string_lossy(),
+        ),
+    );
+    let inputs = temp.write(
+        "inputs.jsonl",
+        "{\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 1}}\n\
+         {\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 2}}\n\
+         {\"at\": 0, \"source\": \"src\", \"payload\": {\"n\": 3}}\n",
+    );
+    let port = free_port();
+    let _peer = start_worker(port, TOKEN, "b", &[], &["--at-once", "1"]);
+    let peers = temp.write("peers.json", &peers_text(port, TOKEN, "{\"worker\": \"b\"}"));
+    let out = run(
+        &temp,
+        &net,
+        &inputs,
+        &temp.path("trace.json"),
+        &["--peers", peers.to_str().expect("a path")],
+        &[],
+    );
+    assert!(out.status.success(), "the run failed: {}", stderr(&out));
+    assert_eq!(count(&stdout(&out), "\"did\""), 3, "three answers: {}", stdout(&out));
+    let lines: Vec<String> = std::fs::read_to_string(&log)
+        .expect("the programs' log")
+        .lines()
+        .map(|l| l.to_string())
+        .collect();
+    assert_eq!(lines, ["begin", "end", "begin", "end", "begin", "end"], "one program at a time");
+}
+
+/// The cap is an integer of at least 1; anything else is a usage error, and
+/// so is a cap on a serve host, which has no level 0 programs to count.
+#[test]
+fn a_cap_that_is_not_a_count_is_refused() {
+    let temp = Temp::new("cap-usage");
+    let net = temp.write("net.json", NET);
+    let inputs = temp.write("inputs.jsonl", INPUTS);
+    for bad in ["0", "-1", "many"] {
+        let out = run(&temp, &net, &inputs, &temp.path("trace.json"), &["--at-once", bad], &[]);
+        assert_eq!(out.status.code(), Some(2), "run --at-once {bad}: {}", stderr(&out));
+        let out = Command::new(engine())
+            .args(["peer", "--listen", "127.0.0.1:0", "--token", TOKEN, "--at-once", bad])
+            .output()
+            .expect("the engine runs");
+        assert_eq!(out.status.code(), Some(2), "peer --at-once {bad}: {}", stderr(&out));
+    }
+    let out = Command::new(engine())
+        .args(["peer", "--listen", "127.0.0.1:0", "--token", TOKEN, "--serve", "--at-once", "2"])
+        .output()
+        .expect("the engine runs");
+    assert_eq!(out.status.code(), Some(2), "peer --serve --at-once: {}", stderr(&out));
+}

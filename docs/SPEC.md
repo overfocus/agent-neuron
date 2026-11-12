@@ -1400,6 +1400,10 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
   standard input (`run --inputs -`, `rust-engine/README.md`), writing its events to the stream as they happen
   and keeping none. A file it hosts for other engines (`peer --network`) takes the same injection as an
   `inject` line on a connection, and writes the file's own events to the worker's `--stream`.
+- **A limit on level 0 calls at once** (Appendix B): none in this engine, nor in the Python one. The Rust
+  engine takes one for the whole engine from the command line (`run --at-once <n>`, `peer --at-once <n>`,
+  [decision 0021](decisions/0021-a-limit-on-calls-at-once.md)): a level 0 call over it is queued in arrival
+  order, and queued means what it means at level 1 (3.2, 5.4, 10.3, 11). A network file cannot state it.
 - **A neuron named by its own file** (2.10): read when the network file is (`readNetwork`), so the engine itself
   never sees the `neuron` kind. The Python and Rust engines do the same in their loaders.
 - **`may`** (2.4): checked, the fold included. This engine does not confine (2.9): a program runs with the rights

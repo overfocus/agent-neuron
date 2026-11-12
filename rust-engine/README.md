@@ -30,7 +30,7 @@ of my own, written into a scratch directory outside the repository.
 ## M1 — the process layer
 
 - `neuron-engine run <file> --inputs <jsonl> [--trace <out.json>]
-  [--stream <path>] [--ping <ms>] [--peers <json>]` (SPEC 9.1's command form): the producer's
+  [--stream <path>] [--ping <ms>] [--peers <json>] [--at-once <n>]` (SPEC 9.1's command form): the producer's
   injections at their `at` ms from time zero (the instant the last serve
   program said ready, CONFORMANCE 4.2's real analogue), the answers of the
   neurons with no outgoing links on stdout, one per line. Exit 1 on a run the
@@ -491,6 +491,27 @@ closes and nothing is left. Anything that can write a line is a producer.
   quietly after it, a `serve` neuron keeping its state across injections, each refusal with the run
   going on, a live key replacing running work, and the flags.
 
+## A cap on programs at once — `--at-once <n>` (decision 0021, L1)
+
+`run <file> --at-once <n>` and `peer --at-once <n>`: at most *n* level 0 programs started by this
+engine are on the machine at once, across every neuron. Without the flag there is no cap.
+
+- **Over the cap a call is queued**, in arrival order, and starts when a program ends. Queued is
+  level 1's queued (SPEC 3.2): the call has not started, so nothing is reserved from the budget and
+  its `timeout` is not counting; a call that goes stale while it waits is dropped as `waiting` and
+  its program never starts. Nothing new is reported.
+- **A place is held until the program is off the machine**: its exit, or, for a call that was cut,
+  the end of its group (the kill after the grace, when it comes to that).
+- **What is counted**: local `run` programs. Not `serve` programs (their own `maxInflight`), `http`
+  requests, people, or a call placed on a peer, which is the peer's process and the peer's cap.
+- **`peer --network <file> --at-once <n>`** gives the cap to the hosted file's engine. A peer that
+  runs programs holds it itself, first come first served across its connections. `peer --serve`
+  refuses the flag: it has no level 0 programs.
+- **A caller's clock does not wait.** The driver's timeout for a placed call starts when the call
+  is sent, so time spent waiting for a place at a program worker counts against it; and a caller of
+  a hosted file is a composed call, whose timeout has always covered everything inside it.
+- A cap that is not an integer of at least 1 is a usage error (exit 2).
+
 ## Confinement — `run --confine` (decision 0018, S2a and S2b)
 
 `run <file> --confine <confine.json>` starts every `run` and `serve` program of the tree under
@@ -529,7 +550,7 @@ groups and the 6.1 failures are untouched.
 ## Where it stands, and the roadmap (2026-11-09)
 
 **Surfaces.** `conform <dir>` (the fixture runner, CONFORMANCE 8); `run <file>`
-with `--inputs`, `--trace`, `--stream`, `--ping`, `--grants`, `--peers`;
+with `--inputs`, `--trace`, `--stream`, `--ping`, `--grants`, `--peers`, `--confine`, `--at-once`;
 `check <file>` (2.7 errors and warnings, positioned); `mcp` (five tools,
 `describe_network`, `spec://` resources, `run://` jobs, stdio JSON-RPC);
 `peer --listen` (P0/P0.5: a program worker, or `--network <file>` for a peer that
