@@ -165,7 +165,9 @@ What building it found, all three in the engine before this step:
   before its next wake-up, the wake-up fired at once: a run given a time limit reported one spurious
   call timeout as it stopped. The deadline's instant is now the deadline's.
 
-And one thing found and not fixed: **a burst the worker cannot keep up with fails badly.** 3,000
+*(Corrected by [decision 0021](0021-a-limit-on-calls-at-once.md): the burst below did not reproduce in five
+later attempts on either engine; its cause is unknown, and the machine was probably near its process
+limit.)* And one thing found and not fixed: **a burst the worker cannot keep up with fails badly.** 3,000
 calls sent 3 ms apart to a hosted graph of one program: 59 answered, the rest were reset or timed
 out after their whole 20 seconds, on the engine before this step and after it alike. At 12 ms apart
 all 6,000 of three rounds answered. This is point 5 above (a limit on calls at once), still a
