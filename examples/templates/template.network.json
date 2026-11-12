@@ -1,0 +1,18 @@
+{
+  "$schema": "../../spec/network.schema.json",
+  "version": 0,
+  "name": "one-template",
+  "description": "One business type, as a dry run: `plan` names the repo, `create` is given no `--apply`, so it reads GitHub and answers what it would do, and `verify` passes that on as the reply. Used as a composed neuron: a type enters at `plan`. template.apply.network.json is the same network with the one argument added.",
+  "budget": { "repos": 1 },
+  "neurons": [
+    {"id": "plan", "neuron": "neurons/plan/plan.neuron.json", "cost": {"repos": 0}},
+    {"id": "create", "neuron": "neurons/create/create.neuron.json", "cost": {"repos": 1}},
+    {"id": "verify", "neuron": "neurons/verify/verify.neuron.json", "cost": {"repos": 0}}
+  ],
+  "links": [
+    {"from": "plan", "to": "create"},
+    {"from": "create", "to": "verify"}
+  ],
+  "entry": "plan",
+  "exit": "verify"
+}
