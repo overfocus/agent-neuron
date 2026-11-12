@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "retry is not an option of a source (2.4): a source has no calls. Check refuses it and the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

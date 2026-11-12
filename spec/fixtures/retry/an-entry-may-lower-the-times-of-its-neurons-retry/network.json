@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "an-entry-may-lower-the-times-of-its-neurons-retry",
+  "description": "The file gives three more attempts with a wait of 20 ms; the entry lowers times to 1. One retry follows, after the file's wait, and the second failure at 40 is the call's.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "neuron": "work.neuron.json",
+      "retry": {
+        "times": 1
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

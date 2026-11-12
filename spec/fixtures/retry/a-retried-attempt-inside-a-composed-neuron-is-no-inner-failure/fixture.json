@@ -1,0 +1,16 @@
+{
+  "fixture": 0,
+  "description": "Inside the composed neuron e fails once and is retried to an answer; y is then quiet, so exit never replies and the inside has nothing left. Only the failure of a last attempt is an inner failure, so the composed neuron is quiet, not an inner error, and nothing of the retry is reported outside.",
+  "notes": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "box/e": {"calls":[{"after":10,"reply":{"error":"secret inner failure"}},{"after":10,"reply":{"answer":1}}]},
+    "box/y": {"calls":[{"after":5,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"quiet","t":25,"id":"#2","from":"box","to":["s"],"trace":"#1","replyTo":"#1","hops":1}
+  ]
+}

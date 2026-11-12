@@ -93,7 +93,7 @@ fn the_object_names_each_traces_answers_and_failures_last_on_stdout() {
         lines[lines.len() - 1],
         concat!(
             "{\"network\":\"result-test\",\"ok\":false,",
-            "\"totals\":{\"traces\":2,\"answers\":1,\"errors\":1,\"unknowns\":0,\"drops\":0},",
+            "\"totals\":{\"traces\":2,\"answers\":1,\"errors\":1,\"unknowns\":0,\"drops\":0,\"retried\":0},",
             "\"traces\":[",
             "{\"trace\":\"1\",\"source\":\"s\",\"replaces\":\"k1\",\"status\":\"done\",",
             "\"answers\":[{\"neuron\":\"b\",\"payload\":{\"got\":1}}],\"failures\":[],\"drops\":[]},",
@@ -154,7 +154,7 @@ fn a_live_run_gives_the_totals_only() {
     let text = out(&o);
     assert_eq!(
         text.lines().last().unwrap_or(""),
-        "{\"network\":\"result-test\",\"ok\":false,\"totals\":{\"traces\":2,\"answers\":1,\"errors\":1,\"unknowns\":0,\"drops\":0}}",
+        "{\"network\":\"result-test\",\"ok\":false,\"totals\":{\"traces\":2,\"answers\":1,\"errors\":1,\"unknowns\":0,\"drops\":0,\"retried\":0}}",
         "{text}"
     );
 }

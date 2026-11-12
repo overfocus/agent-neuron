@@ -52,6 +52,9 @@ pub struct Opts {
     /// `each` (SPEC 2.4, decision 0022): the answer is an array, forwarded
     /// one signal per item.
     pub each: bool,
+    /// `retry` (SPEC 2.4, decision 0022): `times` more attempts of a failed
+    /// call, each after `wait` ms.
+    pub retry: Option<(u64, u64)>,
 }
 
 /// A `may` (SPEC 2.4): four lists, each as the file wrote it. A member the
@@ -950,6 +953,7 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
                 | "env"
                 | "may"
                 | "maxInflight"
+                | "retry"
         ) {
             push(
                 span,
@@ -1014,7 +1018,7 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
             || (limited && k == "maxInflight")
             // `each` (2.4): how the program's answer goes on, so the neuron's
             // own; a person answers one thing.
-            || (kinds[0] != "human" && k == "each");
+            || (kinds[0] != "human" && matches!(k, "each" | "retry"));
         if !own {
             push(
                 span,
@@ -1067,6 +1071,36 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
                 &wider(format!("maxInflight {} (over {})", mine, theirs)),
                 out,
             );
+        }
+    }
+    // `retry` (2.4) is the neuron's own: the entry may lower `times`, and
+    // nothing else. A file without it retries nothing, so there is nothing
+    // to lower.
+    if let Some(mine) = nv.get("retry") {
+        let times = mine.get("times").and_then(|v| v.as_u64());
+        let theirs = of.get("retry").and_then(|r| r.get("times")).and_then(|v| v.as_u64());
+        if mine.has("wait") {
+            push(
+                span,
+                scan,
+                "retry",
+                &format!(
+                    "{}: the wait of 'retry' is the neuron's own: the entry that names a neuron may only lower its times (2.10)",
+                    what
+                ),
+                out,
+            );
+        }
+        match (times, theirs) {
+            (Some(t), Some(limit)) if t > limit => push(span, scan, "retry", &wider(format!("retry times {} (over {})", t, limit)), out),
+            (Some(t), None) => push(
+                span,
+                scan,
+                "retry",
+                &wider(format!("retry times {} (the file has no retry)", t)),
+                out,
+            ),
+            _ => {}
         }
     }
     for key in ["env", "may"] {
@@ -1147,6 +1181,12 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
     if let Value::Obj(entries) = nv {
         for (k, v) in entries.iter().filter(|(k, _)| k != "neuron" && k != "args") {
             match merged.iter_mut().find(|(mk, _)| mk == k) {
+                // The entry's `times` in the file's `retry`: its wait stays.
+                Some((_, Value::Obj(own))) if k == "retry" => {
+                    if let (Some(slot), Some(times)) = (own.iter_mut().find(|(f, _)| f == "times"), v.get("times")) {
+                        slot.1 = times.clone();
+                    }
+                }
                 Some(slot) => slot.1 = v.clone(),
                 None => merged.push((k.clone(), v.clone())),
             }
@@ -1291,7 +1331,7 @@ fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out
             "env" | "cwd" => is_command,
             "may" => is_command || is_network,
             "maxInflight" => matches!(kind, Kind::Run(_) | Kind::Http(_) | Kind::Network(_)),
-            "each" => matches!(kind, Kind::Run(_) | Kind::Serve(_) | Kind::Http(_) | Kind::Network(_)),
+            "each" | "retry" => matches!(kind, Kind::Run(_) | Kind::Serve(_) | Kind::Http(_) | Kind::Network(_)),
             _ => false,
         };
         if !allowed {
@@ -1399,6 +1439,27 @@ fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out
         match x.as_bool() {
             Some(true) => opts.effect = true,
             _ => push(span, scan, "effect", &format!("{}: effect is true", what), out),
+        }
+    }
+    if let Some(x) = nv.get("retry") {
+        let times = x.get("times").and_then(|v| v.as_u64()).filter(|n| *n >= 1);
+        let wait = match x.get("wait") {
+            None => Some(0),
+            Some(v) => v.as_u64().filter(|n| *n <= 3_600_000),
+        };
+        let closed = x.is_obj() && x.keys().iter().all(|k| matches!(*k, "times" | "wait"));
+        match (times, wait, closed) {
+            (Some(times), Some(wait), true) => opts.retry = Some((times, wait)),
+            _ => push(
+                span,
+                scan,
+                "retry",
+                &format!(
+                    "{}: retry is an object of times (an integer at least 1) and, optionally, wait (ms, 0 to 3600000)",
+                    what
+                ),
+                out,
+            ),
         }
     }
     if let Some(x) = nv.get("each") {

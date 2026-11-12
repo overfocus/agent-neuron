@@ -200,6 +200,8 @@ struct Work {
     /// then on staleness marks the call and never cuts it, and its failures
     /// are `unknown`.
     effect_started: bool,
+    /// Which attempt of its call this is, from 1 (`retry`, SPEC 2.4).
+    attempt: u64,
     /// `http`: the request's index in the engine's `https`.
     http: Option<usize>,
     /// `human` on the real host: the desk item of the question.
@@ -375,6 +377,9 @@ struct INode {
     /// `each` (SPEC 2.4): the answer is an array, forwarded one signal per
     /// item (4.4).
     each: bool,
+    /// `retry` (SPEC 2.4): how many more attempts a failed call gets, and
+    /// the wait before each, in ms.
+    retry: Option<(u64, u64)>,
     cost: Option<Units>,
     out: Vec<usize>,
     prog: String,
@@ -445,21 +450,67 @@ struct ObsInject {
 enum Wake {
     Inject(usize),
     ObserverInject(usize),
-    CallEnd { work: usize },
-    CallTimeout { work: usize },
-    Within { work: usize },
-    L1Reply { work: usize },
-    CancelReply { work: usize },
-    EndAt { server: usize, gen: usize },
-    StartDeadline { server: usize, gen: usize },
-    ReadyAt { server: usize, gen: usize },
-    L0Grace { proc: usize },
-    ServeGrace { server: usize, gen: usize },
-    RestartDue { server: usize },
-    PingTick { server: usize, gen: usize },
-    PongArrive { server: usize, gen: usize, n: u64 },
-    PongDeadline { server: usize, gen: usize, n: u64 },
-    SlotDeadline { server: usize, gen: usize, re: u64 },
+    CallEnd {
+        work: usize,
+    },
+    CallTimeout {
+        work: usize,
+    },
+    Within {
+        work: usize,
+    },
+    L1Reply {
+        work: usize,
+    },
+    CancelReply {
+        work: usize,
+    },
+    EndAt {
+        server: usize,
+        gen: usize,
+    },
+    StartDeadline {
+        server: usize,
+        gen: usize,
+    },
+    ReadyAt {
+        server: usize,
+        gen: usize,
+    },
+    L0Grace {
+        proc: usize,
+    },
+    ServeGrace {
+        server: usize,
+        gen: usize,
+    },
+    RestartDue {
+        server: usize,
+    },
+    PingTick {
+        server: usize,
+        gen: usize,
+    },
+    PongArrive {
+        server: usize,
+        gen: usize,
+        n: u64,
+    },
+    PongDeadline {
+        server: usize,
+        gen: usize,
+        n: u64,
+    },
+    SlotDeadline {
+        server: usize,
+        gen: usize,
+        re: u64,
+    },
+    /// The wait before another attempt of a failed call is over (`retry`,
+    /// SPEC 2.4).
+    Retry {
+        work: usize,
+    },
 }
 
 pub struct RunOutcome {
@@ -1075,6 +1126,7 @@ impl Engine {
             max_inflight: None,
             effect: false,
             each: false,
+            retry: None,
             cost: None,
             out: Vec::new(),
             prog: id,
@@ -1175,6 +1227,7 @@ impl Engine {
                 max_inflight: n.opts.max_inflight,
                 effect: n.opts.effect,
                 each: n.opts.each,
+                retry: n.opts.retry,
                 cost: n.opts.cost.clone(),
                 out: Vec::new(),
                 prog,
@@ -1653,6 +1706,7 @@ impl Engine {
             Wake::PongArrive { server, gen, n } => self.fire_pong_arrive(server, gen, n),
             Wake::PongDeadline { server, gen, n } => self.fire_pong_deadline(server, gen, n),
             Wake::SlotDeadline { server, gen, re } => self.fire_slot_deadline(server, gen, re),
+            Wake::Retry { work } => self.fire_retry(work),
         }
     }
 
@@ -2081,6 +2135,11 @@ impl Engine {
                 .build(),
         );
         self.works[work].reported = true;
+        if self.arrange_retry(work, code) {
+            // Not the call's outcome yet (2.4): a composed call it is inside
+            // has no failed neuron until the last attempt fails.
+            return;
+        }
         {
             if let Some(cw) = sigrec.owner_call {
                 // The wording the peer's worker logs when this instance's
@@ -2095,6 +2154,57 @@ impl Engine {
                 self.works[cw].fail_inner = true;
             }
         }
+    }
+
+    /// `retry` (SPEC 2.4): after a failed attempt that leaves attempts, the
+    /// `retry` note and a new attempt of the same call, waiting work until
+    /// its wait is over. Never after a `budget` or `start` failure, and never
+    /// for a call that went stale.
+    fn arrange_retry(&mut self, work: usize, code: &str) -> bool {
+        let node = self.works[work].node;
+        let Some((times, wait)) = self.nodes[node].retry else {
+            return false;
+        };
+        let w = &self.works[work];
+        if matches!(code, "budget" | "start") || w.stale_marked || w.cut || w.attempt > times {
+            return false;
+        }
+        let (sig, inputs, attempt) = (w.sig, w.inputs.clone(), w.attempt + 1);
+        let note = Obj::new()
+            .str("type", "note")
+            .int("t", self.now_t())
+            .str("neuron", self.nodes[node].display.clone())
+            .str("what", "retry")
+            .str("trigger", self.fail_sig_of(work).to_string())
+            .int("attempt", attempt as i64)
+            .int("wait", wait as i64)
+            .build();
+        self.emit(self.nodes[node].inst, note);
+        let next = self.make_call(node, sig, WSt::Queued);
+        self.works[next].attempt = attempt;
+        for &h in &inputs {
+            // A threshold call: stale when any of its inputs is (5.4).
+            let held = self.works[h].sig;
+            let Some(skey) = self.stale_key_of(held) else { continue };
+            if let Some(ent) = self.stale.get_mut(&skey).and_then(|list| list.iter_mut().find(|e| e.sig == held)) {
+                ent.works.push(next);
+            }
+        }
+        self.works[next].inputs = inputs;
+        self.arm(self.now + wait, Wake::Retry { work: next });
+        true
+    }
+
+    /// The wait is over: the attempt starts as any call does, behind the
+    /// calls already waiting for a place (2.4). One dropped while it waited
+    /// starts nothing.
+    fn fire_retry(&mut self, work: usize) {
+        if self.works.get(work).is_none_or(|w| w.done || w.st != WSt::Queued) {
+            return;
+        }
+        self.works[work].st = WSt::Running;
+        self.start_new_call(work);
+        self.finish_check(None);
     }
 
     /// The signal an error or drop describes: for a threshold call, the
@@ -2666,6 +2776,7 @@ impl Engine {
             fail_inner: false,
             exit_replied: false,
             effect_started: false,
+            attempt: 1,
             http: None,
             desk: None,
         };

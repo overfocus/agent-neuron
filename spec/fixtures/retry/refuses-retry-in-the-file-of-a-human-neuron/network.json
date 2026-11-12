@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "refuses-retry-in-the-file-of-a-human-neuron",
+  "description": "retry is not an option of a human neuron (2.4), in its own file as in a network file. Check refuses the file and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "neuron": "work.neuron.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

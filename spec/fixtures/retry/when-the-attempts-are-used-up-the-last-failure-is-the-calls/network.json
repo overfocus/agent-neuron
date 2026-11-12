@@ -1,0 +1,26 @@
+{
+  "version": 0,
+  "name": "when-the-attempts-are-used-up-the-last-failure-is-the-calls",
+  "description": "times 2 is two attempts after the first. All three fail: each failure is reported as the error it was, the first two are followed by a retry note, and the third is the call's outcome, with no note.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 2
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

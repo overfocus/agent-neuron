@@ -179,6 +179,8 @@ Each call uses **the first entry not yet used** that matches. A call no entry ma
 **harness failure**: the fixture fails and says so. (So a call that must not happen is
 "pinned" by leaving no entry for it.)
 
+A call that `retry` starts again (SPEC 2.4) is a call each time: every attempt takes the next entry of `calls`.
+
 ### 5.2 Replies
 
 At level 0 (a program that reads stdin once):

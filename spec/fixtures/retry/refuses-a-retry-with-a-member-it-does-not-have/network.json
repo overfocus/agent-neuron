@@ -1,0 +1,28 @@
+{
+  "version": 0,
+  "name": "refuses-a-retry-with-a-member-it-does-not-have",
+  "description": "retry is a closed object of times and wait (2.4): a wait that grows is not in version 0.1. Check refuses the unknown member and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 2,
+        "wait": 10,
+        "backoff": 2
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

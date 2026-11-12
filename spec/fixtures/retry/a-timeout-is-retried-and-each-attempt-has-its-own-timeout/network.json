@@ -1,0 +1,27 @@
+{
+  "version": 0,
+  "name": "a-timeout-is-retried-and-each-attempt-has-its-own-timeout",
+  "description": "The first attempt hangs and times out at 50: the error, the retry note, then the notes of the cancel. The second attempt starts at 50 with a timeout of its own (to 100) and answers at 80.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "work",
+      "run": [
+        "neuron-work"
+      ],
+      "retry": {
+        "times": 1
+      },
+      "timeout": 50
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "work"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "fixture": 0,
+  "description": "The injection lowers its trace's pool to 2 and the call costs 3: it is refused, code budget, and no retry follows. The pool will not grow.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1,"budget":{"credits":2}}
+  ],
+  "script": {
+
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["work"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"error","t":0,"id":"#1","from":"s","to":["work"],"trace":"#1","hops":0,"neuron":"work","message":"budget: needs 3 credits, 2 left","code":"budget","payload":{"type":"json","data":1}},
+    {"type":"finished","t":0,"trace":"#1","status":"exhausted","remaining":{"credits":2}}
+  ]
+}

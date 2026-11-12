@@ -247,6 +247,9 @@
             },
             "may": {
               "$ref": "#/$defs/may"
+            },
+            "retry": {
+              "$ref": "#/$defs/retry"
             }
           }
         },
@@ -311,6 +314,9 @@
             },
             "may": {
               "$ref": "#/$defs/may"
+            },
+            "retry": {
+              "$ref": "#/$defs/retry"
             }
           }
         },
@@ -371,6 +377,9 @@
             },
             "each": {
               "$ref": "#/$defs/each"
+            },
+            "retry": {
+              "$ref": "#/$defs/retry"
             }
           }
         },
@@ -462,6 +471,9 @@
             },
             "effect": {
               "const": true
+            },
+            "retry": {
+              "$ref": "#/$defs/retry"
             }
           }
         },
@@ -528,6 +540,9 @@
             },
             "may": {
               "$ref": "#/$defs/may"
+            },
+            "retry": {
+              "$ref": "#/$defs/retryTimes"
             }
           }
         }
@@ -613,6 +628,39 @@
           }
         }
       }
+    },
+    "retry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "times"
+      ],
+      "properties": {
+        "times": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "wait": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600000
+        }
+      },
+      "description": "A failed call is started again with the same input, at most `times` more times, each after `wait` ms (default 0). On an effect neuron it covers `unknown` too: the file says the program is idempotent (SPEC 2.4, 11.3, decision 0022). Absent: no retry."
+    },
+    "retryTimes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "times"
+      ],
+      "properties": {
+        "times": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "description": "On an entry that names a neuron's file: fewer attempts than the file's `retry` gives, never more; the wait is the file's (SPEC 2.10)."
     }
   }
 }

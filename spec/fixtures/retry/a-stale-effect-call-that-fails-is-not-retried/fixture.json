@@ -1,0 +1,21 @@
+{
+  "fixture": 0,
+  "description": "The effect call was marked stale at 40 and crashes at 100: it is unknown, and a call that went stale is not retried, so no note follows and no further attempt starts.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":"old","replaces":"k"},
+    {"at":40,"source":"s","payload":"new","replaces":"k"}
+  ],
+  "script": {
+    "work": {"calls":[{"after":100,"reply":{"crash":true}},{"after":10,"reply":{"answer":"sent-new"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["work"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"text","text":"old"}},
+    {"type":"signal","t":40,"id":"#2","from":"s","to":["work"],"trace":"#2","hops":0,"replaces":"k","payload":{"type":"text","text":"new"}},
+    {"type":"answer","t":50,"id":"#3","from":"work","to":["s"],"trace":"#2","replyTo":"#2","hops":1,"payload":{"type":"text","text":"sent-new"}},
+    {"type":"finished","t":50,"trace":"#2","status":"done"},
+    {"type":"unknown","t":100,"id":"#1","from":"s","to":["work"],"trace":"#1","hops":0,"neuron":"work","message":"signal SIGKILL:","code":"exit","payload":{"type":"text","text":"old"}},
+    {"type":"finished","t":100,"trace":"#1","status":"done"}
+  ]
+}

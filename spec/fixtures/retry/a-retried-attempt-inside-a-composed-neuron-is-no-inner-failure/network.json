@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "a-retried-attempt-inside-a-composed-neuron-is-no-inner-failure",
+  "description": "Inside the composed neuron e fails once and is retried to an answer; y is then quiet, so exit never replies and the inside has nothing left. Only the failure of a last attempt is an inner failure, so the composed neuron is quiet, not an inner error, and nothing of the retry is reported outside.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    }
+  ]
+}

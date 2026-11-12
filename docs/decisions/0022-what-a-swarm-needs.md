@@ -1,6 +1,6 @@
 # Decision record 0022: what a swarm needs (2026-11-12)
 
-**Status: decided 2026-11-12, every recommendation accepted. Built: S1 (`--result`), S2 (`each`), S3 (effects in a composed file), S4 (`args`), S6 (a neuron's own settings). Not built: S5.** A real job was put
+**Status: decided 2026-11-12, every recommendation accepted. Built: S1 (`--result`), S2 (`each`), S3 (effects in a composed file), S4 (`args`), S5 (`retry`), S6 (a neuron's own settings): every step. Not done: the template job as one file.** A real job was put
 to the engine: give each of 21 business types a private template repository, one neuron doing one
 type and another handing out the list. It ran (the branch `feat/template-swarm`, kept unmerged), and
 it showed six things missing between the contract and a swarm. One of them, a limit on calls at
@@ -433,3 +433,66 @@ Not done: a demo and its row in DEMOS.md (the template job is to be it); a fixtu
 `finished` stands against the `cancel` note of a cut or timed-out composed call (no fixture pinned it
 before either); an inner effect that is a `serve`, `http` or `human` neuron, a composed effect neuron
 on a peer and a hosted file are untested.
+
+## S5 as built (2026-11-12)
+
+The contract and the Rust engine, on `feat/s5-retry`: `retry` in both schemas (`run`, `serve`, `http`
+and `network` neurons; `run`, `serve` and `http` neuron files; `{ "times" }` alone on the entry that
+names a neuron's file), SPEC 2.4, 2.7, 2.8, 2.10, 5.4, 6.1, 6.2 (rule 10), 6.3, 7.2, section 8, 10.3,
+11.3, 11.4 and Appendix B and E, CONFORMANCE 5.1, TRACE.md, and 26 fixtures in `spec/fixtures/retry/`,
+their expected events written by hand from the text before the engine ran them. The engine passes all
+344.
+
+The gate, by fixture:
+
+| Check | Fixture (`retry/`) |
+|---|---|
+| an error retried to an answer; `wait` in virtual time | `an-error-is-retried-to-an-answer` (a wait of 100), `a-level-1-error-reply-is-retried`, `a-timeout-is-retried-and-each-attempt-has-its-own-timeout` |
+| retries used up | `when-the-attempts-are-used-up-the-last-failure-is-the-calls` |
+| the cost of each attempt | `each-attempt-reserves-and-commits-its-cost`, `an-attempt-the-pool-cannot-cover-is-refused-and-ends-the-call` |
+| a stale call not retried | `a-waiting-attempt-is-dropped-when-it-goes-stale`, `a-stale-effect-call-that-fails-is-not-retried` |
+| a `budget` refusal not retried | `a-budget-refusal-is-not-retried` |
+| `unknown` retried on an effect with `retry`, and not without | `an-unknown-is-retried-on-an-effect-neuron-with-retry`; without is `effect/a-crashed-effect-call-is-unknown-and-commits-its-cost`, as before |
+| when the attempt starts | `with-no-wait-the-attempt-follows-the-work-already-due`, `an-attempt-waits-for-a-place-behind-the-calls-already-waiting` |
+| a composed neuron | `a-composed-call-is-retried-as-a-new-call`, `a-retried-attempt-inside-a-composed-neuron-is-no-inner-failure` |
+| narrowing from a neuron's file | `retry-in-the-neurons-own-file`, `an-entry-may-lower-the-times-of-its-neurons-retry` |
+| each refusal | the ten `refuses-*`: on `human`, on a source, zero times, no times, an unknown member, not an object, times wider than the file's, on an entry whose file has none, a `wait` on the entry, in a `human` neuron's file |
+
+Nine engines broken on purpose (one attempt too many, one too few, a `budget` refusal retried, a stale
+effect call retried, the wait ignored, a retried attempt counted as an inner failure, the attempt
+started at once instead of as a wake-up, a waiting attempt that staleness cannot find, `unknown` not
+retried) each fail at least one. The sixth passed every fixture at first: the fixture let `exit` reply,
+which hides it, and was rewritten so that `exit` is never reached. Real processes: two tests in
+`rust-engine/tests/real.rs`, and one in `tests/check.rs` for the refusals.
+
+What the build settled that point 5 left loose. **All are for the maintainer to confirm.**
+
+1. **What is retried**: a failure with any code except `budget` and `start`. Point 5 named `budget`;
+   `start` is a `serve` neuron that failed to start five times and stays failed for the run. A level 1
+   `error` reply (`neuron`) is retried, and so is a program that cannot be started (`exit 127`).
+2. **The note**: `{"type":"note","what":"retry","neuron","trigger","attempt","wait"}`, right after the
+   failed attempt's event and before the `cancel`, `term` and `kill` notes of a timeout. `trigger` is the
+   id of that event, `attempt` the number of the attempt to come.
+3. **A reader that counts failed calls** counts the failures no `retry` note follows (6.1). `--result`
+   does: a retried failure is in `failures` with `"retried": true` and in `totals.retried`, and does
+   not make `ok` false or the run exit 3. Without this a run whose retry worked would exit 3.
+4. **The wait is a wake-up** scheduled when the failure is reported (6.2 rule 10). With a `wait` of 0 the
+   attempt starts at the same instant, after the work already due then.
+5. **The attempt starts as a new call does**: behind the calls already waiting for a place under
+   `maxInflight`. It does not keep the place of the attempt that failed.
+6. **A call that went stale** is, in practice, an effect call that was marked stale and then failed: any
+   other stale call was cut and reported no failure. Between attempts the call is dropped, phase
+   `waiting`.
+7. **`maxHops`** needs no rule: a refused hop is a drop, and there is no call to retry.
+8. **Inside a composed neuron** only a last attempt's failure is an inner failure (2.6 step 3). On a
+   `network` neuron `retry` starts the whole composed call again, a new call of the same instance.
+9. **On the entry that names a neuron's file**: `{ "times": n }` only, `n` at most the file's. The entry
+   never states `wait`, and may not add `retry` to a file that has none (that would raise it from
+   nothing, and on an effect neuron it is the author's word about the program).
+10. **`wait`** is at most 3600000, as a `timeout` is. `times` has no upper limit.
+11. **A threshold call** is retried with the same inputs. No fixture pins it: a fixture cannot see an
+    input, only that a call happened.
+
+Not done: a demo and its row in DEMOS.md (the template job is to be it); `retry` on an `http` neuron,
+on a neuron placed on a peer and in a hosted file are untested; the trace header's `options` and MCP
+`describe_network` do not carry `retry` (nor `maxInflight` or `each`, as before).
