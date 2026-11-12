@@ -28,6 +28,9 @@ pub struct RunResult {
     pub event_count: u64,
     pub network: Network,
     pub files: HashMap<String, NetFile>,
+    /// The run-level result (decision 0022) and whether no call ended in an
+    /// error or an unknown; `None` unless the run asked for one.
+    pub result: Option<(Value, bool)>,
 }
 
 pub struct RunOpts {
@@ -44,6 +47,8 @@ pub struct RunOpts {
     /// The engine's cap (decision 0021): at most this many level 0 programs
     /// at once, the rest queued. Absent: no cap.
     pub at_once: Option<u64>,
+    /// A run-level result is wanted (decision 0022, `--result`).
+    pub result: bool,
 }
 
 /// The inputs file: JSONL entries `{ at, source, payload, replaces?, budget? }`
@@ -152,6 +157,31 @@ pub fn run_with_stream(file: &str, opts: &RunOpts, sink: Option<StreamSink>) -> 
     for line in eng.desk_people_lines() {
         eprintln!("{}", line);
     }
+    // A run-level result (decision 0022) is folded from the events as they
+    // are reported, beside the stream: a live run keeps none to read later.
+    let tally = opts.result.then(|| {
+        let leaves = outer
+            .nodes
+            .iter()
+            .filter(|n| !outer.links.iter().any(|l| l.from == n.id))
+            .map(|n| n.id.clone())
+            .collect();
+        std::sync::Arc::new(std::sync::Mutex::new(crate::result::Tally::new(leaves, !live)))
+    });
+    let sink: Option<StreamSink> = match (&tally, sink) {
+        (None, sink) => sink,
+        (Some(tally), mut sink) => {
+            let tally = tally.clone();
+            Some(Box::new(move |ev: &Value| {
+                if let Ok(mut t) = tally.lock() {
+                    t.see(ev);
+                }
+                if let Some(s) = &mut sink {
+                    s(ev);
+                }
+            }))
+        }
+    };
     if let Some(sink) = sink {
         eng.set_stream(sink);
     }
@@ -173,7 +203,18 @@ pub fn run_with_stream(file: &str, opts: &RunOpts, sink: Option<StreamSink>) -> 
     if let Some(why) = &outcome.refused {
         return Err(format!("the engine refused the run: {}", why));
     }
+    let name = if outer.name.is_empty() {
+        path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
+    } else {
+        outer.name.clone()
+    };
+    let result = tally.and_then(|t| {
+        let mut t = t.lock().ok()?;
+        t.fill(&outcome.whole_answers());
+        Some((t.to_value(&name), t.ok()))
+    });
     Ok(RunResult {
+        result,
         answers: outcome.printed_answers(),
         event_count: outcome.event_count,
         events: outcome.events,
