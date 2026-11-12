@@ -547,6 +547,21 @@ groups and the 6.1 failures are untouched.
   a program that ignores the proxy, another neuron's proxy). Its programs are inline `/bin/sh` scripts, so the tests name no
   path of the machine they run on.
 
+## A neuron's own settings — `.env` beside the file that declares it (decision 0022, S6)
+
+For each name in a neuron's `env`, the program gets the value from `.env` in the directory of the
+file that declares the neuron (its own neuron file, or the network file for an inline neuron), and
+from the engine's environment only when that file lacks the name (SPEC 2.4). `src/settings.rs`.
+
+- Only listed names are passed; the file wins over the environment; no file is as before.
+- A line that is not `NAME=value` refuses the start (`check` and `run`), named by file and line,
+  never by its text. A neuron that lists no names never has the file read.
+- A file hosted by `peer --network` reads the settings beside it, on the peer. **A single program
+  placed on a program worker does not get them**: the wire carries names, and the worker fills
+  them from its own environment, as before. Open, for the wire's SPEC text.
+- Covered by `tests/settings.rs` (7): listed and unlisted names, precedence, no file, two neurons
+  with their own files, a `serve` program, a malformed line, a file never read.
+
 ## A run-level result — `--result <path | ->` (decision 0022, S1)
 
 `run <file> --result <path>` writes one JSON object when the run ends; `--result -` prints it as the

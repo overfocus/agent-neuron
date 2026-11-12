@@ -110,6 +110,10 @@ pub struct Node {
     pub at: Option<[f64; 3]>,
     pub kind: Kind,
     pub opts: Opts,
+    /// Where the neuron's own settings are read (decision 0022, point 6):
+    /// the directory of its neuron file, for an entry that names one; `None`
+    /// for a neuron written inline, whose settings sit beside the network file.
+    pub settings_dir: Option<PathBuf>,
 }
 
 /// The ground (SPEC 4.5, decision 0012): the link layer's strength — a value
@@ -1073,8 +1077,23 @@ fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out
     if nv.has("neuron") {
         // Named by its own file (2.10): from here on it is the neuron the
         // file describes, checked as any inline neuron is.
+        // Its settings are read beside its own file (decision 0022, point 6).
+        let own_dir = nv.get("neuron").and_then(|v| v.as_str()).map(|rel| {
+            let file = dir.map(|d| d.join(rel)).unwrap_or_else(|| PathBuf::from(rel));
+            let parent = file.parent().map(Path::to_path_buf).unwrap_or_default();
+            std::path::absolute(&parent).unwrap_or(parent)
+        });
         return match neuron_of_file(nv, i, dir, scan, span, out) {
-            Some(inline) => neuron(&inline, i, dir, scan, span, out),
+            Some(inline) => {
+                // The inline form is checked against its own file's settings,
+                // not the network's: the network's directory is not offered.
+                let mut node = neuron(&inline, i, None, scan, span, out);
+                if let Some(d) = &own_dir {
+                    settings_checked(d, &node, scan, span, out);
+                }
+                node.settings_dir = own_dir;
+                node
+            }
             None => Node {
                 id: nv.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                 ..empty_node(Kind::Run(Vec::new()))
@@ -1151,6 +1170,7 @@ fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out
             at,
             kind,
             opts: Opts::default(),
+            settings_dir: None,
         };
     }
     let is_network = matches!(kind, Kind::Network(_));
@@ -1272,7 +1292,18 @@ fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out
     if let Some(x) = nv.get("may") {
         opts.may = Some(may(x, &what, scan, span, out));
     }
-    Node { id, desc, at, kind, opts }
+    let node = Node {
+        id,
+        desc,
+        at,
+        kind,
+        opts,
+        settings_dir: None,
+    };
+    if let Some(d) = dir {
+        settings_checked(d, &node, scan, span, out);
+    }
+    node
 }
 
 /// `host:port` (2.4): lower-case letters, digits, dots and hyphens, starting
@@ -1355,6 +1386,17 @@ fn ids_of_kind(nv: &Value) -> usize {
         .count()
 }
 
+/// A neuron's settings file (decision 0022, point 6) must read: a line that is
+/// not `NAME=value` is an error, named by its file and line and never its text.
+fn settings_checked(dir: &Path, node: &Node, scan: &Scan, span: Span, out: &mut Vec<Diag>) {
+    if !matches!(node.kind, Kind::Run(_) | Kind::Serve(_)) {
+        return;
+    }
+    if let Err(bad) = crate::settings::for_names(dir, &node.opts.env) {
+        push(span, scan, "env", &format!("neuron {}: its settings file {}", node.id, bad), out);
+    }
+}
+
 fn empty_node(kind: Kind) -> Node {
     Node {
         id: String::new(),
@@ -1362,6 +1404,7 @@ fn empty_node(kind: Kind) -> Node {
         at: None,
         kind,
         opts: Opts::default(),
+        settings_dir: None,
     }
 }
 
