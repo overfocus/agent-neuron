@@ -1,5 +1,5 @@
 {
-  "$schema": "../../../spec/neuron.schema.json",
+  "$schema": "../../../../spec/neuron.schema.json",
   "version": 0,
   "description": "Reads the repo back through GitHub's API and answers the record for one type: there, private, a template, generated from the template and filled (it waits up to 20 seconds for GitHub to copy the content). Anything else fails the call.",
   "run": ["node", "verify.mjs"],
