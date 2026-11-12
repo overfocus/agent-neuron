@@ -2,54 +2,22 @@
   "name": "agent-neuron",
   "version": "0.0.0",
   "private": true,
-  "description": "Experimental agent graph: a universal container each agent runs in, with many-to-many links between neurons.",
+  "description": "Experimental agent graph: a specification for neurons (wrappers around any program) wired by a JSON network file, its conformance fixtures, and the Rust engine that runs it.",
   "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22"
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    },
-    "./engine": {
-      "types": "./dist/engine/index.d.ts",
-      "default": "./dist/engine/index.js"
-    }
-  },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "example": "npm run -s build && node examples/first.mjs",
-    "demo:typing": "npm run -s build && node examples/typing.mjs",
-    "demo:suggest": "npm run -s build && node examples/suggest.mjs",
-    "demo:alerts": "npm run -s build && node examples/alerts.mjs",
-    "engine": "npm run -s build && node dist/engine/cli.js",
-    "demo:network": "npm run -s build && node examples/network.mjs",
-    "demo:notify": "npm run -s build && node examples/notify.mjs",
+    "engine:build": "cargo build --release --manifest-path rust-engine/Cargo.toml",
+    "engine:fmt": "cargo fmt --check --manifest-path rust-engine/Cargo.toml",
+    "engine:clippy": "cargo clippy --release --all-targets --manifest-path rust-engine/Cargo.toml -- -D warnings",
+    "engine:test": "cargo test --release --manifest-path rust-engine/Cargo.toml",
+    "conform": "npm run -s engine:build && rust-engine/target/release/neuron-engine conform spec/fixtures && rust-engine/target/release/neuron-engine conform spec/probes",
+    "check": "npm run -s engine:fmt && npm run -s engine:clippy && npm run -s engine:test && npm run -s conform",
+    "demo:network": "npm run -s engine:build && node examples/network.mjs",
+    "demo:human": "npm run -s engine:build && rust-engine/target/release/neuron-engine run examples/human/human.network.json --inputs examples/human/human.inputs.jsonl",
     "demo:team": "node examples/team-demo.mjs",
-    "demo:human": "npm run -s engine -- run examples/human/human.network.json --inputs examples/human/human.inputs.jsonl",
-    "demo:loop": "npm run -s build && node examples/loop.mjs",
-    "rust:build": "cargo build --release --manifest-path rust/Cargo.toml",
-    "p2p:build": "cargo build --release --manifest-path rust-engine/Cargo.toml",
-    "demo:p2p": "npm run -s p2p:build && node examples/p2p/launch.mjs",
-    "rust:test": "cargo test --manifest-path rust/Cargo.toml",
-    "demo:rust": "npm run -s build && npm run -s rust:build && node examples/rust.mjs",
-    "demo:composed": "npm run -s build && npm run -s rust:build && node examples/composed.mjs",
-    "conformance:py": "PYTHONPATH=py python3 -B -m agent_neuron conform spec/fixtures",
-    "check": "npm run -s typecheck && npm run -s rust:test && npm run -s rust:build && npm run -s test && npm run -s build",
-    "view": "npm run -s build && node examples/view/server.mjs",
-    "record": "npm run -s build && node examples/trace/record.mjs"
-  },
-  "devDependencies": {
-    "@types/node": "^22.20.5",
-    "playwright-core": "^1.64.1",
-    "typescript": "^5.9.3",
-    "vitest": "^5.1.0"
+    "demo:p2p": "npm run -s engine:build && node examples/p2p/launch.mjs"
   }
 }

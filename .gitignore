@@ -1,14 +1,9 @@
 node_modules/
-dist/
 .verify/
 .env*
 .DS_Store
 .claude/worktrees/
 .claude/settings.local.json
-rust/target/
-.trace-denylist
-
-test/.mutants/
 
 # Local tooling of the maintainer (not part of the project)
 .claude/
