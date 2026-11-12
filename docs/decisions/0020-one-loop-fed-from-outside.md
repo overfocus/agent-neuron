@@ -146,7 +146,7 @@ open work starts at the first record that may still be open. Nothing a run repor
 
 **The forgetting step is merged** (Kevin, 2026-11-11), and S4c follows it.
 
-**S4c, first half, is built** on `feat/s4c-hosted-loop` (2026-11-11): the lock is gone. A hosted
+**S4c, first half, is built and merged** (2026-11-11): the lock is gone. A hosted
 graph's engine runs the run's loop on a thread of its own (`Engine::serve_calls`); a connection hands
 it a call and waits for that call's outcome; calls from different connections overlap as traces do
 in a run. The wire is unchanged, and a connection still carries one call at a time. Four
@@ -174,7 +174,7 @@ decision of its own.
 Memory of the hosted engine over those 6,000 calls grew by about 0.5 KB a call, the emptied work
 records named above.
 
-**S4c, second half, is not built and wants answers first.** A hosted file with sources, fed over the
+**S4c, second half: every recommendation below is accepted (Kevin, 2026-11-11); not built yet.** A hosted file with sources, fed over the
 wire, and events a caller can read are both changes to the wire, and neither has a text to build to:
 
 1. **What an `inject` on the wire is.** Recommended: a line `{"type":"inject","source","payload",
