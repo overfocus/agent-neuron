@@ -1,9 +1,12 @@
 {
   "$schema": "../../../spec/neuron.schema.json",
   "version": 0,
-  "description": "Reads the repo back from GitHub and answers the record for one type: there, private, a template, generated from the template and filled (it waits up to 20 seconds for GitHub to copy the content). Anything else fails the call.",
+  "description": "Reads the repo back through GitHub's API and answers the record for one type: there, private, a template, generated from the template and filled (it waits up to 20 seconds for GitHub to copy the content). Anything else fails the call.",
   "run": ["node", "verify.mjs"],
   "timeout": 30000,
-  "env": ["HOME"],
-  "may": { "connect": ["api.github.com:443"], "read": ["."] }
+  "env": ["GITHUB_TOKEN"],
+  "may": {
+    "connect": ["api.github.com:443"],
+    "read": ["."]
+  }
 }

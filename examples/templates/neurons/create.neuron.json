@@ -1,10 +1,13 @@
 {
   "$schema": "../../../spec/neuron.schema.json",
   "version": 0,
-  "description": "Makes the repo on GitHub with the gh command line: private, generated from the template, then marked as a template itself. Does nothing unless TEMPLATES_APPLY=1 (it answers what it would do). Idempotent by the repo's name; refuses a repo of that name that is public or came from somewhere else.",
+  "description": "Makes the repo through GitHub's API (no command-line tool; the token is a setting in neurons/.env): private, generated from the template, then marked as a template itself. Does nothing unless TEMPLATES_APPLY=1 (it answers what it would do). Idempotent by the repo's name; refuses a repo of that name that is public or came from somewhere else.",
   "run": ["node", "create.mjs"],
   "effect": true,
   "timeout": 120000,
-  "env": ["HOME", "TEMPLATES_APPLY"],
-  "may": { "connect": ["api.github.com:443"], "read": ["."] }
+  "env": ["GITHUB_TOKEN", "TEMPLATES_APPLY"],
+  "may": {
+    "connect": ["api.github.com:443"],
+    "read": ["."]
+  }
 }

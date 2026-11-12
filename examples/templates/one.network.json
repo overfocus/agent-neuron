@@ -2,10 +2,10 @@
   "$schema": "../../spec/network.schema.json",
   "version": 0,
   "name": "one-template",
-  "description": "One business type gets its template repo: the type enters at `type`, `plan` names the repo, `create` makes it on GitHub (the effect; at most one repo per trace by the budget), `verify` reads it back and its answer is the run's result.",
+  "description": "One business type gets its template repo: the type enters at `type`, `plan` names the repo, `create` makes it through GitHub's API (the effect; at most one repo per trace by the budget), `verify` reads it back and its answer is the run's result.",
   "budget": { "repos": 1 },
   "neurons": [
-    { "id": "type", "description": "Where one type enters: { owner, template, type }.", "source": true },
+    { "id": "type", "description": "Where one type enters: { type }.", "source": true },
     { "id": "plan", "neuron": "neurons/plan.neuron.json", "cost": { "repos": 0 } },
     { "id": "create", "neuron": "neurons/create.neuron.json", "cost": { "repos": 1 } },
     { "id": "verify", "neuron": "neurons/verify.neuron.json", "cost": { "repos": 0 } }

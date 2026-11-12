@@ -7,23 +7,27 @@
 // is there but not yet a template is only marked ('mark'). A repo of that name that is public, or that
 // was not generated from this template, is somebody else's: it is refused, never changed.
 import { readFileSync } from 'node:fs';
-import { gh, view } from './gh.mjs';
+import { generate, markTemplate, view } from './settings.mjs';
 
 const p = JSON.parse(readFileSync(0, 'utf8'));
 const apply = process.env.TEMPLATES_APPLY === '1';
 const stop = (what) => { console.error(`create: ${what}`); process.exit(1); };
 
-const source = view(p.template);
-if (!source) stop(`no such template repo: ${p.template}`);
-if (!source.isTemplate) stop(`${p.template} is not marked as a template`);
+try {
+  const source = await view(p.template);
+  if (!source) stop(`no such template repo: ${p.template}`);
+  if (!source.isTemplate) stop(`${p.template} is not marked as a template`);
 
-const have = view(p.repo);
-if (have && !have.private) stop(`${p.repo} exists and is not private`);
-if (have && have.from !== source.repo) stop(`${p.repo} exists and was not generated from ${source.repo}`);
-const action = !have ? 'create' : have.isTemplate ? 'none' : 'mark';
+  const have = await view(p.repo);
+  if (have && !have.private) stop(`${p.repo} exists and is not private`);
+  if (have && have.from !== source.repo) stop(`${p.repo} exists and was not generated from ${source.repo}`);
+  const action = !have ? 'create' : have.isTemplate ? 'none' : 'mark';
 
-if (apply) {
-  if (action === 'create') gh('repo', 'create', p.repo, '--private', '--template', p.template);
-  if (action !== 'none') gh('api', '--silent', '-X', 'PATCH', `repos/${p.repo}`, '-F', 'is_template=true');
+  if (apply) {
+    if (action === 'create') await generate(p.template, p.repo);
+    if (action !== 'none') await markTemplate(p.repo);
+  }
+  console.log(JSON.stringify({ ...p, action, applied: apply }));
+} catch (e) {
+  stop(e.message);
 }
-console.log(JSON.stringify({ ...p, action, applied: apply }));
