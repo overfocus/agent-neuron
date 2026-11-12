@@ -9,6 +9,10 @@ family skill. The question put: version 0.1 of the SPEC is the coordination cont
 is missing between it and the day a team picks it *instead of* pointing an agent harness at
 the work?
 
+**Note, 2026-11-12:** [decision 0023](../docs/decisions/0023-one-engine.md) has since deleted the TypeScript library,
+the TypeScript reference engine and the Python engine, and moved `py/probes` to `spec/probes`. Where the text below
+names them (`src/`, `py/`, vitest, the mutants), it describes the tree it was written against.
+
 Gates on the tree this assessment reads (`17c8e22`): `main` has moved two docs-only commits
 since the gates were measured at `290652e` (`b701697` DURABLE-STATE, `17c8e22` POSITIONING),
 so the quoted gate numbers — `cargo test` 123, `conform spec/fixtures` 224/0/0 on identical
@@ -34,7 +38,7 @@ Every row verified against the tree this session.
 | Persistence | **not in the SPEC** | none | planning note only ([DURABLE-STATE.md] shape C, P0–P5 not started) |
 | Identity/auth on any boundary | **"There is no authentication in version 0."** (SPEC 3.3, `SPEC.md:428-429`) | — | peers use pre-shared tokens on 127.0.0.1 (0013); `https` refused at plant (`rust-engine/README.md:156-158`) |
 
-Engines: the TS library (`src/`) is the pre-SPEC library whose differences Appendix C
+Engines (as of this assessment; decision 0023 has since kept only the Rust engine): the TS library (`src/`) is the pre-SPEC library whose differences Appendix C
 catalogues; the TS reference engine (`src/engine/`) is a conformance oracle; the Python
 engine is text-only proof (scripted, no processes); the Rust engine is the only one that
 runs real networks end to end — and the family's production engine (timbre drives it).
@@ -149,7 +153,7 @@ where it touches the contract.
 4. **The parked brain.** Recommended: record the compiler position as a decision pointing
    at POSITIONING, with no build order. Alternative: commission its assessment after W1
    lands.
-5. **The TS library.** Recommended: leave as conformance oracle this pass; the 91-mutants
+5. **The TS library.** (Decided otherwise 2026-11-12: decision 0023 deleted it.) Recommended: leave as conformance oracle this pass; the 91-mutants
    port stays HANDOFF item 9's precondition. Alternative: freeze it harder now (README
    claims rewritten), which costs review time the waves don't have.
 
@@ -166,7 +170,7 @@ where it touches the contract.
    the W3 contract pass, not before.
 4. The brain: a decision record stating the compiler position pointing at POSITIONING.md —
    no build order, no engine change. (Recorded here; 0015 is W1's record, not this.)
-5. The TS library: conformance oracle this pass; the 91-mutants port stays HANDOFF item 9's
+5. The TS library (deleted since, decision 0023): conformance oracle this pass; the 91-mutants port stays HANDOFF item 9's
    precondition for going further.
 
 W1's own build answers are [decision 0015](../docs/decisions/0015-durable-run-state.md),

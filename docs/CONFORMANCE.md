@@ -311,7 +311,12 @@ then a last line `N passed, M failed, K pending`. The exit status is 0 if no fix
 1 if one did (a harness failure counts), 2 for a usage error or if `<dir>` holds no fixture.
 The wording of the difference is the engine's.
 
-The reference engine: `npm run engine -- conform spec/fixtures` (about 1 s with the build).
+The reference engine is the Rust engine in `rust-engine/`: `neuron-engine conform spec/fixtures`
+(`npm run conform` builds it first, and runs the probes in `spec/probes/` after the fixtures). Until
+[decision 0023](decisions/0023-one-engine.md) the runner was a TypeScript engine's, a Python engine written
+from the text alone passed the same fixtures, and a mutant test (a hundred deliberately broken engines that
+each had to fail a fixture) measured whether the fixtures pin the rules; those are deleted, and one engine
+runs the fixtures now.
 
 ## 9. What the fixtures do not cover
 

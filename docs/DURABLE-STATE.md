@@ -11,6 +11,10 @@ the customer's rules needs, as the substrate's control plane, persistence that
 survives the process that produced it. Companion note: [MULTIPLAYER.md](MULTIPLAYER.md),
 whose build order this one makes concrete for #30 item 1.
 
+**Note, 2026-11-12:** [decision 0023](decisions/0023-one-engine.md) has since deleted the TypeScript library,
+the TypeScript reference engine and the Python engine, and moved `py/probes` to `spec/probes`. Where the text below
+names them (`src/`, `py/`, vitest, the mutants), it describes the tree it was written against.
+
 Gates on the tree this note was written against (`290652e`, all just measured):
 `cargo test` 123, fmt and clippy clean, conform `spec/fixtures` 224/0/0 on
 identical reruns, `conform py/probes` 10/0/0. Counts quoted below are either
@@ -83,8 +87,10 @@ and the org directory all speak it.
 ## The contract
 
 The engine already has the precedent for pluggable lifecycles: the TS
-reference's `Host` interface (`src/engine/engine.ts:46`) is swapped for the
-virtual clock (`src/engine/virtual.ts:16`, `VirtualHost implements Host`).
+reference's `Host` interface (`src/engine/engine.ts:46`, in the tree before
+decision 0023) was swapped for the virtual clock (`src/engine/virtual.ts:16`,
+`VirtualHost implements Host`); the Rust engine's virtual and real hosts are the
+same seam.
 Persistence takes the same shape — a backend the run is constructed with, not
 a participant in the graph:
 

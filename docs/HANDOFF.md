@@ -1,5 +1,9 @@
 # Handoff: the peer layer, and what is left (2026-11-09)
 
+**Note, 2026-11-12:** [decision 0023](decisions/0023-one-engine.md) has since deleted the TypeScript library,
+the TypeScript reference engine and the Python engine, and moved `py/probes` to `spec/probes`. Where the text below
+names them (`src/`, `py/`, vitest, the mutants), it describes the tree it was written against.
+
 ## The goal
 
 Build a recursive, composable, peer-to-peer neural agent graph: a neuron may
@@ -111,7 +115,10 @@ TRACE.md's merged reading (parked with B: no engine holds nothing today), and a
   evaporates); the `http` failure row has no fixture; SPEC questions #24 (both
   engines disagree on a composed exit at its timeout instant), #21, #20, #19.
 
-### 9. The Node question (decided to freeze, not delete)
+### 9. The Node question (decided to freeze, not delete; decided otherwise 2026-11-12)
+
+*Decision 0023 deleted the TypeScript library, its engine and the Python engine without the mutant port named
+below; what follows is the position of 2026-11-09.*
 
 The TS engine stays the conformance oracle. If it is ever to go, **port the 91
 mutants in `test/conformance.test.ts` to Rust first** — they are the only test of
@@ -146,10 +153,10 @@ Appendix C).
 ```
 cd rust-engine && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 cd rust-engine && cargo test
-./rust-engine/target/release/neuron-engine conform spec/fixtures   # 224/0/0, five runs identical
-./rust-engine/target/release/neuron-engine conform py/probes       # 10/0/0
+./rust-engine/target/release/neuron-engine conform spec/fixtures   # 224/0/0 then (277 since), five runs identical
+./rust-engine/target/release/neuron-engine conform spec/probes     # 10/0/0 (py/probes until decision 0023)
 npm run demo:p2p                                                   # four peers + a driver
-npm run check                                                      # typecheck, rust/ workspace, vitest 264, build
+npm run check                                                      # since decision 0023: the four lines above but the demo, in one command
 ```
 
 Merges: a feature branch, `--no-ff`, a message in the repo's style; gate the
