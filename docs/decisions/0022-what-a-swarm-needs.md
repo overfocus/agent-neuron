@@ -1,6 +1,6 @@
 # Decision record 0022: what a swarm needs (2026-11-12)
 
-**Status: decided 2026-11-12, every recommendation accepted. Built: S1, `--result`. Not built: S2 to S5.** A real job was put
+**Status: decided 2026-11-12, every recommendation accepted. Built: S1 (`--result`), S6 (a neuron's own settings). Not built: S2 to S5.**
 to the engine: give each of 21 business types a private template repository, one neuron doing one
 type and another handing out the list. It ran (the branch `feat/template-swarm`, kept unmerged), and
 it showed six things missing between the contract and a swarm. One of them, a limit on calls at
@@ -145,8 +145,7 @@ file has the name, and the engine's environment's otherwise.
 - **The engine reads the file, not the program**, so the program needs nothing in its `may` for it.
 - **Where the program is started is where the file is read.** An engine that hosts a file
   (`peer --network`) reads the settings beside that file, on its own machine, and no value crosses
-  the wire. A single program placed on a program worker is sent its environment by the driver, as
-  today; that is the driver's file and the driver's values.
+  the wire. A single program placed on a program worker is another matter: see S6 as built.
 
 It is not a field: nothing in the network file or the neuron file names the settings file.
 
@@ -245,3 +244,33 @@ Three things the build settled.
 3. **The result is folded from the events as they are reported**, beside the stream, so a run asked
    for one hears every event whether or not `--stream` was given. The engine itself is unchanged
    but for handing out the whole answers with their neurons.
+
+## S6 as built (2026-11-12)
+
+SPEC 2.4 (normative), section 0, 2.7 and Appendix C; the Rust engine (`src/settings.rs`, the loader's
+check, the spawn) and the TypeScript engine (`settingsOf` in `src/engine/check.ts`, `launch`). The
+Python engine starts no programs and is unchanged. No schema or fixture changed: the conformance
+host is scripted and starts nothing, so the rule is pinned by real-process tests in both engines.
+
+| Check | Result |
+|---|---|
+| A listed name, an unlisted name, a quoted value, a comment | the listed ones arrive, the unlisted one does not |
+| The file and the engine's environment both have a name | the file's value; a name the file lacks falls back |
+| No file | as before |
+| Two neurons named by files in two folders, a third `.env` beside the network | each sees its own value |
+| A `serve` program | sees its own |
+| A line that is not `NAME=value` | `check` and `run` refuse, naming file and line; neither the line nor a value is printed |
+| The TypeScript engine: an inline neuron and one named by its file | the same values as the Rust engine |
+
+Three things the build settled.
+
+1. **A neuron that lists no `env` names never has the file read**, so a stray `.env` beside a
+   network (a web project's, say) cannot refuse a run that asks nothing of it.
+2. **A repeated name takes its last value.**
+3. **A program placed on a program worker does not get the settings.** Point 6 said the driver
+   sends a placed program its environment; it does not. The wire carries the names, and the worker
+   fills them from its own environment. Sending values would put secrets on the wire; having the
+   worker read a file means telling it which directory, and the wire has no word for that. So a
+   placed program is as before, and a file hosted by `peer --network` reads the settings beside it.
+   **Open, for the wire's own SPEC text.** Not tested here: the hosted file's case goes through the
+   same planting code as a run, and has no test of its own.

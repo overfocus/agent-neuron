@@ -1268,7 +1268,7 @@ fn serve_host_conn(stream: TcpStream, token: &str, name: &str) {
     let gid = match l1host
         .lock()
         .expect("the serve's host")
-        .l1_begin(0, 1, &hello, &argv, cwd.as_deref(), &env)
+        .l1_begin(0, 1, &hello, &argv, cwd.as_deref(), &env, &[])
     {
         Ok(gid) => gid,
         Err(why) => {
@@ -1540,7 +1540,7 @@ fn execute_program(call: &Value, name: &str, cancels: &Mutex<HashSet<i64>>, dead
         },
     };
     let mut host = host::Host::new();
-    if let Err(why) = host.l0_begin(0, &argv, cwd.as_deref(), &env, input.as_bytes()) {
+    if let Err(why) = host.l0_begin(0, &argv, cwd.as_deref(), &env, &[], input.as_bytes()) {
         return reply(outcome_json(&L0Out::Exit { code: 127, stderr: why }), false);
     }
     // The worker's backstop: the engine's timeout owns the call, so a program
