@@ -442,8 +442,10 @@ Findings are anchored at the entry and name the file. Covered by the 14 fixtures
 JSON object per line (`{source, payload, replaces?, budget?}`), and stays up until standard input
 closes and nothing is left. Anything that can write a line is a producer.
 
-- **One loop.** The run's loop and a hosted call's loop are one step, `Engine::real_step`, and each
-  is that step plus what ends it (S4a). An injection is one more host event, `Ev::Inject`, read by a
+- **One loop.** On the real host a run and a hosted file are one loop, `Engine::drive`, over one
+  step, `Engine::real_step` (S4a, S4d). What differs is a door of three answers: how work arrives
+  from outside, which deadline caps a wait, and whether the loop ends when nothing is left. What
+  the engine still holds for every neuron at once is listed in decision 0020. An injection is one more host event, `Ev::Inject`, read by a
   thread of its own and stamped when read, so it is injected at that instant; `Ev::InputsClosed` is
   the producer saying it is done (S4b).
 - **A hosted file is the same loop, fed by its callers** (S4c, `Engine::serve_calls`). The engine

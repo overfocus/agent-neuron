@@ -1,6 +1,6 @@
 # Decision record 0020: one loop, fed from outside (2026-11-11)
 
-**Status: decided (Kevin, 2026-11-11: every recommendation).** S4a is built and merged; the rest is not. This is S4
+**Status: decided (Kevin, 2026-11-11: every recommendation), and built: S4a to S4d.** This is S4
 of [decision 0016](0016-the-self-describing-neuron.md): "top-level `run` becomes an ordinary
 `peer --network`: no special driver." Reading the code showed that sentence names a destination
 and not a step, so this record says what the step is. Nothing here changes the SPEC, the schema
@@ -221,4 +221,48 @@ What building it found:
 
 Not done: S4d; an `inject` cannot say which connection it came from (identity, 0016 point 3); the
 MCP route still cannot host a file.
+
+**S4d is built** on `feat/s4d-one-driver` (2026-11-11). On the real host there is one loop,
+`Engine::drive`, for a run and for a hosted file. What differs is a *door* of three answers: how work
+arrives from outside, which deadline caps a wait, and whether the loop ends when nothing is left. A
+run's door takes nothing (a file's injections are on the heap, a live producer's on the host's
+queue), uses the caller's deadline and ends; a hosted file's door takes calls and injections from
+its connections, uses the nearest backstop of an open call and does not end. No behaviour changed:
+every test passes as it was.
+
+Not literally `peer --network` in one process, and it should not be: a run still reads a file of
+inputs, keeps its events for a trace and prints answers, and those are its feeding and its reading.
+The conformance host keeps its own small loop: it has no processes and no clock but the heap's.
+
+### What the driver still holds for everyone
+
+With feeding and reading taken out, this is what is left in the engine that belongs to no one
+neuron's wrapper. The first eight are the SPEC's own list (Appendix E.2); the rest were found here.
+
+| | The thing | In the engine |
+|---|---|---|
+| G1 | The budget pool of a trace | `pools`, by trace |
+| G2 | The end: of a run, a trace, a composed call's inside | `run_over`, `finish_check`, `wake_composed_calls`; and forgetting (`tidy`, `forget`), which is G2 acted on |
+| G3 | One list on one clock | `now` and `t_zero`; the heap and its `seq`; the host's queue; the event list or the stream |
+| G4 | The ground | `ground` |
+| G5 | Ids that do not collide | `next_id`, one counter |
+| G6 | The start | `start_serves`: every `serve` program up before time zero, and nothing reported until then |
+| G7 | The desk | `desk`, `grants` |
+| G8 | Observers | `observer` and its pending injections |
+| | **One table of work and signals** | `works`, `sigs`, `low`: every neuron's calls in one list, named by position. The rules that read it are local; the table is not. It is why emptied work records cannot be freed yet. |
+| | **Staleness and thresholds held centrally** | `stale`, `groups`: 5.4 and 5.2 are a neuron's own rules (and a link's), kept here in one map for all of them. |
+| | **Where each neuron runs** | `peers` and the placement: one side file for the whole network. |
+| | **Confinement** | `confine`: one side file, and a run refused whole if one program cannot be held (2.9). |
+| | **The teardown** | The end of a run stops every process of every neuron, and a signal to the engine does the same from one list of process groups. |
+| | **Time limits from outside** | The caller's deadline for a run; a backstop per call for a hosted file. |
+| | **The caller's door** | `__call`, the one node a hosted file does not declare. |
+
+The first eight have their answers or their parking in 0016 and 0017. Of the rest, the two tables are
+the engine's shape and not a rule: they are what "the engine grows into the wrapper" (0016) would
+take apart, a neuron at a time. Placement, confinement and the time limits are deployment, given from
+outside by whoever runs the network. The teardown is G2 again. None of them needs a decision today.
+
+**This closes 0020's four steps.** Still open from this record: a limit on calls at once; freeing the
+work records; the wire's own SPEC text, with `inject` and `__call` in it; a reason word for a cut
+that is not a replacement; durable state.
 
