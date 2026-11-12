@@ -139,6 +139,10 @@
       "minimum": 1,
       "description": "The most calls of the neuron at once; the rest wait in arrival order (SPEC 2.4, decision 0021). Absent: no limit."
     },
+    "each": {
+      "const": true,
+      "description": "The answer is a JSON array, and each item is forwarded as a signal of its own, in order (SPEC 2.4, 4.4, decision 0022). Absent: one answer, one forward."
+    },
     "link": {
       "type": "object",
       "additionalProperties": false,
@@ -238,6 +242,9 @@
             "effect": {
               "const": true
             },
+            "each": {
+              "$ref": "#/$defs/each"
+            },
             "may": {
               "$ref": "#/$defs/may"
             }
@@ -299,6 +306,9 @@
             "effect": {
               "const": true
             },
+            "each": {
+              "$ref": "#/$defs/each"
+            },
             "may": {
               "$ref": "#/$defs/may"
             }
@@ -358,6 +368,9 @@
             },
             "effect": {
               "const": true
+            },
+            "each": {
+              "$ref": "#/$defs/each"
             }
           }
         },
@@ -443,6 +456,9 @@
             },
             "may": {
               "$ref": "#/$defs/may"
+            },
+            "each": {
+              "$ref": "#/$defs/each"
             }
           }
         },

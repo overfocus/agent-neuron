@@ -33,6 +33,9 @@
         "effect": {
           "const": true
         },
+        "each": {
+          "$ref": "#/$defs/each"
+        },
         "env": {
           "type": "array",
           "uniqueItems": true,
@@ -74,6 +77,9 @@
         },
         "effect": {
           "const": true
+        },
+        "each": {
+          "$ref": "#/$defs/each"
         },
         "env": {
           "type": "array",
@@ -126,6 +132,9 @@
         },
         "effect": {
           "const": true
+        },
+        "each": {
+          "$ref": "#/$defs/each"
         }
       }
     },
@@ -188,6 +197,10 @@
       "type": "integer",
       "minimum": 1,
       "description": "The most calls of the neuron at once; the rest wait in arrival order (SPEC 2.4, decision 0021). Absent: no limit."
+    },
+    "each": {
+      "const": true,
+      "description": "The answer is a JSON array, and each item is forwarded as a signal of its own, in order (SPEC 2.4, 4.4, decision 0022). Absent: one answer, one forward."
     },
     "hostPort": {
       "description": "A host or address and a port, `host:port`: lower-case letters, digits, dots and hyphens, then a port from 1 to 65535. No wildcard.",

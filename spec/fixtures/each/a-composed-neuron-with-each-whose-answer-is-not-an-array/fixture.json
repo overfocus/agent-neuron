@@ -1,0 +1,15 @@
+{
+  "fixture": 0,
+  "description": "A `network` neuron with `each` whose `exit` replies with something that is not an array: the composed call fails, code `output` (6.1), as a program's would.",
+  "inputs": [
+    {"at":0,"source":"s","payload":"go"}
+  ],
+  "script": {
+    "c/e": {"calls":[{"after":10,"reply":{"answer":"mid"}}]},
+    "c/x": {"calls":[{"when":"mid","after":10,"reply":{"answer":"one"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["c"],"trace":"#1","hops":0,"payload":{"type":"text","text":"go"}},
+    {"type":"error","t":20,"id":"#1","from":"s","to":["c"],"trace":"#1","hops":0,"neuron":"c","message":"not an array","code":"output","payload":{"type":"text","text":"go"}}
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "version": 0,
+  "name": "the-pool-runs-out-in-the-middle-of-the-list",
+  "description": "Each item's call reserves from the trace's pool like any call (10.2, 10.3): budget 10, a costs 2 and b costs 3, so the first two items reserve and run, and the third is refused with an error budget. The other two are unaffected, and the trace is finished exhausted.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "each": true,
+      "cost": {
+        "credits": 2
+      }
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "cost": {
+        "credits": 3
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

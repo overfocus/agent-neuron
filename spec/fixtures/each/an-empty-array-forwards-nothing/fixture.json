@@ -1,0 +1,16 @@
+{
+  "fixture": 0,
+  "description": "An empty array is an answer that forwards nothing (4.4): the answer is reported with `[]` as its payload, b is never called (the script has no entry for it) and the trace is finished at the answer.",
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":10,"reply":{"answer":[]}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":[]}},
+    {"type":"finished","t":10,"trace":"#1","status":"done"}
+  ]
+}

@@ -5,7 +5,7 @@ Rust engine, the wire between engines, and the ways to run. It is written to be 
 someone (or some agent) who needs to find the right file and function, not as an introduction; for
 that, read the [README](../README.md).
 
-**This is a snapshot, taken 2026-11-12 with decision 0021's `maxInflight` option built (L2).** Nothing here is
+**This is a snapshot, taken 2026-11-12 with decision 0021's `maxInflight` option (L2) and decision 0022's `each` (S2, Rust engine only) built.** Nothing here is
 normative. The contract is [SPEC.md](SPEC.md), [`spec/fixtures/`](../spec/fixtures/) and the
 [decision records](decisions/). A name below that no longer greps is this file's error: fix it here.
 
@@ -19,8 +19,8 @@ MODEL
     http     one request per call
     human    a person answers at the desk (page)
     network  composed: a whole network file as one neuron (entry in, first exit reply out; inside sealed)
-    neuron   named by its own neuron file (0019); using entry may NARROW timeout/env/may/maxInflight only
-  options (10)  threshold, within, maxHops, timeout, env, cwd, cost, effect, may{connect,listen,read,write}, maxInflight (run|http|network: calls at once, rest wait in arrival order; 0021 L2)   (SPEC 2.4)
+    neuron   named by its own neuron file (0019); using entry may NARROW timeout/env/may/maxInflight only (effect, each: the file's, never the entry's)
+  options (11)  threshold, within, maxHops, timeout, env, cwd, cost, effect, may{connect,listen,read,write}, maxInflight (run|http|network: calls at once, rest wait in arrival order; 0021 L2), each (run|serve|http|network: answer is an array, one forward per item; 0022 S2)   (SPEC 2.4)
   settings      .env beside the declaring file (neuron file, or network file for inline) fills `env` names; wins over the engine's environment; never reported (0022 S6; settings.rs)
   input         {at, source, payload, replaces?, budget?}; `replaces` is the staleness key and rides the signal
   signal        payload + trace id + cause; link from->to carries answers; `to`-less reply routes by links
@@ -31,6 +31,7 @@ MODEL
   budget        pool per trace; check -> reserve at call START -> commit when program over
   queued        (level 1 slot, maxInflight place, --at-once): not started => no reserve, timeout not counting, never unknown, keeps trace open
   maxInflight   place held from start until the call's record is done; given back at END OF STEP, then oldest waiting call whose neuron has room starts, one at a time (SPEC 6.2 rule 9)
+  each          one `answer` event (whole array) -> one forward per item, array order, same cause/trace/hops/to/key; ONE emission for staleness (items never cut each other; a later answer on the key cuts all); non-array => error/unknown code `output`; [] forwards nothing; no join
   cut sequence  cancel note -> SIGTERM group (`term`) -> 2000 ms grace -> SIGKILL (`kill`) -> commit -> done
 
 THREE ENGINES (same fixtures; conformance = scripted host, virtual time)
@@ -77,6 +78,7 @@ RUST ENGINE  rust-engine/src
       Human     desk      Http  thread -> HttpDone      Composed  start_composed (inner instance or remote graph)
     both limits on one call: the neuron's place first (kept while it waits), then the cap gate in start_l0; a placed neuron's maxInflight is held by the driver
     TypeScript: Node.places, Run.waiting, vacate -> drain in a microtask (its end of step); Python: Neuron.places, Run.waiting, drain after each scheduler item
+    each (Rust only): call_replied turns a non-array Answer into Fail `output`; forward_answer loops forward_one per item (a ground draw per item); `fanning` keeps the trace from `finished` between items; StaleEnt.emission (= cause, else own id) is what new_signal and stale_and_cut compare
     end: host_l0_done -> l0_finished -> call_replied(Outcome) | fail_call ; cut: cut_work -> terminate_l0 -> L0Grace -> fire_l0_grace
   COMPOSED / HOSTED
     composed call: inner trace root = works[cw].inner_root; first reply at exit answers the call (composed_exit_replied) then composed_cancel_inner; quiet inside -> quiet; inner failure -> error `inner` (cause sealed)

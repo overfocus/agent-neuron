@@ -1,0 +1,19 @@
+{
+  "fixture": 0,
+  "description": "`each` is the neuron's own (2.10): written in its file, it makes the neuron fan out in every network that names it, as each/an-array-of-three-is-three-forwards has it inline.",
+  "inputs": [
+    {"at":0,"source":"s","payload":0}
+  ],
+  "script": {
+    "a": {"calls":[{"after":10,"reply":{"answer":[1,2]}}]},
+    "b": {"calls":[{"when":1,"after":5,"reply":{"quiet":true}},{"when":2,"after":5,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":0}},
+    {"type":"answer","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":[1,2]}},
+    {"type":"signal","t":10,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":1}},
+    {"type":"signal","t":10,"id":"#4","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":2}},
+    {"type":"quiet","t":15,"id":"#5","from":"b","to":["a"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"quiet","t":15,"id":"#6","from":"b","to":["a"],"trace":"#1","replyTo":"#4","hops":3}
+  ]
+}

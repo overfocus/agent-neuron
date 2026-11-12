@@ -49,6 +49,9 @@ pub struct Opts {
     /// The most calls of the neuron at once (SPEC 2.4, decision 0021): on a
     /// `run`, `http` or `network` neuron; `None` is no limit.
     pub max_inflight: Option<u64>,
+    /// `each` (SPEC 2.4, decision 0022): the answer is an array, forwarded
+    /// one signal per item.
+    pub each: bool,
 }
 
 /// A `may` (SPEC 2.4): four lists, each as the file wrote it. A member the
@@ -906,7 +909,7 @@ fn link(lv: &Value, i: usize, scan: &Scan, span: Span, out: &mut Vec<Diag>) -> L
 /// when the entry or the file is wrong; the findings are in `out`, anchored
 /// to the entry, and name the file.
 ///
-/// What is the neuron's sits in its file (the kind, `cwd`, `effect`, and
+/// What is the neuron's sits in its file (the kind, `cwd`, `effect`, `each`, and
 /// `may`, `env`, `timeout`); what is the network's sits on the entry (`id`,
 /// `at`, `threshold`, `within`, `maxHops`, `cost`). The entry may restate
 /// `timeout`, `env`, `may` and `maxInflight` only to narrow them.
@@ -991,7 +994,10 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
         let own = matches!(k, "$schema" | "version" | "description" | "timeout" | "effect")
             || k == kinds[0]
             || (program && matches!(k, "env" | "cwd" | "may"))
-            || (limited && k == "maxInflight");
+            || (limited && k == "maxInflight")
+            // `each` (2.4): how the program's answer goes on, so the neuron's
+            // own; a person answers one thing.
+            || (kinds[0] != "human" && k == "each");
         if !own {
             push(
                 span,
@@ -1234,6 +1240,7 @@ fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out
             "env" | "cwd" => is_command,
             "may" => is_command || is_network,
             "maxInflight" => matches!(kind, Kind::Run(_) | Kind::Http(_) | Kind::Network(_)),
+            "each" => matches!(kind, Kind::Run(_) | Kind::Serve(_) | Kind::Http(_) | Kind::Network(_)),
             _ => false,
         };
         if !allowed {
@@ -1341,6 +1348,12 @@ fn neuron(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out
         match x.as_bool() {
             Some(true) => opts.effect = true,
             _ => push(span, scan, "effect", &format!("{}: effect is true", what), out),
+        }
+    }
+    if let Some(x) = nv.get("each") {
+        match x.as_bool() {
+            Some(true) => opts.each = true,
+            _ => push(span, scan, "each", &format!("{}: each is true", what), out),
         }
     }
     if let Some(x) = nv.get("cost") {

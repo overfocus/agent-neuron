@@ -1,0 +1,27 @@
+{
+  "fixture": 0,
+  "description": "A neuron with `each` answers an array of three (2.4, 4.4): one answer with the whole array, then one forward per item in the array's order, each a signal of its own on the same trace with the answer as its cause and the hops of any forward, delivered to every outgoing link; so three calls at each of b and c, replied in the order they were started.",
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":"list"}
+  ],
+  "script": {
+    "a": {"calls":[{"after":10,"reply":{"answer":[{"n":1},"two",3]}}]},
+    "b": {"calls":[{"when":{"n":1},"after":30,"reply":{"answer":"b1"}},{"when":"two","after":20,"reply":{"answer":"b2"}},{"when":3,"after":10,"reply":{"quiet":true}}]},
+    "c": {"calls":[{"when":{"n":1},"after":5,"reply":{"quiet":true}},{"when":"two","after":5,"reply":{"quiet":true}},{"when":3,"after":5,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"text","text":"list"}},
+    {"type":"answer","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":[{"n":1},"two",3]}},
+    {"type":"signal","t":10,"id":"#3","from":"a","to":["b","c"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":{"n":1}}},
+    {"type":"signal","t":10,"id":"#4","from":"a","to":["b","c"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"two"}},
+    {"type":"signal","t":10,"id":"#5","from":"a","to":["b","c"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"json","data":3}},
+    {"type":"quiet","t":15,"id":"#6","from":"c","to":["a"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"quiet","t":15,"id":"#7","from":"c","to":["a"],"trace":"#1","replyTo":"#4","hops":3},
+    {"type":"quiet","t":15,"id":"#8","from":"c","to":["a"],"trace":"#1","replyTo":"#5","hops":3},
+    {"type":"quiet","t":20,"id":"#9","from":"b","to":["a"],"trace":"#1","replyTo":"#5","hops":3},
+    {"type":"answer","t":30,"id":"#10","from":"b","to":["a"],"trace":"#1","replyTo":"#4","hops":3,"payload":{"type":"text","text":"b2"}},
+    {"type":"answer","t":40,"id":"#11","from":"b","to":["a"],"trace":"#1","replyTo":"#3","hops":3,"payload":{"type":"text","text":"b1"}},
+    {"type":"finished","t":40,"trace":"#1","status":"done"}
+  ]
+}

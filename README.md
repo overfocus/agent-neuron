@@ -53,7 +53,7 @@ quiescence): [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
 | Per-trace budgets, effects that are never cut, a live event stream | A neuron reporting its own spend |
 | A second complete engine in Rust (`rust-engine/`): real processes, `http` neurons (from a network file), `human` neurons on the desk, the MCP server `neuron-engine mcp` | `https` (needs a dependency policy) and packaging of the engine binary for npm |
 | Composed neurons: a whole network behind one wrapper, sealed from outside | Anything that learns: today each call is its own process and nothing is kept |
-| 272 conformance fixtures any other engine must pass (decisions 0012, 0016's `may`, 0019's neuron file and 0021's `maxInflight` included); recorded traces; a local page that draws a run | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
+| 298 conformance fixtures any other engine must pass (decisions 0012, 0016's `may`, 0019's neuron file and 0021's `maxInflight` included; the 26 of decision 0022's `each` pass on the Rust engine only); recorded traces; a local page that draws a run | A real model: no model is called anywhere, every "model" in the demos is a timed stand-in |
 
 ## Try it
 
@@ -336,7 +336,7 @@ Any further engine must give the same events as this one on
 the same inputs (the first Rust attempt was tried and stopped:
 [decision 0005](docs/decisions/0005-rust-engine-experiment.md); the engine now on
 `main` restarted from the text under the same terms —
-[decision 0009](docs/decisions/0009-rust-engine.md), covered below). The shared test is [`spec/fixtures/`](spec/fixtures/): 272
+[decision 0009](docs/decisions/0009-rust-engine.md), covered below). The shared test is [`spec/fixtures/`](spec/fixtures/): 298
 small fixtures, each a network file, scripted inputs, scripted neuron replies with
 latencies on a virtual clock, and the exact events expected, ids normalised. No
 process starts and no clock is read, so a run is exactly repeatable.

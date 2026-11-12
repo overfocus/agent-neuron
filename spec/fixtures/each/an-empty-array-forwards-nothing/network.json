@@ -1,0 +1,34 @@
+{
+  "version": 0,
+  "name": "an-empty-array-forwards-nothing",
+  "description": "An empty array is an answer that forwards nothing (4.4): the answer is reported with `[]` as its payload, b is never called (the script has no entry for it) and the trace is finished at the answer.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "each": true
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

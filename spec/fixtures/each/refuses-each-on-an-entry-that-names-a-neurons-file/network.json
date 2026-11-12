@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "refuses-each-on-an-entry-that-names-a-neurons-file",
+  "description": "`each` is the neuron's own (2.10): it is written in the neuron's file, and an entry that names the file and sets it is refused by check, so the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json",
+      "each": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

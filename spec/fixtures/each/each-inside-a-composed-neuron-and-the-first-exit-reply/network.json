@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "name": "each-inside-a-composed-neuron-and-the-first-exit-reply",
+  "description": "`each` on a neuron inside a composed neuron fans out inside it, and there is no join: the first reply of `exit` is the composed neuron's reply (2.6 step 2), here the second item's, and the calls for the other items are cancelled without reports.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "c",
+      "network": "inner.network.json"
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "c"
+    }
+  ]
+}

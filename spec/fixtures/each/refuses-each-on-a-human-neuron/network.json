@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "name": "refuses-each-on-a-human-neuron",
+  "description": "`each` is not an option of a `human` neuron (2.4): a person answers one thing. Check refuses it and the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "human": true,
+      "each": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

@@ -441,3 +441,41 @@ fn http_max_inflight_one_request_at_a_time() {
     );
     let _ = server;
 }
+
+#[test]
+fn http_each_forwards_one_signal_per_item() {
+    // `each` on an http neuron (2.4, 4.4, decision 0022): the endpoint echoes
+    // the array it was sent, and each item is forwarded as a signal of its
+    // own. A body that is not an array is a failure of the call, `output`.
+    let server = Server::new("echo");
+    let temp = Temp::new("each");
+    let net = temp.write(
+        "network.json",
+        &format!(
+            r#"{{
+  "version": 0,
+  "name": "test",
+  "neurons": [
+    {{"id": "src", "source": true}},
+    {{"id": "list", "http": "{}", "each": true}},
+    {{"id": "one", "run": ["/bin/cat"]}}
+  ],
+  "links": [{{"from": "src", "to": "list"}}, {{"from": "list", "to": "one"}}]
+}}
+"#,
+            server.url("/")
+        ),
+    );
+    let inputs = inputs_file(&temp, &[("0", "src", "[1, \"two\", {\"n\": 3}]"), ("400", "src", "{\"n\": 4}")]);
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    let mut answers: Vec<&str> = text.lines().collect();
+    answers.sort();
+    assert_eq!(answers, vec!["1", "two", "{\"n\":3}"], "{}", text);
+    let trace = trace_of(&temp, "t.json");
+    assert_eq!(trace.matches("\"from\":\"list\",\"to\":[\"one\"]").count(), 3, "{}", trace);
+    assert_eq!(trace.matches("\"code\":\"output\"").count(), 1, "{}", trace);
+    assert!(has(&trace, "\"message\":\"not an array"), "{}", trace);
+    let _ = server;
+}

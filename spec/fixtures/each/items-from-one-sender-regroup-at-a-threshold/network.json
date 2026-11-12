@@ -1,0 +1,49 @@
+{
+  "version": 0,
+  "name": "items-from-one-sender-regroup-at-a-threshold",
+  "description": "A threshold counts senders (5.2), so the items of one answer do not add up at a threshold neuron: each newer item replaces the held one of the same sender (drop replaced, phase waiting), and h acts only when p, a second sender, arrives, with the last item and p's input.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "each": true
+    },
+    {
+      "id": "p",
+      "run": [
+        "neuron-p"
+      ]
+    },
+    {
+      "id": "h",
+      "run": [
+        "neuron-h"
+      ],
+      "threshold": 2
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "s",
+      "to": "p"
+    },
+    {
+      "from": "a",
+      "to": "h"
+    },
+    {
+      "from": "p",
+      "to": "h"
+    }
+  ]
+}

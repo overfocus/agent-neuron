@@ -1,0 +1,19 @@
+{
+  "fixture": 0,
+  "description": "The `replaces` of a level 1 reply is the key of every item's forward (4.4). The items are one emission (5.4): both carry the key, neither makes the other stale, and both calls answer.",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "a": {"calls":[{"after":1,"reply":{"answer":[1,2],"replaces":"r"}}]},
+    "b": {"calls":[{"when":1,"after":5,"reply":{"answer":"b1"}},{"when":2,"after":5,"reply":{"answer":"b2"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":1,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":[1,2]}},
+    {"type":"signal","t":1,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"replaces":"r","payload":{"type":"json","data":1}},
+    {"type":"signal","t":1,"id":"#4","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"replaces":"r","payload":{"type":"json","data":2}},
+    {"type":"answer","t":6,"id":"#5","from":"b","to":["a"],"trace":"#1","replyTo":"#3","hops":3,"payload":{"type":"text","text":"b1"}},
+    {"type":"answer","t":6,"id":"#6","from":"b","to":["a"],"trace":"#1","replyTo":"#4","hops":3,"payload":{"type":"text","text":"b2"}}
+  ]
+}

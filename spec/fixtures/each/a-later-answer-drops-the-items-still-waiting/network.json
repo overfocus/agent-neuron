@@ -1,0 +1,35 @@
+{
+  "version": 0,
+  "name": "a-later-answer-drops-the-items-still-waiting",
+  "description": "Each item is a forward like any other, so under b's `maxInflight` 1 the first runs and the other two wait (2.4). The later answer on the key makes all three stale: the running one is cut and the waiting ones are dropped, phase waiting, never started (the script has no entry for them). The new item takes the place at the end of the step (6.2 rule 9).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "each": true
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "maxInflight": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

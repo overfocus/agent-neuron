@@ -898,3 +898,82 @@ fn make_fifo(path: &Path) {
 extern "C" {
     fn mkfifo(path: *const i8, mode: u32) -> i32;
 }
+
+// -- `each` (SPEC 2.4, 4.4, decision 0022) -----------------------------------
+
+/// A source, `list` (a level 0 program that prints the file `printed.json`,
+/// with `each`) and `one` (cat), which `list` forwards to.
+fn each_network(temp: &Temp, printed: &str) -> PathBuf {
+    let file = temp.write("printed.json", printed);
+    temp.write(
+        "network.json",
+        &format!(
+            r#"{{
+  "version": 0,
+  "name": "test",
+  "neurons": [
+    {{"id": "src", "source": true}},
+    {{"id": "list", "run": ["/bin/cat", "{}"], "each": true}},
+    {{"id": "one", "run": ["/bin/cat"]}}
+  ],
+  "links": [{{"from": "src", "to": "list"}}, {{"from": "list", "to": "one"}}]
+}}
+"#,
+            file.to_string_lossy()
+        ),
+    )
+}
+
+#[test]
+fn each_forwards_one_signal_per_item() {
+    // The program prints an array of three: one answer, three forwards with
+    // that answer as their cause, three calls of `one`, whose answers the
+    // run prints (it has no outgoing links).
+    let temp = Temp::new("each");
+    let net = each_network(&temp, "[1, \"two\", {\"n\": 3}]");
+    let inputs = inputs_file(&temp, &[("0", "src", "0")]);
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    let mut answers: Vec<&str> = text.lines().collect();
+    answers.sort();
+    assert_eq!(answers, vec!["1", "two", "{\"n\":3}"], "{}", text);
+    let trace = std::fs::read_to_string(temp.path("t.json")).expect("the trace");
+    assert_eq!(
+        count(&trace, "\"type\":\"answer\""),
+        4,
+        "one answer of list, three of one: {}",
+        trace
+    );
+    assert_eq!(count(&trace, "\"from\":\"list\",\"to\":[\"one\"]"), 3, "{}", trace);
+    assert!(
+        has(&trace, "\"data\":[1,\"two\",{\"n\":3}]"),
+        "the answer carries the whole array: {}",
+        trace
+    );
+}
+
+#[test]
+fn each_fails_an_answer_that_is_not_an_array_and_forwards_nothing_for_an_empty_one() {
+    let temp = Temp::new("each-not");
+    let net = each_network(&temp, "{\"items\": [1, 2]}");
+    let inputs = inputs_file(&temp, &[("0", "src", "0")]);
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "", "nothing was forwarded");
+    let trace = std::fs::read_to_string(temp.path("t.json")).expect("the trace");
+    assert!(has(&trace, "\"code\":\"output\""), "{}", trace);
+    assert!(has(&trace, "\"message\":\"not an array"), "{}", trace);
+    assert!(!has(&trace, "\"type\":\"answer\""), "{}", trace);
+
+    let temp = Temp::new("each-empty");
+    let net = each_network(&temp, "[]");
+    let inputs = inputs_file(&temp, &[("0", "src", "0")]);
+    let out = run_cli(&temp, &net, &inputs, &["--trace", &temp.path("t.json").to_string_lossy()]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "");
+    let trace = std::fs::read_to_string(temp.path("t.json")).expect("the trace");
+    assert_eq!(count(&trace, "\"type\":\"answer\""), 1, "{}", trace);
+    assert!(!has(&trace, "\"from\":\"list\",\"to\":[\"one\"]"), "{}", trace);
+    assert!(!has(&trace, "\"type\":\"error\""), "{}", trace);
+}

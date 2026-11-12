@@ -1,0 +1,26 @@
+{
+  "fixture": 0,
+  "description": "Each item is a forward like any other, so under b's `maxInflight` 1 the first runs and the other two wait (2.4). The later answer on the key makes all three stale: the running one is cut and the waiting ones are dropped, phase waiting, never started (the script has no entry for them). The new item takes the place at the end of the step (6.2 rule 9).",
+  "inputs": [
+    {"at":0,"source":"s","payload":"old","replaces":"k"},
+    {"at":50,"source":"s","payload":"new","replaces":"k"}
+  ],
+  "script": {
+    "a": {"calls":[{"when":"old","after":10,"reply":{"answer":[1,2,3]}},{"when":"new","after":10,"reply":{"answer":[4]}}]},
+    "b": {"calls":[{"when":1,"after":100,"reply":{"answer":"never"}},{"when":4,"after":10,"reply":{"answer":"b4"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"replaces":"k","payload":{"type":"text","text":"old"}},
+    {"type":"answer","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":[1,2,3]}},
+    {"type":"signal","t":10,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"replaces":"k","payload":{"type":"json","data":1}},
+    {"type":"signal","t":10,"id":"#4","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"replaces":"k","payload":{"type":"json","data":2}},
+    {"type":"signal","t":10,"id":"#5","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"replaces":"k","payload":{"type":"json","data":3}},
+    {"type":"signal","t":50,"id":"#6","from":"s","to":["a"],"trace":"#6","hops":0,"replaces":"k","payload":{"type":"text","text":"new"}},
+    {"type":"answer","t":60,"id":"#7","from":"a","to":["s"],"trace":"#6","replyTo":"#6","hops":1,"payload":{"type":"json","data":[4]}},
+    {"type":"signal","t":60,"id":"#8","from":"a","to":["b"],"trace":"#6","cause":"#7","hops":2,"replaces":"k","payload":{"type":"json","data":4}},
+    {"type":"drop","t":60,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"neuron":"b","reason":"replaced","phase":"running","payload":{"type":"json","data":1}},
+    {"type":"drop","t":60,"id":"#4","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"neuron":"b","reason":"replaced","phase":"waiting","payload":{"type":"json","data":2}},
+    {"type":"drop","t":60,"id":"#5","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"neuron":"b","reason":"replaced","phase":"waiting","payload":{"type":"json","data":3}},
+    {"type":"answer","t":70,"id":"#9","from":"b","to":["a"],"trace":"#6","replyTo":"#8","hops":3,"payload":{"type":"text","text":"b4"}}
+  ]
+}

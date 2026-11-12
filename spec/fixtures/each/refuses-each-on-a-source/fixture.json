@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "A source has no answer to fan out: `each` on one is refused by check and the engine refuses to start (2.4).",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

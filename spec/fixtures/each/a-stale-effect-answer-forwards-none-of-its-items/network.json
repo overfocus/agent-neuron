@@ -1,0 +1,35 @@
+{
+  "version": 0,
+  "name": "a-stale-effect-answer-forwards-none-of-its-items",
+  "description": "An effect neuron may have `each`. The answer of an effect call whose input went stale is recorded, with forwarded false, and not forwarded (11.2): then none of its items is. The fresh call's one item is forwarded as usual.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "run": [
+        "neuron-notify"
+      ],
+      "effect": true,
+      "each": true
+    },
+    {
+      "id": "log",
+      "run": [
+        "neuron-log"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    },
+    {
+      "from": "notify",
+      "to": "log"
+    }
+  ]
+}
