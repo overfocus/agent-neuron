@@ -1,11 +1,11 @@
 # Architecture map (informative)
 
-A dense index of how agent-neuron is put together: the model, the three engines, the inside of the
+A dense index of how agent-neuron is put together: the model, the engine, the inside of the
 Rust engine, the wire between engines, and the ways to run. It is written to be read fast by
 someone (or some agent) who needs to find the right file and function, not as an introduction; for
 that, read the [README](../README.md).
 
-**This is a snapshot, taken 2026-11-12 with decision 0021's `maxInflight` option built (L2).** Nothing here is
+**This is a snapshot, taken 2026-11-12 with decision 0021's `maxInflight` option built (L2) and decision 0023 (one engine) carried out.** Nothing here is
 normative. The contract is [SPEC.md](SPEC.md), [`spec/fixtures/`](../spec/fixtures/) and the
 [decision records](decisions/). A name below that no longer greps is this file's error: fix it here.
 
@@ -34,11 +34,10 @@ MODEL
   maxInflight   place held from start until the call's record is done; given back at END OF STEP, then oldest waiting call whose neuron has room starts, one at a time (SPEC 6.2 rule 9)
   cut sequence  cancel note -> SIGTERM group (`term`) -> 2000 ms grace -> SIGKILL (`kill`) -> commit -> done
 
-THREE ENGINES (same fixtures; conformance = scripted host, virtual time)
-  TypeScript  src/ (engine/, network.ts, neuron.ts, signal.ts, adapters/) + test/   reference
-  Python      py/
-  Rust        rust-engine/   the product engine: real processes, peers, desk, confine, mcp
-  gate        `npm run check` (needs Rust); rust: cargo test / fmt / clippy; fixtures by area in spec/fixtures/<area>/
+ONE ENGINE (conformance = scripted host, virtual time)
+  Rust        rust-engine/   the engine and the reference: real processes, peers, desk, confine, mcp
+  history     a TypeScript library, a TypeScript reference engine and a Python engine passed the same fixtures until decision 0023 deleted them
+  gate        `npm run check` = cargo fmt --check, clippy -D warnings, cargo test --release, then conform spec/fixtures and spec/probes; fixtures by area in spec/fixtures/<area>/
 
 RUST ENGINE  rust-engine/src
   engine.rs 5.5k  the Engine: nodes, works, sigs, heap of wake-ups, all rules
@@ -77,7 +76,6 @@ RUST ENGINE  rust-engine/src
       Serve     free slot ? signal_line : Queued in serves[node].queue (drain_serve on slot free)
       Human     desk      Http  thread -> HttpDone      Composed  start_composed (inner instance or remote graph)
     both limits on one call: the neuron's place first (kept while it waits), then the cap gate in start_l0; a placed neuron's maxInflight is held by the driver
-    TypeScript: Node.places, Run.waiting, vacate -> drain in a microtask (its end of step); Python: Neuron.places, Run.waiting, drain after each scheduler item
     end: host_l0_done -> l0_finished -> call_replied(Outcome) | fail_call ; cut: cut_work -> terminate_l0 -> L0Grace -> fire_l0_grace
   COMPOSED / HOSTED
     composed call: inner trace root = works[cw].inner_root; first reply at exit answers the call (composed_exit_replied) then composed_cancel_inner; quiet inside -> quiet; inner failure -> error `inner` (cause sealed)

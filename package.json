@@ -12,7 +12,7 @@
     "engine:build": "cargo build --release --manifest-path rust-engine/Cargo.toml",
     "engine:fmt": "cargo fmt --check --manifest-path rust-engine/Cargo.toml",
     "engine:clippy": "cargo clippy --release --all-targets --manifest-path rust-engine/Cargo.toml -- -D warnings",
-    "engine:test": "cargo test --release --manifest-path rust-engine/Cargo.toml",
+    "engine:test": "RUST_TEST_THREADS=1 cargo test --release --manifest-path rust-engine/Cargo.toml",
     "conform": "npm run -s engine:build && rust-engine/target/release/neuron-engine conform spec/fixtures && rust-engine/target/release/neuron-engine conform spec/probes",
     "check": "npm run -s engine:fmt && npm run -s engine:clippy && npm run -s engine:test && npm run -s conform",
     "demo:network": "npm run -s engine:build && node examples/network.mjs",
