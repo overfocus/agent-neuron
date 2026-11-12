@@ -1,0 +1,24 @@
+{
+  "version": 0,
+  "name": "with-no-outgoing-links-the-answer-is-the-array",
+  "description": "A neuron with `each` and no outgoing links forwards nothing, as any such neuron (4.4): its answer is reported once, with the whole array.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "each": true
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

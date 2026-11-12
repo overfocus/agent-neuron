@@ -1,6 +1,6 @@
 # Decision record 0022: what a swarm needs (2026-11-12)
 
-**Status: decided 2026-11-12, every recommendation accepted. Built: S1 (`--result`), S4 (`args`), S6 (a neuron's own settings). Not built: S2, S3, S5.** A real job was put
+**Status: decided 2026-11-12, every recommendation accepted. Built: S1 (`--result`), S2 (`each`), S4 (`args`), S6 (a neuron's own settings). Not built: S3, S5.** A real job was put
 to the engine: give each of 21 business types a private template repository, one neuron doing one
 type and another handing out the list. It ran (the branch `feat/template-swarm`, kept unmerged), and
 it showed six things missing between the contract and a swarm. One of them, a limit on calls at
@@ -308,3 +308,66 @@ Three things the build settled.
    placed program is as before, and a file hosted by `peer --network` reads the settings beside it.
    **Open, for the wire's own SPEC text.** Not tested here: the hosted file's case goes through the
    same planting code as a run, and has no test of its own.
+
+## S2 as built (2026-11-12)
+
+The contract and the Rust engine, on `feat/s2-each` (on top of `feat/l2-max-inflight`): `each` in both
+schemas (`run`, `serve`, `http` and `network` neurons; `run`, `serve` and `http` neuron files), SPEC
+2.4, 2.7, 2.8, 2.10, 3.1, 3.2, 4.4, 4.5, 5.4, 6.1, 6.2 rule 3, 11.2 and Appendix B, C and E,
+CONFORMANCE 4.1, and 26 fixtures in `spec/fixtures/each/`, their expected events written by hand from
+the text. The Rust engine passes all 298 fixtures, the 272 that were there untouched. **The TypeScript
+and Python engines were not changed** (they were removed the same day, [decision 0023](0023-one-engine.md)): they accept the option in `check` and
+do not act on it.
+
+The gate, by fixture:
+
+| Check | Fixture (`each/`) |
+|---|---|
+| an array of three: order, one trace, three calls downstream | `an-array-of-three-is-three-forwards`, `items-take-a-place-in-the-arrays-order` |
+| an empty array; quiet | `an-empty-array-forwards-nothing`, `a-quiet-reply-is-quiet` |
+| a non-array is `output` | `an-answer-that-is-not-an-array-is-an-output-error`, `a-non-array-from-an-effect-neuron-is-unknown` |
+| a later answer on the key replaces every item | `a-later-answer-on-the-key-replaces-every-item`, `a-later-answer-drops-the-items-still-waiting` |
+| a level 1 reply that names `to`; its `replaces`; `to: []` | `a-level-1-reply-that-names-to-sends-every-item-there`, `a-level-1-reply-sets-the-key-of-every-item`, `a-level-1-reply-with-an-empty-to-forwards-no-item` |
+| a composed neuron with `each` | `a-composed-neuron-with-each`, `a-composed-neuron-with-each-whose-answer-is-not-an-array`, `each-inside-a-composed-neuron-and-the-first-exit-reply` |
+| the pool running out mid-list | `the-pool-runs-out-in-the-middle-of-the-list` |
+| a threshold counts senders | `items-from-one-sender-regroup-at-a-threshold` |
+| `maxHops` on the items | `max-hops-applies-to-every-item` |
+| the ground's draw | `with-select-every-item-draws-its-own-link` |
+| an effect neuron with `each` | `a-stale-effect-answer-forwards-none-of-its-items` |
+| no outgoing links | `with-no-outgoing-links-the-answer-is-the-array` |
+| the neuron's own file | `each-in-the-neurons-own-file` |
+| each refusal | the five `refuses-*`: on `human`, on a source, a value that is not `true`, on an entry that names a neuron's file, in a `human` neuron's file |
+
+Real processes: two tests in `rust-engine/tests/real.rs`, one in `tests/http.rs` (an `http` neuron,
+which no fixture reaches) and one in `tests/check.rs` (each refusal fires on its own rule).
+
+What the build settled that point 1 left loose. Each follows what a single forward does today.
+**All are for the maintainer to confirm.**
+
+1. **`each` is the neuron's own** (0019): written in the neuron's file, never on the entry that names
+   it, in the row of `effect`. It must match what the program prints, and that holds wherever the
+   program runs. The other reading has a case too (one list-printing program, used whole in one
+   network and fanned out in another); it would make `each` the network's, on the entry.
+2. **The ground: one draw per item**, in the array's order, and none for an empty array. Each item is a
+   forward of a reply that names no `to`. An `each` answer never deposits: its payload is an array.
+3. **An empty array makes nothing stale.** Staleness comes from emitting a signal, and none is
+   emitted, as for a level 1 reply with `to: []`. So `[]` on a key does not withdraw the items of an
+   earlier answer on that key.
+4. **The failure's message starts `not an array`**, and the check is on every kind's answer at the
+   point where it would be reported: no `answer` event is written. On an effect neuron it is
+   `unknown` (the call started), also when the call was stale. On the `exit` of a composed neuron it is
+   an inner failure, so the composed call ends as 2.6 step 3 says.
+5. **A level 1 reply's `to` and `replaces` hold for every item.**
+6. **Event order**: the answer, then each item's signal with its drops and delivery effects before the
+   next item's (6.2 rules 2 and 3). The older work of the key is dropped after the first item's signal.
+   A trace is not `finished` between items.
+7. **A threshold neuron may itself have `each`**; its one call's answer fans out. Not pinned by a
+   fixture.
+8. **Inside a composed neuron** an `each` neuron fans out inside, and the first reply of `exit` is
+   still the reply: the calls of the other items are cancelled. That is 2.6 unchanged, and it is the
+   place a join will be missed first.
+
+Not done: the TypeScript and Python engines and the mutants in `test/conformance.test.ts`; a demo and
+its row in DEMOS.md; the trace header does not list `each` among a neuron's `options`; the MCP
+server's description of a network does not show it; `each` on a neuron placed on a peer or in a
+hosted file is untested (the answer comes back through the same `call_replied`).

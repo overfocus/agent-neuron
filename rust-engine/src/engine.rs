@@ -338,6 +338,10 @@ struct SigRec {
 
 struct StaleEnt {
     sig: u64,
+    /// The emission the signal belongs to (SPEC 5.4): the answer that caused
+    /// it, or itself. The forwards of one `each` answer share one, and none
+    /// makes another stale.
+    emission: u64,
     works: Vec<usize>,
 }
 
@@ -364,6 +368,9 @@ struct INode {
     /// The most calls of this neuron at once (SPEC 2.4): `None` is no limit.
     max_inflight: Option<u64>,
     effect: bool,
+    /// `each` (SPEC 2.4): the answer is an array, forwarded one signal per
+    /// item (4.4).
+    each: bool,
     cost: Option<Units>,
     out: Vec<usize>,
     prog: String,
@@ -672,6 +679,9 @@ pub struct Engine {
     /// arrived: every neuron's in one list, so the order of starts is one
     /// order for the whole engine.
     waiting: std::collections::VecDeque<usize>,
+    /// The traces whose answer is being forwarded item by item (`each`,
+    /// SPEC 4.4): not finished while an item is still to come (7.2).
+    fanning: Vec<u64>,
     /// The node a hosted file's callers enter through (`plant_hosted`).
     caller: Option<usize>,
 }
@@ -747,6 +757,7 @@ impl Engine {
             cap_queue: std::collections::VecDeque::new(),
             places: BTreeMap::new(),
             waiting: std::collections::VecDeque::new(),
+            fanning: Vec::new(),
             caller: None,
         }
     }
@@ -1055,6 +1066,7 @@ impl Engine {
             timeout: 30_000,
             max_inflight: None,
             effect: false,
+            each: false,
             cost: None,
             out: Vec::new(),
             prog: id,
@@ -1151,6 +1163,7 @@ impl Engine {
                 timeout: n.opts.timeout.unwrap_or(30_000),
                 max_inflight: n.opts.max_inflight,
                 effect: n.opts.effect,
+                each: n.opts.each,
                 cost: n.opts.cost.clone(),
                 out: Vec::new(),
                 prog,
@@ -2109,7 +2122,7 @@ impl Engine {
         let pending: Vec<(u64, bool)> = self
             .traces
             .iter()
-            .filter(|(trace, info)| !info.finished && Some(*trace) != excl)
+            .filter(|(trace, info)| !info.finished && Some(*trace) != excl && !self.fanning.contains(trace))
             .filter(|(trace, _)| {
                 !self.works[self.low..].iter().any(|w| w.trace == *trace && !w.done)
                     && !self
@@ -2285,10 +2298,16 @@ impl Engine {
         self.emit_signal_event(id);
         if let Some(key) = &replaces {
             let sender = self.disp(from);
+            let emission = cause.unwrap_or(id);
             let list = self.stale.entry((scope, sender, key.clone())).or_default();
-            let doomed: Vec<usize> = list.iter().flat_map(|e| e.works.clone()).collect();
+            let doomed: Vec<usize> = list
+                .iter()
+                .filter(|e| e.emission != emission)
+                .flat_map(|e| e.works.clone())
+                .collect();
             list.push(StaleEnt {
                 sig: id,
+                emission,
                 works: Vec::new(),
             });
             for work in doomed {
@@ -2312,10 +2331,15 @@ impl Engine {
         let Some((scope, sender, key)) = self.stale_key_of(sig) else {
             return;
         };
+        // Every entry of another emission is older: the forwards of one
+        // `each` answer are one emission, and none makes another stale (5.4).
         let doomed: Vec<usize> = match self.stale.get(&(scope, sender, key)) {
             Some(list) => {
-                let cut_len = list.len() - 1;
-                list[..cut_len].iter().flat_map(|e| e.works.clone()).collect()
+                let emission = list.iter().find(|e| e.sig == sig).map(|e| e.emission);
+                list.iter()
+                    .filter(|e| Some(e.emission) != emission)
+                    .flat_map(|e| e.works.clone())
+                    .collect()
             }
             None => Vec::new(),
         };
@@ -3350,6 +3374,21 @@ impl Engine {
     /// the queue drains. A reply of a composed neuron's `exit` completes its
     /// composed call instead (2.6 step 2): the first reply wins.
     fn call_replied(&mut self, work: usize, outcome: Outcome) {
+        // `each` (SPEC 2.4): the answer MUST be a JSON array; one that is not
+        // is a failure of the call, code `output` (6.1).
+        let outcome = match outcome {
+            Outcome::Answer { payload, .. } if self.nodes[self.works[work].node].each && !matches!(&payload, PVal::Json(Value::Arr(_))) => {
+                let shown = match &payload {
+                    PVal::Json(v) => json::write(v),
+                    PVal::Text(t) => json::write(&Value::Str(t.clone())),
+                };
+                Outcome::Fail {
+                    code: "output",
+                    msg: format!("not an array: {}", cut_chars(&shown, 80)),
+                }
+            }
+            other => other,
+        };
         if let Some(cw) = self.exit_owner_of(work) {
             self.composed_exit_replied(work, cw, outcome);
             return;
@@ -3452,6 +3491,39 @@ impl Engine {
     /// key or the input's, along the outgoing links in declaration order (or
     /// the subset the reply names).
     fn forward_answer(&mut self, work: usize, reply: u64, to: &Option<Vec<usize>>, replaces: &KeyThree, payload: PVal) {
+        let node = self.works[work].node;
+        // `each` (2.4, 4.4): one forward per item of the answer, in the
+        // array's order, each a signal of its own caused by the answer. The
+        // trace is not finished while an item is still to come.
+        let items: Vec<PVal> = match (&payload, self.nodes[node].each) {
+            (PVal::Json(Value::Arr(items)), true) => items.iter().cloned().map(payload_of).collect(),
+            _ => {
+                self.forward_one(work, reply, to, replaces, payload);
+                return;
+            }
+        };
+        let trace = self.sigs[&reply].trace;
+        let count = items.len();
+        self.fanning.push(trace);
+        for (i, item) in items.into_iter().enumerate() {
+            if i + 1 == count {
+                self.unfan(trace);
+            }
+            self.forward_one(work, reply, to, replaces, item);
+        }
+        self.unfan(trace); // an empty array
+    }
+
+    fn unfan(&mut self, trace: u64) {
+        if let Some(ix) = self.fanning.iter().rposition(|t| *t == trace) {
+            self.fanning.remove(ix);
+        }
+    }
+
+    /// One forward (4.4). With `each` it is one item's: the draw of 4.5 is
+    /// per forward, and the forwards of one answer are one emission (5.4,
+    /// `new_signal`).
+    fn forward_one(&mut self, work: usize, reply: u64, to: &Option<Vec<usize>>, replaces: &KeyThree, payload: PVal) {
         let node = self.works[work].node;
         let incoming_key = self.sigs[&self.works[work].sig].replaces.clone();
         let rec = self.sigs[&reply].clone();

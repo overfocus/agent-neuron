@@ -1,0 +1,21 @@
+{
+  "fixture": 0,
+  "description": "Three items at a neuron with `maxInflight` 1 are three calls, one at a time, in the array's order (2.4, 4.4): each takes 10 ms, so they answer at 20, 30 and 40.",
+  "inputs": [
+    {"at":0,"source":"s","payload":0}
+  ],
+  "script": {
+    "a": {"calls":[{"after":10,"reply":{"answer":["x","y","z"]}}]},
+    "b": {"calls":[{"when":"x","after":10,"reply":{"answer":"bx"}},{"when":"y","after":10,"reply":{"answer":"by"}},{"when":"z","after":10,"reply":{"answer":"bz"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["a"],"trace":"#1","hops":0,"payload":{"type":"json","data":0}},
+    {"type":"answer","t":10,"id":"#2","from":"a","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"json","data":["x","y","z"]}},
+    {"type":"signal","t":10,"id":"#3","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"x"}},
+    {"type":"signal","t":10,"id":"#4","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"y"}},
+    {"type":"signal","t":10,"id":"#5","from":"a","to":["b"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"z"}},
+    {"type":"answer","t":20,"id":"#6","from":"b","to":["a"],"trace":"#1","replyTo":"#3","hops":3,"payload":{"type":"text","text":"bx"}},
+    {"type":"answer","t":30,"id":"#7","from":"b","to":["a"],"trace":"#1","replyTo":"#4","hops":3,"payload":{"type":"text","text":"by"}},
+    {"type":"answer","t":40,"id":"#8","from":"b","to":["a"],"trace":"#1","replyTo":"#5","hops":3,"payload":{"type":"text","text":"bz"}}
+  ]
+}

@@ -674,3 +674,40 @@ fn check_takes_a_valid_ground() {
         assert!(err_lines(&diags).is_empty(), "{}: {}", fixture, err_lines(&diags).join("\n"));
     }
 }
+
+#[test]
+fn check_takes_each_and_refuses_it_where_it_is_not_an_option() {
+    // `each` (SPEC 2.4, decision 0022): `true` on run, serve, http and
+    // network neurons, and in the file of a run, serve or http neuron.
+    for fixture in [
+        "each/an-array-of-three-is-three-forwards",
+        "each/a-level-1-reply-that-names-to-sends-every-item-there",
+        "each/a-composed-neuron-with-each",
+        "each/each-inside-a-composed-neuron-and-the-first-exit-reply",
+        "each/each-in-the-neurons-own-file",
+        "each/a-stale-effect-answer-forwards-none-of-its-items",
+    ] {
+        let path = fixture_network(fixture);
+        let diags = check::tree(path.to_string_lossy().as_ref());
+        assert!(err_lines(&diags).is_empty(), "{}: {}", fixture, err_lines(&diags).join("\n"));
+    }
+    for (fixture, want) in [
+        ("each/refuses-each-on-a-human-neuron", "option 'each' is not allowed here"),
+        ("each/refuses-each-on-a-source", "each"),
+        ("each/refuses-an-each-that-is-not-true", "each is true"),
+        (
+            "each/refuses-each-on-an-entry-that-names-a-neurons-file",
+            "'each' is the neuron's own: it is written in the neuron's file (2.10)",
+        ),
+        (
+            "each/refuses-each-in-the-file-of-a-human-neuron",
+            "'each' is not the neuron's own (2.10)",
+        ),
+    ] {
+        let path = fixture_network(fixture);
+        let diags = check::tree(path.to_string_lossy().as_ref());
+        let errs = err_lines(&diags);
+        assert_eq!(errs.len(), 1, "{}: {}", fixture, errs.join("\n"));
+        assert!(errs[0].contains(want), "{}: {}", fixture, errs[0]);
+    }
+}

@@ -106,8 +106,8 @@ of my own, written into a scratch directory outside the repository.
 ```sh
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
-cargo test                                          # 171: mcp 22, real 29, check 19, confine 22, desk 17, http 12, live 5, peers 43, unit 2
-cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 277, 0, 0
+cargo test                                          # 191: mcp 22, real 31, check 20, confine 22, desk 17, http 13, live 5, peers 43, result 5, settings 7, args 4, unit 2
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 303, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/probes     # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
 target/debug/neuron-engine run spec/examples/alerts-python-serve.network.json --inputs spec/examples/alerts.inputs.jsonl
@@ -537,6 +537,24 @@ alike. Waiting is level 1's queued, as under the cap.
   still counts the process.
 - Covered by `spec/fixtures/maxinflight/` (26, on the scripted host), four tests in
   `tests/peers.rs` and one in `tests/http.rs` (real processes and a real request).
+
+## Fan-out — the `each` option (decision 0022, S2)
+
+`"each": true` on a `run`, `serve`, `http` or `network` neuron (SPEC 2.4, 4.4): its answer is a JSON
+array, reported once, and each item is forwarded as a signal of its own, in the array's order.
+
+- **`call_replied` is where the array is required**: an answer of an `each` neuron that is not an
+  array becomes the failure `output` ("not an array") before anything is reported, whatever the
+  kind, so an effect neuron's is `unknown` and an inner `exit`'s is its composed call's `inner`.
+- **`forward_answer` loops `forward_one`**, one per item: the targets (a reply's `to`, or one draw of
+  the ground per item) and the key are the reply's. `fanning` holds the trace open between items, so
+  `finished` cannot come before the last one.
+- **One emission**: a keyed signal's `StaleEnt` carries its `emission` (the answer that caused it,
+  else itself), and `new_signal` and `stale_and_cut` cut the work of other emissions only.
+- No join, no group: an item is a forward like any other from then on.
+- Covered by `spec/fixtures/each/` (26, on the scripted host), two tests in `tests/real.rs`, one in
+  `tests/http.rs` (an `http` neuron, which no fixture reaches) and one in `tests/check.rs` (each
+  refusal on its own rule). Not tested: `each` on a neuron placed on a peer, or on a hosted file.
 
 ## Confinement — `run --confine` (decision 0018, S2a and S2b)
 

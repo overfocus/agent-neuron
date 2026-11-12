@@ -234,6 +234,7 @@ program's working directory.
 | `effect` | `true` | none | run, serve, http, human | a started call is never cut by staleness; its failures are `unknown` (11) |
 | `may` | object (below) | none: nothing | run, serve, network | what the neuron's program is allowed to touch |
 | `maxInflight` | integer, at least 1 | none: no limit | run, http, network | at most this many calls of the neuron at once; the rest wait in the order they arrived (below) |
+| `each` | `true` | none | run, serve, http, network | the answer is a JSON array, and each item is forwarded as a signal of its own (below) |
 
 A program's environment is empty except `PATH` and the `env` names (a name the
 engine lacks stays unset). `threshold` and `within` are not allowed on `network`.
@@ -301,6 +302,23 @@ the word level 1 uses for the same thing (3.2), and it means the same.
 
 An engine MAY also hold calls back for a limit of its own, about the machine and not the neuron (the
 Rust engine's `--at-once`, appendix C). A call then waits for both, and waiting means the same.
+
+**`each`** ([decision 0022](decisions/0022-what-a-swarm-needs.md)) is fan-out: one answer that is a list
+becomes one forward per item.
+
+- **The answer MUST be a JSON array.** An answer that is anything else (an object, a string, a number,
+  `null`) is a failure of the call, code `output` (6.1). Quiet is quiet, as for any neuron.
+- **One answer, one reply.** The reply (4.3) is one `answer` event with the whole array as its payload.
+  What changes is the forward (4.4): the engine emits one forward per item, in the array's order, each
+  with that item as its payload. An empty array forwards nothing.
+- **The items of one answer are one emission** for staleness (5.4): none makes another stale.
+- **Nothing waits for the items.** There is no join: no rule gathers what the items caused, and the
+  items of one answer are not told apart from any other forwards of the neuron. A threshold counts
+  senders (5.2), so the items of one answer do not add up at a threshold neuron. Inside a composed
+  neuron the first reply of `exit` is still the reply (2.6 step 2), whatever item it came from.
+- **Without it** a neuron behaves exactly as before, and an answer that is an array is one forward with
+  the array as its payload. It is not allowed on `human` (a person answers one thing) or on a `source`
+  (a producer that wants several signals injects several).
 
 ### 2.5 Links
 
@@ -373,6 +391,7 @@ neurons of its file declare (2.4) (error); for an entry that names a neuron's fi
 missing or invalid, an option on the wrong side (one that is the network's in the file, or one that is the
 neuron's own on the entry), and a `timeout`, `env`, `may` or `maxInflight` on the entry that is wider than the file's (errors);
 a `maxInflight` that is not an integer of at least 1, or one on a `serve`, `human` or `source` neuron, in a network
+file or in a neuron's own file (2.4) (errors); an `each` that is not `true`, or one on a `human` or `source` neuron, in a network
 file or in a neuron's own file (2.4) (errors); a settings file of a neuron that lists `env` names with a line that is not
 `NAME=value` (2.4) (error, naming the file and the line, never the text); `args` on an entry whose file is an `http` or `human` neuron (error; on a neuron written
 inline `args` is an unknown field, and a string of it that is not a literal is a schema violation, 2).
@@ -380,7 +399,7 @@ inline `args` is an unknown field, and a string of it that is not a literal is a
 ### 2.8 Field budget (informative)
 
 10 top-level fields (`budget` is the ninth, `ground` the tenth — [decision
-0012](decisions/0012-the-ground.md)); per neuron `id`, `description`, `at`, one kind field, at most 10
+0012](decisions/0012-the-ground.md)); per neuron `id`, `description`, `at`, one kind field, at most 11
 options; 2 per link. The kinds are seven: `neuron` is the seventh, admitted by
 [decision 0019](decisions/0019-the-neuron-file.md) and costing no option. `args` (2.10,
 [decision 0022](decisions/0022-what-a-swarm-needs.md)) is a field of the entry that names a neuron's file, not an
@@ -398,7 +417,9 @@ reopened for it: what a program may touch is a limit of the same class, since a 
 confine itself ([decision 0016](decisions/0016-the-self-describing-neuron.md)). `maxInflight` is the tenth
 ([decision 0021](decisions/0021-a-limit-on-calls-at-once.md)): how many calls of a program run at once is the
 engine's to hold, since the calls of a level 0 program do not know of each other, and it is a word the
-protocol already had (3.2).
+protocol already had (3.2). `each` is the eleventh, the budget extended for it by
+[decision 0022](decisions/0022-what-a-swarm-needs.md): whether one answer goes on as one signal or as one
+per item is how the neuron connects, and it reads the answer's shape (an array or not), never what is in it.
 
 ### 2.9 Confinement (normative)
 
@@ -479,7 +500,7 @@ written on the entry.
 
 | | In the neuron file | On the entry that names it |
 |---|---|---|
-| the kind and its command or URL; `cwd`; `effect` | yes | never |
+| the kind and its command or URL; `cwd`; `effect`; `each` | yes | never |
 | `may`, `env`, `timeout`, `maxInflight` | yes | to narrow only |
 | `description` | yes | yes; the entry's is the neuron's when both have one |
 | `id`, `at`, `threshold`, `within`, `maxHops`, `cost` | never | yes |
@@ -524,6 +545,7 @@ to stdin and closes it, ignoring write errors (a program need not read stdin).
 - **Output:** exit 0 and stdout empty or whitespace: quiet. Exit 0 and stdout
   one JSON value (whitespace around allowed): an answer. A level 0 program has
   no envelope: the answer goes to all outgoing links with the inherited key.
+  With `each` (2.4) the value MUST be a JSON array, and each item goes on as a forward of its own (4.4).
 - **Failures:** see 6.1 (non-zero exit, killed by signal, not JSON, over 1 MiB).
 - **Cancel:** SIGTERM to the process group; SIGKILL to it 2 seconds later if
   anything remains. Later output is discarded.
@@ -590,7 +612,9 @@ is sent only when nothing is running; no `pong` within `timeout` is a hang.
 
 **Reply `to`.** A set of neuron ids, each an outgoing link of the neuron; the
 forward lists them in link declaration order whatever the order given.
-`to: []` forwards nothing but the answer is still reported. With the network's
+`to: []` forwards nothing but the answer is still reported. On a neuron with `each` (2.4) the `payload`
+MUST be a JSON array (else the call fails, code `output`, 6.1), and the reply's `to` and `replaces`
+hold for the forward of every item. With the network's
 `ground` (4.5), an omitted `to` is the draw: one outgoing link by weight. A reply's `replaces`
 longer than 256 bytes, or a `to` that names a non-linked neuron, or an
 `answer` without `payload`, is an error (6.1, code `protocol`).
@@ -697,6 +721,13 @@ clears) or else *s*'s key, inherited. Quiet, an error, a refused input, stale
 work and a neuron with no outgoing links forward nothing. Forwarding along
 links is the only way a neuron reaches another neuron.
 
+**With `each`** (2.4) the engine emits, in place of the one forward, one forward per item of the answer, in
+the array's order: each as above, with its own id and that item as its `payload`, and the same `cause`,
+`trace`, `hops`, `to` and `replaces`. Each is a signal like any forward: it is delivered (4.2), its calls
+reserve from the trace's pool (10.2), and `maxHops` (5.3) and staleness (5.4) apply to it. An empty array
+forwards nothing, and, like a `to` of `[]`, makes nothing stale. With the draw of 4.5 each item draws its
+own link. The trace is not finished (7.2) while an item is still to be forwarded.
+
 Each neuron on a path adds **two hops** (reply, then forward). A neuron at depth
 `d` (the first neuron after the source is depth 1) receives hops `2(d-1)`; `maxHops` is a limit on that
 count, not on neurons deep: a limit of 4 lets a chain reach its third neuron.
@@ -735,7 +766,8 @@ composed network's inner file MUST NOT declare one; the scope question waits.
   (4.4). A reply that names a `to` never draws, nor does an injection (4.1).
 - **The generator is pinned.** The engine keeps one 32-bit state, started at
   `seed`, drawn exactly once per omitted-`to` reply — whatever the outcome,
-  however few the links. The word, with 32-bit wrap add and multiply and
+  however few the links (for a neuron with `each`, 2.4: once per item, in the
+  array's order, and not at all for an empty array). The word, with 32-bit wrap add and multiply and
   zero-fill right shifts:
 
       s := s + 0x6D2B79F5
@@ -788,6 +820,11 @@ with key *K* from sender *S* makes every older signal of the same (*S*, *K*)
 Finished work is unaffected, and so is what it forwarded: staleness does not
 travel down a chain. Each hop replaces on its own sender's key.
 
+**The forwards of one `each` answer are one emission** (2.4, 4.4). None of them is older than another:
+the first makes the older signals of its (*S*, *K*) stale, as above, and the others make stale nothing of
+their own answer. A later answer of the same sender on the same key makes every one of them stale at its
+first forward, and its own items replace them together.
+
 **A key reaches every outgoing link of its sender** ([decision 0017](decisions/0017-the-cut-a-link-carries-and-readiness.md)).
 The older signal may have gone where the newer one does not: a level 1 reply may name some of its
 links (3.2), and the ground forwards along one (4.5). The older work is stale all the same. So a
@@ -827,6 +864,7 @@ affected. Failures of stale work are not errors.
 | level 0 exit not 0, or killed by a signal | `exit` | `exit N:` or `signal S:`, then stderr | |
 | output over 1 MiB (level 0), line over 1 MiB (level 1) | `output` | `output too large` | process group killed |
 | level 0 stdout not empty and not one JSON value | `junk` | `not JSON` | |
+| an answer of a neuron with `each` that is not a JSON array (2.4), whatever the neuron's kind | `output` | `not an array` | no answer is reported |
 | level 1 junk line while exactly one call runs | `junk` | `junk on stdout` | note |
 | http: non-2xx, connection failure, non-JSON body | `http` | `http` | |
 | level 1 reply with bad shape, bad `to`, bad `replaces`, key over 256 bytes, no `payload`, or `ready.v` differing from `hello.v` | `protocol` | `protocol:` and the cause | reply unused |
@@ -858,7 +896,8 @@ list.
    after it**: (a) the drops of the work that signal made stale, in the order
    that work was created; (b) for each target in `to` order, its delivery
    effects (a `hops` drop, or a held replacement drop).
-3. A reply is reported before its forward.
+3. A reply is reported before its forward. The forwards of an `each` answer (4.4) follow it in the array's
+   order, each with everything rule 2 puts after a signal before the next one is reported.
 4. A running drop is reported when the work goes stale; a `note` for the
    cancel follows it, and the later `term` and `kill` notes at their own times.
 5. A call that ends exactly when its input goes stale counts as stale.
@@ -1298,7 +1337,7 @@ When work for an effect neuron goes stale (5.4):
   A call that ends at the instant its input goes stale counts as stale (6.2 rule 5).
 - **Its answer is always recorded** as an `answer` event (4.3), and **its cost is committed** (10.4) as for any
   call. If the call is stale when it answers, the answer is not forwarded (4.4): the `answer` event carries
-  `"forwarded": false` (7.2) and no forward follows. Quiet and failures carry no mark: nothing would have been forwarded.
+  `"forwarded": false` (7.2) and no forward follows; with `each` (2.4), none of its items is forwarded. Quiet and failures carry no mark: nothing would have been forwarded.
   A call that was not stale answers and forwards as usual.
 - **Results.** What the engine returns to its caller (the answers of neurons with no outgoing links) is not a
   forward: a stale effect answer from such a neuron still reaches it, as well as the trace.
@@ -1424,6 +1463,8 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
 - A limit on calls at once, later ([decision 0021](decisions/0021-a-limit-on-calls-at-once.md)): a bound on
   how many calls may wait or for how long, at level 1 as well; a cap on connections to a peer; limits by
   trace or by caller; backpressure to a live producer.
+- Fan-out, later ([decision 0022](decisions/0022-what-a-swarm-needs.md)): a join for the items of one `each`
+  answer, and a name for that group; a bound on how many items one answer may forward.
 - Effects, later: an engine-held `unknown` that blocks a key until reconciled, a retry policy, effects
   inside a composed file (11.5).
 - Budgets, later: usage claims in level 1 replies, an owed ledger, spend per source or per time
@@ -1571,6 +1612,7 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 2.4 | `may`: the shape, and a composed neuron covering its inside | static | |
 | 2.4 | `maxInflight`: the places of one neuron, its waiting calls and their order | local | The wrapper counts its own calls. |
 | 2.4, 6.2 | Rule 9: which waiting call starts first when places of several neurons come free in one step | global | One order across neurons (G3). |
+| 2.4, 4.4 | `each`: the answer is an array, one forward per item, one emission | local | The neuron's own answer and links. Each item's draw is G4, its reserve G1. |
 | 2.10 | A neuron named by its own file; narrowing | static | Read once, before anything runs; afterwards it is an ordinary neuron. |
 | 2.9 | Confinement: the baseline, paths, connections, a proxy per neuron | local | The wrapper starts the program, and holds it. |
 | 2.9 | A confined run is refused whole when one program cannot be held | global | One neuron's `may` decides for the network, as G6. |

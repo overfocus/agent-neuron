@@ -85,8 +85,8 @@ Every flag is in [rust-engine/README.md](rust-engine/README.md).
   ground's deposit rule names the payload fields it records — the engine's own
   bookkeeping, as `replaces` keys the producer's inputs.) **Field budget**: a network file has
   10 top-level fields (`budget` is the ninth, `ground` the tenth — decision 0012), a neuron has `id`, `description`, one kind field and at
-  most 10 options (`threshold`, `within`, `maxHops`, `timeout`, `env`, `cwd`, `cost`, `effect`, `may`, `maxInflight`; `effect` was
-  the eighth and the last planned, decision 0016 reopened the budget for `may`, the ninth, and decision 0021 spent one more on `maxInflight`, the tenth), a link has `from` and `to`. A neuron has one kind field of seven: `neuron`, the seventh, names the neuron's own file (`spec/neuron.schema.json`, decision 0019), which holds what is true of the program wherever it runs, while the entry holds what is true only of this network. Test every proposed field with one question:
+  most 11 options (`threshold`, `within`, `maxHops`, `timeout`, `env`, `cwd`, `cost`, `effect`, `may`, `maxInflight`, `each`; `effect` was
+  the eighth and the last planned, decision 0016 reopened the budget for `may`, the ninth, decision 0021 spent one more on `maxInflight`, the tenth, and decision 0022 extended it for `each`, the eleventh), a link has `from` and `to`. A neuron has one kind field of seven: `neuron`, the seventh, names the neuron's own file (`spec/neuron.schema.json`, decision 0019), which holds what is true of the program wherever it runs, while the entry holds what is true only of this network. Test every proposed field with one question:
   *does it say how neurons connect, or how one decides?* Only the first kind
   gets in, and only with a decision record in `docs/decisions/` that says what
   it costs against the budget. Descriptive fields are a second, closed class:

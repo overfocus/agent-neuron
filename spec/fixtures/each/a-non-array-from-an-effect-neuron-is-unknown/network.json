@@ -1,0 +1,35 @@
+{
+  "version": 0,
+  "name": "a-non-array-from-an-effect-neuron-is-unknown",
+  "description": "An effect neuron with `each` whose answer is not an array: the call started, so the failure, code `output`, is an unknown and not an error (6.1, 11.3).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "notify",
+      "run": [
+        "neuron-notify"
+      ],
+      "effect": true,
+      "each": true
+    },
+    {
+      "id": "log",
+      "run": [
+        "neuron-log"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "notify"
+    },
+    {
+      "from": "notify",
+      "to": "log"
+    }
+  ]
+}

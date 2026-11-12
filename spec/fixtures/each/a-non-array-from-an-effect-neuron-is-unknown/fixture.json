@@ -1,0 +1,14 @@
+{
+  "fixture": 0,
+  "description": "An effect neuron with `each` whose answer is not an array: the call started, so the failure, code `output`, is an unknown and not an error (6.1, 11.3).",
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "notify": {"calls":[{"after":10,"reply":{"answer":"sent"}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"unknown","t":10,"id":"#1","from":"s","to":["notify"],"trace":"#1","hops":0,"neuron":"notify","message":"not an array","code":"output","payload":{"type":"json","data":1}}
+  ]
+}

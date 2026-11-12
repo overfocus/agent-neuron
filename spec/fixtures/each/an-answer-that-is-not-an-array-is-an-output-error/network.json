@@ -1,0 +1,34 @@
+{
+  "version": 0,
+  "name": "an-answer-that-is-not-an-array-is-an-output-error",
+  "description": "The answer of a neuron with `each` MUST be a JSON array (2.4): an object, a string and null are each a failure of the call, code `output` (6.1), an error for the input, with no answer event and nothing forwarded.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "each": true
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}

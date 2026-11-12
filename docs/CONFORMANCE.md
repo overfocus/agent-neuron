@@ -95,6 +95,8 @@ were set (SPEC 6.2 rule 1), with these fixed points so that engines agree:
   go before every wake-up the run sets itself, and among themselves in listed order.
 - Calls started by one event (the targets of one signal, in `to` order) set their wake-ups in
   that order, so their scripted replies at one instant are processed in that order.
+- The forwards of one `each` answer (SPEC 4.4) are delivered one after another, in the array's order: the
+  calls of the first item set their wake-ups (in `to` order) before those of the second.
 - Held inputs set their `within` wake-up when they are held.
 - **A call's timeout is an ordinary wake-up**, set when the call starts: at level 0 after the program's own
   wake-ups (hence the last point of this list), at level 1 when the `signal` line is written. At an instant it has no place of

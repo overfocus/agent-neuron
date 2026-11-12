@@ -1,0 +1,44 @@
+{
+  "version": 0,
+  "name": "an-array-of-three-is-three-forwards",
+  "description": "A neuron with `each` answers an array of three (2.4, 4.4): one answer with the whole array, then one forward per item in the array's order, each a signal of its own on the same trace with the answer as its cause and the hops of any forward, delivered to every outgoing link; so three calls at each of b and c, replied in the order they were started.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "each": true
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ]
+    },
+    {
+      "id": "c",
+      "run": [
+        "neuron-c"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    },
+    {
+      "from": "a",
+      "to": "c"
+    }
+  ]
+}

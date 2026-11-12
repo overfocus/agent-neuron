@@ -1,0 +1,35 @@
+{
+  "version": 0,
+  "name": "items-take-a-place-in-the-arrays-order",
+  "description": "Three items at a neuron with `maxInflight` 1 are three calls, one at a time, in the array's order (2.4, 4.4): each takes 10 ms, so they answer at 20, 30 and 40.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "run": [
+        "neuron-a"
+      ],
+      "each": true
+    },
+    {
+      "id": "b",
+      "run": [
+        "neuron-b"
+      ],
+      "maxInflight": 1
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "b"
+    }
+  ]
+}
