@@ -1,0 +1,13 @@
+{
+  "version": 0,
+  "description": "The middle network: one composed effect neuron.",
+  "neurons": [
+    {
+      "id": "mid",
+      "network": "inner.network.json",
+      "effect": true
+    }
+  ],
+  "entry": "mid",
+  "exit": "mid"
+}

@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "A composed neuron states effect only when its file has an effect neuron: check refuses one that states it over a file with none, so the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

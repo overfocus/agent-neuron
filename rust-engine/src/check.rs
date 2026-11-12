@@ -111,6 +111,18 @@ fn visit(path: &Path, composed: bool, out: &mut Vec<Diag>, seen: &mut HashSet<Pa
                         message: why,
                     });
                 }
+                // The effect fold (11.5): at `effect` when the entry states
+                // it over a file with none, at `network` when it leaves it out.
+                if let Some(why) = net::effect_fold_error(n, &inner_net) {
+                    let span = neuron_spans.get(i).copied().unwrap_or(NONE_SPAN);
+                    let key = if n.opts.effect { "effect" } else { "network" };
+                    out.push(Diag {
+                        error: true,
+                        file: Some(name.clone()),
+                        pos: scan.at(span, key),
+                        message: why,
+                    });
+                }
             }
         }
         visit(&inner_path, true, out, seen);

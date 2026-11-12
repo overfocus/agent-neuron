@@ -231,7 +231,7 @@ program's working directory.
 | `env` | array of unique names | `[]` | run, serve | environment variables passed through: names only |
 | `cwd` | path | the directory of the file that declares the neuron | run, serve | working directory |
 | `cost` | units (10.1) | none | all but source | what one call reserves, and the most it may consume (10) |
-| `effect` | `true` | none | run, serve, http, human | a started call is never cut by staleness; its failures are `unknown` (11) |
+| `effect` | `true` | none | run, serve, http, human, network | a started call is never cut by staleness; its failures are `unknown` (11). On `network` it says that the file has an effect neuron, and it is required exactly then (11.5) |
 | `may` | object (below) | none: nothing | run, serve, network | what the neuron's program is allowed to touch |
 | `maxInflight` | integer, at least 1 | none: no limit | run, http, network | at most this many calls of the neuron at once; the rest wait in the order they arrived (below) |
 | `each` | `true` | none | run, serve, http, network | the answer is a JSON array, and each item is forwarded as a signal of its own (below) |
@@ -349,22 +349,25 @@ Per call:
 2. The first reply of `exit`, an answer or quiet, is the composed neuron's reply, with the
    `replaces` it carries: a string sets the key of the forward (4.4), `null` clears it, absent
    inherits the outer input's key.
-   Remaining inner work for the call is cancelled without reports.
+   Remaining inner work for the call is cancelled without reports, except an effect
+   call that has started, which runs to its own end (11.5).
 3. If the inner network has nothing running, queued or held for the call and
    `exit` has not replied, the composed neuron is quiet; if an inner neuron
-   failed meanwhile, it is an error, code `inner`.
+   failed meanwhile, it is an error, code `inner`, or an `unknown` with that code
+   when an effect inside had started (11.5).
 4. Calls are isolated: staleness inside an instance is scoped to one call, so
    one call can never cut another. A call is cut only when its outer work goes
-   stale or times out; then all its inner work is cancelled, recursively.
+   stale or times out; then all its inner work is cancelled, recursively. Staleness
+   does not cut a call in which an effect has started (11.5).
 5. `maxHops` and `timeout` apply at the outer boundary. Hops inside start at 0
    and do not add to the outer chain.
 6. The composed neuron's `cost` and the inner file's `budget` bound what the inside may spend (10.5).
-7. A composed neuron is never an `effect`, and its file contains none (11.5).
+7. A composed neuron states `effect` exactly when its file contains an effect neuron (11.5).
 
 **Sealing** (MUST): inner ids, signals, traces and error text never appear in
 anything reported about the outer network; from outside, a signal goes in and
 a reply comes out, and an inner failure is only the composed neuron's own
-error. A separate inspection tool for the inside, keyed by instance path, is an
+error or `unknown`. A separate inspection tool for the inside, keyed by instance path, is an
 operator's tool and is not in version 0.
 
 Sealing is between neurons, not against whoever holds the file. A composed network run from a
@@ -384,7 +387,7 @@ is missing, invalid, lacks `entry`/`exit`, has a source or an `exit` with
 outgoing links (errors); a cycle in which no neuron has `maxHops` (error); a `budget`
 or `cost` amount that is not a whole number from 0 to 2^53 - 1, a `cost` naming a unit the
 file's `budget` lacks, an empty `budget` or `cost`, or a non-source neuron with no `cost` in a file that
-has a `budget` (10.1) (errors); a `network` file that contains a neuron with `effect` (11.5) (error); a `cost` above the file's ceiling in some unit (the neuron can never run),
+has a `budget` (10.1) (errors); a `network` neuron that does not state `effect` and whose file contains a neuron with `effect`, or one that states it and whose file contains none (11.5) (errors); a `cost` above the file's ceiling in some unit (the neuron can never run),
 or a `network` neuron whose file has neurons costing a unit its `cost` does not name (those calls are always
 refused, 10.5) (warnings); an executable that cannot be found (warning); a `network` neuron whose `may` does not cover what the
 neurons of its file declare (2.4) (error); for an entry that names a neuron's file (2.10): a file that is
@@ -846,7 +849,8 @@ reported, for the crossing input (which may itself not have been replaced),
 phase `running`. The other inputs report nothing.
 
 **An effect call is not cut** (11.2): staleness marks it, and only its forward is suppressed. A waiting
-effect call (held or queued) has not started and is dropped as above.
+effect call (held or queued) has not started and is dropped as above. A call of a composed effect neuron is
+cut as any composed call is until an effect inside it has started, and is not cut after (11.5).
 
 A 5.2 same-sender regroup replaces a *held* input only. It never cuts a running
 call by itself; only (sender, key) staleness does.
@@ -880,7 +884,9 @@ affected. Failures of stale work are not errors.
 **Effect calls.** For a neuron with `effect` (11), every failure above except codes `budget`, `start` and
 `neuron` is not an `error` but an `unknown` event with the same fields and the same `code` (11.3): the
 call started, and nobody can tell whether the effect happened. `budget` and `start` mean the call never
-started, `neuron` is the neuron saying itself that it failed; they stay errors.
+started, `neuron` is the neuron saying itself that it failed; they stay errors. For a composed neuron with
+`effect` the same holds from the moment an effect inside the call has started; before it, its failures are
+errors (11.5).
 
 ### 6.2 Event order
 
@@ -1129,7 +1135,7 @@ The fixtures cover routing, threshold, staleness (issue 17 included, and a newer
 neurons and sealing, every row of the 6.1 table that an engine can reach, the 6.2 order, the
 end of a run, level 1 (handshake, queueing, cancel, ping, restart), observers and
 the version 0.1 budget (`budget/`: reserve, commit, refusal, the pool of a trace, a composed cap, `finished`),
-effects (`effect/`: a call staleness does not cut, an answer recorded and not forwarded, `unknown` after a crash, a hang or a timeout, cost committed) and
+effects (`effect/`: a call staleness does not cut, an answer recorded and not forwarded, `unknown` after a crash, a hang or a timeout, cost committed, and an effect inside a composed neuron: the two refusals, the cut before and after the effect starts, the failures, the timeout, and `exit` replying first) and
 the live stream (`stream/`), `may` (`may/`: the shape, the kinds it is allowed on, a composed neuron that
 covers its inside and two that do not) and a neuron named by its own file (`neuronfile/`: the same events as
 the inline neuron, the network's options on the entry, the file's own options applied, a narrowed `timeout`
@@ -1320,8 +1326,8 @@ engine can apply two rules that a program cannot apply for itself. The reasons a
 
 ### 11.1 Declaring
 
-`effect` is the neuron option `true` (2.4), on `run`, `serve`, `http` and `human` neurons; never on a
-`source` or a `network` neuron (the schema refuses both). It changes nothing else about the neuron: its
+`effect` is the neuron option `true` (2.4), on `run`, `serve`, `http` and `human` neurons, and on a `network`
+neuron whose file contains one (11.5); never on a `source` (the schema refuses it). It changes nothing else about the neuron: its
 contract (3), `threshold`, `within`, `timeout` and `cost` are as they were. A neuron without it behaves exactly as
 before.
 
@@ -1387,11 +1393,39 @@ guarantees none of this. The fixture `observer/an-observer-reconciles-an-unknown
 
 ### 11.5 Composed neurons
 
-A `network` neuron is never an effect, and a network file used as a composed neuron MUST NOT contain a neuron
-with `effect` (`check` reports an error, 2.7). A composed call is cut as a whole, recursively and without
-reports (2.6 steps 2 and 4), and sealing (2.6) keeps the outside from seeing what the inside did, so neither the
-guarantee of 11.2 nor the record of 11.3 could hold across the boundary. An effect belongs in the outer file,
-where the trace shows it; a composed neuron may feed it.
+A network file used as a composed neuron MAY contain neurons with `effect`
+([decision 0022](decisions/0022-what-a-swarm-needs.md)). The `network` neuron that names it MUST then state
+`"effect": true`, and a `network` neuron whose file contains no effect neuron MUST NOT state it: `check` reports
+either as an error (2.7). A composed neuron inside the file counts by its own `effect`, as it counts by its own
+`may` (2.4). The option is what sealing (2.6) cannot hide: the outside never sees which neuron inside did what,
+and the reader of the outer file and of the outer trace still knows that a call of this neuron may do something
+in the world.
+
+**A composed call has an effect started** from the moment a call of an effect neuron of its file starts for it
+(10.3 says when a call starts), or a call of a composed effect neuron of its file has an effect started by this
+same rule. Waiting work inside (a held input, a call queued for a slot or for a place) has started nothing.
+
+- **Until then the call is an ordinary composed call.** Staleness cuts it (5.4: the `drop`, phase `running`, the
+  `cancel` note, the inside cancelled without reports), and its failures are errors: nothing has happened.
+- **From then on staleness never cuts it** (11.2 at the boundary): no `drop`, no `cancel` note. The call is marked
+  stale and its inside runs to its end, the work that is not an effect included. Its reply is recorded as for any
+  effect call: an answer carries `"forwarded": false` and is not forwarded.
+- **From then on its failures are `unknown`** (11.3): the `inner` failure of 2.6 step 3, a timeout, and the
+  `output` failure of `each` (2.4). An inner `unknown` is therefore the composed neuron's `unknown`, code `inner`,
+  and so is an inner error that comes after an effect inside had started: the outside cannot tell which neuron
+  failed. The message is the one the error has.
+- **A timeout ends the call as any composed call's does** (2.6 step 4), and the effect calls that have started
+  inside are cancelled with the rest, as their own timeout would cancel them (11.3). It is `unknown` if an effect
+  had started, and an error if none had.
+- **The first reply of `exit` is still the reply** (2.6 step 2). The remaining inner work of the call is cancelled,
+  except the effect calls that have started and the composed effect calls inside in which an effect has started:
+  those are marked stale and run to their own end, and nothing they answer is forwarded. The composed call is over
+  when `exit` replies (its `commit`, and its place under `maxInflight`, are as for any reply), and **its trace is
+  not finished until they have ended** (7.2). What such a call does after the reply stays inside, its failure
+  too: an effect whose failure must be seen belongs on the way to `exit`, or in the outer file.
+
+Sealing (2.6) stands throughout: nothing of the inside is reported, and the outside learns that an effect inside
+may have happened, never which one.
 
 ### 11.6 Budgets, threshold, levels
 
@@ -1405,7 +1439,8 @@ where the trace shows it; a composed neuron may feed it.
   `http` neurons are not run by every engine; the rules apply to them when an engine does. A `human` effect
   call is as any other: an answer is committed, and a `timeout` is `unknown`.
 - **`finished`.** A trace is finished when nothing is running, queued or held (7.2); a running effect call
-  that went stale is still running, so the trace waits for it.
+  that went stale is still running, so the trace waits for it. So does the trace of a composed call that has
+  replied while an effect call inside it still runs (11.5).
 
 ## Appendix A. Walk-through: one alert (informative)
 
@@ -1465,8 +1500,8 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
   trace or by caller; backpressure to a live producer.
 - Fan-out, later ([decision 0022](decisions/0022-what-a-swarm-needs.md)): a join for the items of one `each`
   answer, and a name for that group; a bound on how many items one answer may forward.
-- Effects, later: an engine-held `unknown` that blocks a key until reconciled, a retry policy, effects
-  inside a composed file (11.5).
+- Effects, later: an engine-held `unknown` that blocks a key until reconciled, a retry policy, and a report
+  to the outside of what an effect inside a composed call did after `exit` had replied (11.5).
 - Budgets, later: usage claims in level 1 replies, an owed ledger, spend per source or per time
   window, settlement (10.8).
 
@@ -1664,7 +1699,9 @@ wrapper: the same four global things below recur at every boundary, one level do
 | 10.6 | A loop ends at the pool or at `maxHops` | global, local | G1; 5.3. |
 | 11.1 to 11.3 | An effect call is not cut; its answer is recorded; `unknown` | local | The wrapper's own call. |
 | 11.4 | Reconciling | global | A producer or an observer, outside (G8). |
-| 11.5 | No `effect` inside a composed file | static | |
+| 11.5 | A composed neuron states `effect` exactly when its file has an effect neuron | static | |
+| 11.5 | A composed call with an effect started is not cut; its failures are `unknown`; a timeout cancels the inside | local | Held at the boundary: the composed neuron's wrapper is the owner, and it knows what its inside has started. |
+| 11.5 | A trace waits for an effect call still running inside a composed call that has replied | global | G2. |
 | 11.6 | A trace waits for a running stale effect call | global | G2. |
 
 ### E.2 The global things

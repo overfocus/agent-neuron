@@ -1,0 +1,22 @@
+{
+  "fixture": 0,
+  "description": "When exit replies at 15 the effect neuron inside has not been called (slow is still running before it). The remaining inner work is cancelled as for any composed call, the effect neuron never starts (it has no script entry), and the trace is finished with the outer work at 16.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "box/e": {"calls":[{"after":5,"reply":{"answer":1}}]},
+    "box/x": {"calls":[{"after":10,"reply":{"answer":"done"}}]},
+    "box/slow": {"calls":[{"after":50,"reply":{"answer":2}}]},
+    "after": {"calls":[{"after":1,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":15,"id":"#2","from":"box","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"done"}},
+    {"type":"signal","t":15,"id":"#3","from":"box","to":["after"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"done"}},
+    {"type":"quiet","t":16,"id":"#4","from":"after","to":["box"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"finished","t":16,"trace":"#1","status":"done"}
+  ]
+}

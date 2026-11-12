@@ -1,0 +1,28 @@
+{
+  "version": 0,
+  "name": "an-inner-unknown-is-the-composed-neurons-unknown",
+  "description": "The effect neuron inside crashes after it started and exit never replies: the composed neuron has one unknown, code inner, in place of the inner error, with its cost committed just before. Nothing of the inside is reported.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json",
+      "effect": true,
+      "cost": {
+        "credits": 3
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    }
+  ],
+  "budget": {
+    "credits": 10
+  }
+}

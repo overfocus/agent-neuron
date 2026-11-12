@@ -78,7 +78,8 @@ of my own, written into a scratch directory outside the repository.
   (duplicate ids, a link naming an unknown id with the nearest-id suggestion,
   a duplicated link, a link into a source, the composed-file rules —
   missing/invalid file, entry/exit pairing and existence, a source inside, an
-  exit with outgoing links, effect inside a composed file), a cycle in which
+  exit with outgoing links, a composed neuron that states `effect` over a file with
+  none or leaves it out over a file with one), a cycle in which
   no neuron has `maxHops`, the budget rules (whole numbers 0..2^53-1, a cost
   unit the file's budget lacks, an empty `budget` or `cost`, a budget
   demanding a cost on every non-source, composed included), and the warnings
@@ -107,7 +108,7 @@ of my own, written into a scratch directory outside the repository.
 cargo fmt --check                                   # max_width 140 (rustfmt.toml)
 cargo clippy --all-targets -- -D warnings           # zero
 cargo test                                          # 191: mcp 22, real 31, check 20, confine 22, desk 17, http 13, live 5, peers 43, result 5, settings 7, args 4, unit 2
-cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 303, 0, 0
+cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/fixtures   # 318, 0, 0
 cargo run --manifest-path rust-engine/Cargo.toml -- conform spec/probes     # 10, 0, 0
 target/debug/neuron-engine run spec/examples/alerts.network.json --inputs spec/examples/alerts.inputs.jsonl --trace alert.json
 target/debug/neuron-engine run spec/examples/alerts-python-serve.network.json --inputs spec/examples/alerts.inputs.jsonl
@@ -555,6 +556,32 @@ array, reported once, and each item is forwarded as a signal of its own, in the 
 - Covered by `spec/fixtures/each/` (26, on the scripted host), two tests in `tests/real.rs`, one in
   `tests/http.rs` (an `http` neuron, which no fixture reaches) and one in `tests/check.rs` (each
   refusal on its own rule). Not tested: `each` on a neuron placed on a peer, or on a hosted file.
+
+## An effect inside a composed file (decision 0022, S3)
+
+A `network` neuron states `"effect": true` exactly when its file has an effect neuron (SPEC 11.5);
+`net::effect_fold_error` is the check, beside the `may` fold, in `check` and in every load of a tree.
+
+- **`effect_started` on a composed call's work record** is the one new fact. `effect_begun` sets it
+  when a call of an effect neuron starts (the program spawned, the `signal` line written, the question
+  on the desk, the request begun), on the composed call that owns it and on every one around that,
+  outwards. A call that waits for a slot or a place sets nothing.
+- **`cut_work`** cuts a composed effect call while the flag is off, and marks it once it is on.
+  **`emit_failure`** makes its failures `unknown` only when it is on.
+- **A timeout forces the cut** (`cut_work_how(.., true)`): the started effect calls inside are
+  cancelled with the rest, by the same term and kill a staleness cut gives any other program.
+- **`exit`'s reply cancels without force**, so a started effect call inside is marked and runs on.
+  `held_by_inner_effects` keeps the outer trace from `finished`, and the run from ending, until it is
+  over; it reads nothing unless some composed file of the network has an effect neuron.
+- **A composed effect neuron placed on a peer** counts as started when it is dispatched: what the
+  peer's file has started cannot be seen from here. It is never cut by staleness, and every failure
+  after the peer was reached is `unknown`.
+- **An inner neuron's answer is never printed.** A neuron of a composed file that is not `exit` and
+  has no outgoing links used to put its answer among the run's printed answers; it does not now.
+- Covered by 16 fixtures in `spec/fixtures/effect/` (on the scripted host), three tests in
+  `tests/real.rs` (real processes: not cut, killed at the timeout, outliving `exit`'s reply) and
+  three in `tests/check.rs` (each refusal's message and position). Not tested: a composed effect
+  neuron on a peer, an inner effect that is a `serve`, `http` or `human` neuron, and a hosted file.
 
 ## Confinement — `run --confine` (decision 0018, S2a and S2b)
 

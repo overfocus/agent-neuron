@@ -1,0 +1,11 @@
+{
+  "fixture": 0,
+  "description": "A composed neuron whose file has an effect neuron must state effect itself (sealing would hide that its calls may do something in the world): check refuses the entry that leaves it out, so the engine refuses to start.",
+  "refuses": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "expect": [
+
+  ]
+}

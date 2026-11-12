@@ -18,7 +18,7 @@ MODEL
     serve    level 1: long-lived process, newline JSON; says `ready` {v, maxInflight}; slots + queue
     http     one request per call
     human    a person answers at the desk (page)
-    network  composed: a whole network file as one neuron (entry in, first exit reply out; inside sealed)
+    network  composed: a whole network file as one neuron (entry in, first exit reply out; inside sealed); states `effect` exactly when its file has an effect neuron (0022 S3)
     neuron   named by its own neuron file (0019); using entry may NARROW timeout/env/may/maxInflight only (effect, each: the file's, never the entry's)
              and may ADD args[] to a run/serve file's command (0022 S4; an entry field, gone after the loader)
   options (11)  threshold, within, maxHops, timeout, env, cwd, cost, effect, may{connect,listen,read,write}, maxInflight (run|http|network: calls at once, rest wait in arrival order; 0021 L2), each (run|serve|http|network: answer is an array, one forward per item; 0022 S2)   (SPEC 2.4)
@@ -28,7 +28,7 @@ MODEL
   trace         one root signal and everything it causes; ends with `finished`
   events        signal, answer, quiet, error, unknown, drop{reason,phase}, note{what: reserve|commit|cancel|term|kill|restart|junk|inject}, finished
   outcome/call  exactly one: answer | quiet | error(code: exit|timeout|junk|output|http|inner|budget|start|neuron) | unknown (effect call that started, outcome not knowable)
-  staleness     newer signal on same `replaces` key cuts older work: Held/Queued -> drop phase `waiting`; Running -> cancel (effect: marked, never cut)
+  staleness     newer signal on same `replaces` key cuts older work: Held/Queued -> drop phase `waiting`; Running -> cancel (effect: marked, never cut; a composed effect call: cut until an effect inside has started, marked after)
   budget        pool per trace; check -> reserve at call START -> commit when program over
   queued        (level 1 slot, maxInflight place, --at-once): not started => no reserve, timeout not counting, never unknown, keeps trace open
   maxInflight   place held from start until the call's record is done; given back at END OF STEP, then oldest waiting call whose neuron has room starts, one at a time (SPEC 6.2 rule 9)

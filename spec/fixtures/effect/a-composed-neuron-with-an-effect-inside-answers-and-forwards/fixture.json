@@ -1,0 +1,21 @@
+{
+  "fixture": 0,
+  "description": "A composed neuron that states effect over a file with an effect neuron is accepted, and a call nothing disturbs is a composed call like any other: one answer, forwarded.",
+  "notes": true,
+  "finished": true,
+  "inputs": [
+    {"at":0,"source":"s","payload":1}
+  ],
+  "script": {
+    "box/e": {"calls":[{"after":10,"reply":{"answer":{"n":2}}}]},
+    "box/notify": {"calls":[{"after":20,"reply":{"answer":"sent"}}]},
+    "after": {"calls":[{"after":1,"reply":{"quiet":true}}]}
+  },
+  "expect": [
+    {"type":"signal","t":0,"id":"#1","from":"s","to":["box"],"trace":"#1","hops":0,"payload":{"type":"json","data":1}},
+    {"type":"answer","t":30,"id":"#2","from":"box","to":["s"],"trace":"#1","replyTo":"#1","hops":1,"payload":{"type":"text","text":"sent"}},
+    {"type":"signal","t":30,"id":"#3","from":"box","to":["after"],"trace":"#1","cause":"#2","hops":2,"payload":{"type":"text","text":"sent"}},
+    {"type":"quiet","t":31,"id":"#4","from":"after","to":["box"],"trace":"#1","replyTo":"#3","hops":3},
+    {"type":"finished","t":31,"trace":"#1","status":"done"}
+  ]
+}

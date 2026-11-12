@@ -1,0 +1,15 @@
+{
+  "version": 0,
+  "description": "The network inside a composed neuron.",
+  "neurons": [
+    {
+      "id": "notify",
+      "run": [
+        "neuron-notify"
+      ],
+      "effect": true
+    }
+  ],
+  "entry": "notify",
+  "exit": "notify"
+}

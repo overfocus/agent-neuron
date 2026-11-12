@@ -1,0 +1,32 @@
+{
+  "version": 0,
+  "name": "a-composed-effect-call-is-cut-while-no-effect-inside-has-started",
+  "description": "At 40 the first call is still in e, and its effect neuron has not started: the newer input cuts it as any composed call, with one drop (phase running) and the cancel note. The effect neuron inside is never called for it (its script has one entry).",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "box",
+      "network": "inner.network.json",
+      "effect": true
+    },
+    {
+      "id": "after",
+      "run": [
+        "neuron-after"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "box"
+    },
+    {
+      "from": "box",
+      "to": "after"
+    }
+  ]
+}

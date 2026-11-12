@@ -70,25 +70,58 @@ fn check_refusal_an_uncosted_composed_neuron() {
         .all(|d| d.file.as_deref().map(|f| f.ends_with(".json")).unwrap_or(false)));
 }
 
-/// A composed file may not contain an effect neuron (11.5): the error is the
-/// inner file's, at its own position; the outer file itself checks clean.
+/// A composed neuron states `effect` exactly when its file has an effect
+/// neuron (11.5). Leaving it out is the entry's error, at its `network` key;
+/// the inner file itself checks clean.
 #[test]
-fn check_refusal_an_effect_inside_a_composed_file() {
-    let path = fixture_network("effect/refuses-an-effect-inside-a-composed-file");
+fn check_refusal_a_composed_neuron_that_does_not_state_the_effect_inside() {
+    let path = fixture_network("effect/refuses-a-composed-neuron-that-does-not-state-the-effect-inside");
     let diags = check::tree(path.to_string_lossy().as_ref());
     let errs = err_lines(&diags);
     assert_eq!(errs.len(), 1, "{}", errs.join("\n"));
     assert!(
-        errs[0].contains("a composed file contains a neuron with effect (11.5)"),
+        errs[0].contains("'box' does not state effect and its file has an effect neuron: 'notify' (11.5)"),
         "{}",
         errs[0]
     );
     let error = diags.iter().find(|d| d.error).unwrap();
     assert!(
-        error.file.as_deref().unwrap().ends_with("inner.network.json"),
-        "the finding is the inner file's"
+        error.file.as_deref().unwrap().ends_with("network.json") && !error.file.as_deref().unwrap().ends_with("inner.network.json"),
+        "the finding is the outer file's"
     );
-    assert_eq!(error.pos.map(|p| p.line), Some(10), "the effect neuron's own line");
+    assert_eq!(error.pos.map(|p| p.line), Some(12), "the entry's network key");
+}
+
+/// The other way round: `effect` stated over a file with no effect neuron,
+/// reported at the entry's `effect` key.
+#[test]
+fn check_refusal_effect_on_a_composed_neuron_whose_file_has_none() {
+    let path = fixture_network("effect/refuses-effect-on-a-composed-neuron-whose-file-has-none");
+    let diags = check::tree(path.to_string_lossy().as_ref());
+    let errs = err_lines(&diags);
+    assert_eq!(errs.len(), 1, "{}", errs.join("\n"));
+    assert!(
+        errs[0].contains("'box' states effect and its file has no effect neuron (11.5)"),
+        "{}",
+        errs[0]
+    );
+    let error = diags.iter().find(|d| d.error).unwrap();
+    assert_eq!(error.pos.map(|p| p.line), Some(13), "the entry's effect key");
+}
+
+/// A composed neuron inside counts by its own `effect`: the middle file is
+/// in order (its neuron states it), and the outer entry is the one refused.
+#[test]
+fn check_refusal_a_composed_neuron_whose_inside_states_effect_and_it_does_not() {
+    let path = fixture_network("effect/refuses-a-composed-neuron-over-an-unstated-effect-two-levels-in");
+    let diags = check::tree(path.to_string_lossy().as_ref());
+    let errs = err_lines(&diags);
+    assert_eq!(errs.len(), 1, "{}", errs.join("\n"));
+    assert!(
+        errs[0].contains("'box' does not state effect and its file has an effect neuron: 'mid' (11.5)"),
+        "{}",
+        errs[0]
+    );
 }
 
 /// The spec examples check clean: no errors (the whole run set of the demos).

@@ -459,6 +459,9 @@
             },
             "each": {
               "$ref": "#/$defs/each"
+            },
+            "effect": {
+              "const": true
             }
           }
         },
