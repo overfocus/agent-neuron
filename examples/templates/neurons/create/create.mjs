@@ -7,13 +7,8 @@
 // is there but not yet a template is only marked ('mark'). A repo of that name that is public, or that
 // was not generated from this template, is somebody else's: it is refused, never changed.
 import { readFileSync } from 'node:fs';
-import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-
-// This neuron's own settings: `.env` in its folder (git-ignored; `env.example` shows the names).
-// A variable the engine passes through by name (the neuron's `env`) wins over the file.
-const env = fileURLToPath(new URL('.env', import.meta.url));
-if (existsSync(env)) process.loadEnvFile(env);
+// Its settings arrive in its environment: the engine fills the names in this neuron's `env` from
+// `.env` in this folder (git-ignored; `env.example` shows the names), SPEC 2.4.
 const setting = (name) => {
   const v = process.env[name];
   if (!v) { console.error(`${name} is not set: put it in this neuron's .env`); process.exit(1); }
