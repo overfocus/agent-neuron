@@ -1273,30 +1273,18 @@ impl Engine {
             self.injections += 1;
         }
         let mut timed_out = false;
-        while self.harness.is_none() {
+        if self.is_real() {
+            // The one loop of the real host (decision 0020, S4d): a run is
+            // that loop with no door of its own — its injections are already
+            // on the heap, or arrive on the host's queue from a live producer
+            // — and it ends when nothing is left, or at its deadline.
+            timed_out = self.drive(&mut RunDoor);
+        }
+        // The scripted host of the conformance fixtures: no process and no
+        // clock but the heap's.
+        while !self.is_real() && self.harness.is_none() {
             if self.run_over() {
                 break;
-            }
-            if self.deadline_due() {
-                timed_out = true;
-                break;
-            }
-            if self.is_real() {
-                // The one step of the real host (decision 0016, S4): the run
-                // and a hosted call take the same step and differ only in
-                // what ends them. Here the deadline is the run timing out,
-                // and nothing left to wait for is the run's end.
-                match self.real_step() {
-                    Step::Advanced => continue,
-                    Step::DeadlineDue => {
-                        timed_out = true;
-                        break;
-                    }
-                    // Quiet, with a live producer that may still inject:
-                    // the run waits for it.
-                    Step::Idle if self.live_inputs => continue,
-                    Step::Idle => break,
-                }
             }
             self.tidy();
             let Some(next) = self.next_wake() else { break };
@@ -1329,9 +1317,40 @@ impl Engine {
         }
     }
 
-    /// One step of the engine on the real host, for whoever drives it: the
-    /// run's loop and a hosted call's loop are this step and nothing else in
-    /// common.
+    /// The loop of the real host (decision 0020, S4d): one for a run and for
+    /// a hosted file. What differs between them is the door: how work
+    /// arrives from outside, which deadline caps a wait, and whether the loop
+    /// ends when nothing is left. Returns whether it stopped at a deadline.
+    fn drive(&mut self, door: &mut dyn Door) -> bool {
+        loop {
+            if !door.take(self) {
+                return false;
+            }
+            if self.harness.is_some() {
+                return false;
+            }
+            let ends = door.ends_when_over();
+            self.deadline = door.deadline(self);
+            if ends {
+                if self.run_over() {
+                    return false;
+                }
+                if self.deadline_due() {
+                    return true;
+                }
+            }
+            match self.real_step() {
+                Step::DeadlineDue if ends => return true,
+                // Quiet, with a live producer that may still inject: the
+                // loop waits for it.
+                Step::Idle if ends && !self.live_inputs => return false,
+                Step::Advanced | Step::DeadlineDue | Step::Idle => {}
+            }
+        }
+    }
+
+    /// One step of the engine on the real host: `drive` is this step and
+    /// what its door decides.
     ///
     /// A host event due at or before the next wake-up goes first; its time is
     /// when the host read it, so work that ended in the same ms as its
@@ -5100,162 +5119,21 @@ impl Engine {
     /// timeout): a call the engine failed to settle by then is cut and
     /// answered as timed out, whatever the others are doing.
     pub fn serve_calls(&mut self, reqs: std::sync::mpsc::Receiver<HostedReq>, backstop_ms: u64) {
-        use std::sync::mpsc::TryRecvError;
         self.hosting = true;
         // A refusal is about the instance, so it repeats for every call.
-        let mut refused: Option<String> = match self.caller {
+        let refused: Option<String> = match self.caller {
             None => Some("the graph the worker hosts was not planted to be called".to_string()),
             Some(_) => self.refusal().map(|s| s.to_string()),
         };
-        let node = self.caller.unwrap_or(0);
-        let mut started = false;
-        let mut open: Vec<OpenCall> = Vec::new();
-        loop {
-            // What has arrived. With nothing to step for (no program is up
-            // yet, or the instance refuses), the loop waits for a request.
-            loop {
-                let idle = open.is_empty() && (!started || refused.is_some());
-                let req = if idle {
-                    match reqs.recv() {
-                        Ok(req) => req,
-                        Err(_) => return,
-                    }
-                } else {
-                    match reqs.try_recv() {
-                        Ok(req) => req,
-                        Err(TryRecvError::Empty) => break,
-                        Err(TryRecvError::Disconnected) if open.is_empty() => return,
-                        Err(TryRecvError::Disconnected) => break,
-                    }
-                };
-                let refuse = |req: HostedReq, why: &str| match req {
-                    HostedReq::Call(call) => {
-                        let _ = call.reply.send(GraphOut::Failed(Some(why.to_string())));
-                    }
-                    HostedReq::Inject(_) => {
-                        use std::io::Write as _;
-                        let _ = writeln!(std::io::stderr(), "refused an injection: {}", why);
-                    }
-                };
-                if let Some(why) = &refused {
-                    refuse(req, why);
-                    continue;
-                }
-                // The clock of whatever arrived starts now, however long the
-                // instance sat with nothing to do.
-                self.now = self.now.max(host::clock_ms());
-                let due = match &req {
-                    HostedReq::Call(call) => Some(self.now.saturating_add(call.timeout_ms).saturating_add(backstop_ms)),
-                    HostedReq::Inject(_) => None,
-                };
-                if !started {
-                    // A first call's budget covers the start waits of the
-                    // serve programs too (finding 5, 0014); an injection has
-                    // no budget of time, and each program's own start
-                    // deadline is the limit.
-                    self.deadline = due;
-                    match self.start_serves() {
-                        Err(why) => {
-                            self.stop_after_refusal();
-                            let why = format!("the graph refused the run: {}", why);
-                            refuse(req, &why);
-                            refused = Some(why);
-                            continue;
-                        }
-                        Ok(()) => started = true,
-                    }
-                }
-                let call = match req {
-                    HostedReq::Inject(inp) => {
-                        self.live_inject(*inp);
-                        continue;
-                    }
-                    HostedReq::Call(call) => call,
-                };
-                if self.insts[0].entry.is_none() || self.insts[0].exit.is_none() {
-                    let why = "the file has no `entry` and `exit`, so it is fed at its sources and cannot be called";
-                    let _ = call.reply.send(GraphOut::Failed(Some(why.to_string())));
-                    continue;
-                }
-                let sig = self.new_signal(
-                    node,
-                    vec![node],
-                    payload_of(call.payload),
-                    0,
-                    None,
-                    None,
-                    None,
-                    None,
-                    self.nodes[node].inst,
-                    None,
-                );
-                let work = self.make_call(node, sig, WSt::Running);
-                // The call's timeout is the wire's: `start_composed` arms it
-                // with the caller node's timeout as it starts (6.2).
-                self.nodes[node].timeout = call.timeout_ms;
-                // The caller's side of the call is a trace of its own that no
-                // `finished` announces: it is forgotten once it and the work
-                // it started are done, whichever way the call ends.
-                self.forget_later.push(self.works[work].trace);
-                self.hosted_out.insert(work, None);
-                self.start_new_call(work);
-                // The work the call started is a trace of the file's, and
-                // the worker's own stream says when it finished (7.2).
-                if let Some(root) = self.works[work].inner_root {
-                    self.traces.push((
-                        root,
-                        TraceInfo {
-                            exhausted: false,
-                            finished: false,
-                        },
-                    ));
-                }
-                open.push(OpenCall {
-                    work,
-                    due: due.unwrap_or(u64::MAX),
-                    cancelled: call.cancelled,
-                    reply: call.reply,
-                });
-            }
-            // Close what is over: done of itself, cancelled on the wire (the
-            // cut a staleness cut would give it, 5.4), or past the backstop.
-            let mut i = 0;
-            while i < open.len() {
-                let work = open[i].work;
-                let out = if self.works[work].done {
-                    Some(self.hosted_outcome(work))
-                } else if (open[i].cancelled)() {
-                    self.cut_work(work);
-                    Some(GraphOut::Cancelled)
-                } else if self.now >= open[i].due {
-                    self.cut_work(work);
-                    Some(GraphOut::TimedOut)
-                } else {
-                    None
-                };
-                match out {
-                    Some(out) => {
-                        self.hosted_out.remove(&work);
-                        self.inner_why.remove(&work);
-                        let call = open.swap_remove(i);
-                        let _ = call.reply.send(out);
-                        // A call that ended by its cut left its trace with
-                        // nothing open: say so, as any work ending does.
-                        self.finish_check(None);
-                    }
-                    None => i += 1,
-                }
-            }
-            if refused.is_some() {
-                continue;
-            }
-            // The same step the run takes (decision 0016, S4). The deadline
-            // is the nearest backstop of an open call; with none open the
-            // loop waits for the host: a nudge, a trace an injection
-            // started, or a serve program's own business (a ping, a restart).
-            self.deadline = open.iter().map(|c| c.due).min();
-            self.real_step();
-        }
+        let mut door = HostedDoor {
+            reqs,
+            backstop_ms,
+            node: self.caller.unwrap_or(0),
+            refused,
+            started: false,
+            open: Vec::new(),
+        };
+        self.drive(&mut door);
     }
 
     /// What a hosted call that is done answers its caller. The boundary's
@@ -5273,6 +5151,208 @@ impl Engine {
             return GraphOut::TimedOut;
         }
         GraphOut::Quiet
+    }
+}
+
+/// What differs between the loops of a run and of a hosted file (`drive`).
+trait Door {
+    /// Take what has arrived from outside and settle what it is owed. False
+    /// when the door is shut for good with nothing of its own still open.
+    fn take(&mut self, eng: &mut Engine) -> bool;
+    /// The deadline that caps the next wait.
+    fn deadline(&self, eng: &Engine) -> Option<u64>;
+    /// Whether the loop ends when the engine has nothing left (6.2 rule 6).
+    fn ends_when_over(&self) -> bool;
+}
+
+/// A run: nothing arrives through a door (a file's injections are on the
+/// heap before the loop starts, a live producer's arrive on the host's
+/// queue), the deadline is the caller's, and the run ends when nothing is
+/// left.
+struct RunDoor;
+
+impl Door for RunDoor {
+    fn take(&mut self, _eng: &mut Engine) -> bool {
+        true
+    }
+    fn deadline(&self, eng: &Engine) -> Option<u64> {
+        eng.deadline
+    }
+    fn ends_when_over(&self) -> bool {
+        true
+    }
+}
+
+/// A hosted file: calls and injections arrive from its connections, each
+/// open call has a backstop, and the loop does not end while a sender lives.
+struct HostedDoor {
+    reqs: std::sync::mpsc::Receiver<HostedReq>,
+    backstop_ms: u64,
+    /// The caller's node (`plant_hosted`).
+    node: usize,
+    refused: Option<String>,
+    /// The serve programs start with the first thing that arrives.
+    started: bool,
+    open: Vec<OpenCall>,
+}
+
+impl Door for HostedDoor {
+    fn take(&mut self, eng: &mut Engine) -> bool {
+        use std::sync::mpsc::TryRecvError;
+        let node = self.node;
+        loop {
+            // What has arrived. With nothing to step for (no program is up
+            // yet, or the instance refuses), the loop waits for a request.
+            loop {
+                let idle = self.open.is_empty() && (!self.started || self.refused.is_some());
+                let req = if idle {
+                    match self.reqs.recv() {
+                        Ok(req) => req,
+                        Err(_) => return false,
+                    }
+                } else {
+                    match self.reqs.try_recv() {
+                        Ok(req) => req,
+                        Err(TryRecvError::Empty) => break,
+                        Err(TryRecvError::Disconnected) if self.open.is_empty() => return false,
+                        Err(TryRecvError::Disconnected) => break,
+                    }
+                };
+                let refuse = |req: HostedReq, why: &str| match req {
+                    HostedReq::Call(call) => {
+                        let _ = call.reply.send(GraphOut::Failed(Some(why.to_string())));
+                    }
+                    HostedReq::Inject(_) => {
+                        use std::io::Write as _;
+                        let _ = writeln!(std::io::stderr(), "refused an injection: {}", why);
+                    }
+                };
+                if let Some(why) = &self.refused {
+                    refuse(req, why);
+                    continue;
+                }
+                // The clock of whatever arrived starts now, however long the
+                // instance sat with nothing to do.
+                eng.now = eng.now.max(host::clock_ms());
+                let due = match &req {
+                    HostedReq::Call(call) => Some(eng.now.saturating_add(call.timeout_ms).saturating_add(self.backstop_ms)),
+                    HostedReq::Inject(_) => None,
+                };
+                if !self.started {
+                    // A first call's budget covers the start waits of the
+                    // serve programs too (finding 5, 0014); an injection has
+                    // no budget of time, and each program's own start
+                    // deadline is the limit.
+                    eng.deadline = due;
+                    match eng.start_serves() {
+                        Err(why) => {
+                            eng.stop_after_refusal();
+                            let why = format!("the graph refused the run: {}", why);
+                            refuse(req, &why);
+                            self.refused = Some(why);
+                            continue;
+                        }
+                        Ok(()) => self.started = true,
+                    }
+                }
+                let call = match req {
+                    HostedReq::Inject(inp) => {
+                        eng.live_inject(*inp);
+                        continue;
+                    }
+                    HostedReq::Call(call) => call,
+                };
+                if eng.insts[0].entry.is_none() || eng.insts[0].exit.is_none() {
+                    let why = "the file has no `entry` and `exit`, so it is fed at its sources and cannot be called";
+                    let _ = call.reply.send(GraphOut::Failed(Some(why.to_string())));
+                    continue;
+                }
+                let sig = eng.new_signal(
+                    node,
+                    vec![node],
+                    payload_of(call.payload),
+                    0,
+                    None,
+                    None,
+                    None,
+                    None,
+                    eng.nodes[node].inst,
+                    None,
+                );
+                let work = eng.make_call(node, sig, WSt::Running);
+                // The call's timeout is the wire's: `start_composed` arms it
+                // with the caller node's timeout as it starts (6.2).
+                eng.nodes[node].timeout = call.timeout_ms;
+                // The caller's side of the call is a trace of its own that no
+                // `finished` announces: it is forgotten once it and the work
+                // it started are done, whichever way the call ends.
+                eng.forget_later.push(eng.works[work].trace);
+                eng.hosted_out.insert(work, None);
+                eng.start_new_call(work);
+                // The work the call started is a trace of the file's, and
+                // the worker's own stream says when it finished (7.2).
+                if let Some(root) = eng.works[work].inner_root {
+                    eng.traces.push((
+                        root,
+                        TraceInfo {
+                            exhausted: false,
+                            finished: false,
+                        },
+                    ));
+                }
+                self.open.push(OpenCall {
+                    work,
+                    due: due.unwrap_or(u64::MAX),
+                    cancelled: call.cancelled,
+                    reply: call.reply,
+                });
+            }
+            // Close what is over: done of itself, cancelled on the wire (the
+            // cut a staleness cut would give it, 5.4), or past the backstop.
+            let mut i = 0;
+            while i < self.open.len() {
+                let work = self.open[i].work;
+                let out = if eng.works[work].done {
+                    Some(eng.hosted_outcome(work))
+                } else if (self.open[i].cancelled)() {
+                    eng.cut_work(work);
+                    Some(GraphOut::Cancelled)
+                } else if eng.now >= self.open[i].due {
+                    eng.cut_work(work);
+                    Some(GraphOut::TimedOut)
+                } else {
+                    None
+                };
+                match out {
+                    Some(out) => {
+                        eng.hosted_out.remove(&work);
+                        eng.inner_why.remove(&work);
+                        let call = self.open.swap_remove(i);
+                        let _ = call.reply.send(out);
+                        // A call that ended by its cut left its trace with
+                        // nothing open: say so, as any work ending does.
+                        eng.finish_check(None);
+                    }
+                    None => i += 1,
+                }
+            }
+            // An instance that refuses has nothing to step for: it waits
+            // for the next request and refuses that too.
+            if self.refused.is_none() {
+                return true;
+            }
+        }
+    }
+
+    /// The nearest backstop of an open call; with none open the loop waits
+    /// for the host: a nudge, a trace an injection started, or a serve
+    /// program's own business (a ping, a restart).
+    fn deadline(&self, _eng: &Engine) -> Option<u64> {
+        self.open.iter().map(|c| c.due).min()
+    }
+
+    fn ends_when_over(&self) -> bool {
+        false
     }
 }
 
