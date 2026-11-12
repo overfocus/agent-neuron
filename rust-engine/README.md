@@ -432,7 +432,10 @@ event, and a graph spread over two engines answers as a wholly local run does.
 `env` and `may`, and hands the rest of the validator the neuron as it would be written inline, its
 working directory written whole (the file's relative paths are the file's own). Nothing after the
 loader knows the kind: the engine, the trace, the peers and confinement see an ordinary neuron.
-Findings are anchored at the entry and name the file. Covered by the 14 fixtures of
+Findings are anchored at the entry and name the file. The entry's `args` (decision 0022) are appended
+to the file's command there too, where the file is a `run` or `serve` neuron, and are gone from the
+neuron handed on; `tests/args.rs` starts real programs that answer with the arguments they received.
+Covered by the 19 fixtures of
 `spec/fixtures/neuronfile/`, `tests/check.rs` (each refusal's message) and two real-process tests in
 `tests/confine.rs`.
 

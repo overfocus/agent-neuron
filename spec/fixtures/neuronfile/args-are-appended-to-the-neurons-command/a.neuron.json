@@ -1,0 +1,9 @@
+{
+  "version": 0,
+  "description": "Adds one.",
+  "run": [
+    "neuron-a",
+    "--step",
+    "1"
+  ]
+}
