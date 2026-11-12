@@ -164,6 +164,12 @@ Each step is a `feat/` branch and a merge of its own.
 Then the template job again, as one file: `dispatch` with `each`, the one-type network as a composed
 effect neuron with `maxInflight` and `retry`, `args` for the dry run, `--result` for the answer.
 
+**One more criterion for that job, from Kevin (2026-11-12):** its neurons must not depend on the `gh`
+command line. They call GitHub's API themselves, with what they need (the token, the owner) read from
+`.env` settings that belong to the neuron. That is a change to the example's programs, not to the
+contract: a program may read a file its `may` lets it read. Whether an engine should load such a file
+for a neuron's `env` names is not decided here.
+
 ## Decided (2026-11-12)
 
 Kevin accepted every recommendation, and extending the field budget.
