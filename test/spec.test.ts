@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { check, validate } from '../src/engine/index.js';
+import { check, readNetwork, validate } from '../src/engine/index.js';
 
 const examples = fileURLToPath(new URL('../spec/examples/', import.meta.url));
 const schema = JSON.parse(readFileSync(new URL('../spec/network.schema.json', import.meta.url), 'utf8')) as Record<string, any>;
@@ -224,6 +224,35 @@ describe('network schema v0', () => {
     // the spec's own schema for the file is closed and versioned
     const neuronSchema = JSON.parse(readFileSync(new URL('../spec/neuron.schema.json', import.meta.url), 'utf8')) as Record<string, any>;
     expect(neuronSchema.oneOf.every((k: { additionalProperties: boolean; required: string[] }) => k.additionalProperties === false && k.required.includes('version'))).toBe(true);
+  });
+
+  it('appends the args of an entry to the command of the neuron file it names, and takes them nowhere else (decision 0022)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'neuron-args-'));
+    mkdirSync(join(dir, 'kit'));
+    /** Writes a network whose neuron `a` is `a`, with `own` as kit/a.neuron.json; returns the network file's path. */
+    const write = (a: Record<string, any>, own?: Record<string, any>) => {
+      if (own) writeFileSync(join(dir, 'kit', 'a.neuron.json'), JSON.stringify({ version: 0, ...own }));
+      writeFileSync(join(dir, 'net.json'), JSON.stringify({ version: 0, neurons: [{ id: 's', source: true }, { id: 'a', ...a }], links: [{ from: 's', to: 'a' }] }));
+      return join(dir, 'net.json');
+    };
+    const named = { neuron: 'kit/a.neuron.json', args: ['--apply', 'two words', '--apply'] };
+    for (const kind of ['run', 'serve'] as const) {
+      const own = { [kind]: ['true', 'own'], timeout: 100 };
+      expect(checkFile(write(named, own)), kind).toEqual([]);
+      // the neuron the engine is handed is the one written inline with the longer command: no `args`, no `neuron`
+      const a = readNetwork(write(named, own)).neurons[1];
+      expect(a, kind).toEqual({ id: 'a', [kind]: ['true', 'own', '--apply', 'two words', '--apply'], timeout: 100, cwd: join(dir, 'kit') });
+      expect(readNetwork(write({ neuron: 'kit/a.neuron.json' }, own)).neurons[1]![kind], kind).toEqual(['true', 'own']); // without args, as before
+    }
+    for (const own of [{ http: 'http://localhost:1/' }, { human: true }]) expect(checkFile(write(named, own)).join()).toContain('"args" adds to a command');
+    for (const inline of [{ run: ['true'] }, { serve: ['true'] }, { http: 'http://localhost:1/' }, { human: true }, { source: true }, { network: 'inner.json' }]) {
+      expect(checkFile(write({ ...inline, args: ['--apply'] })).join(), JSON.stringify(inline)).toContain('unknown field "args"');
+    }
+    const own = { run: ['true'] };
+    for (const bad of [[], 'x', [1], ['${HOME}'], ['a', '{{b}}']]) expect(checkFile(write({ ...named, args: bad }, own)), JSON.stringify(bad)).not.toEqual([]);
+    expect(checkFile(write({ ...named, args: ['', '-x', '-x'] }, own))).toEqual([]); // literals as a command's: empty and repeated strings stand
+    // on the entry only: a neuron file never holds args
+    expect(checkFile(write({ neuron: 'kit/a.neuron.json' }, { run: ['true'], args: ['--apply'] })).join()).toContain('unknown field "args"');
   });
 
   it('finds a composed network file that is missing, or lacks entry or exit', () => {

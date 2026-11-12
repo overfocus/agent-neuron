@@ -20,6 +20,7 @@ MODEL
     human    a person answers at the desk (page)
     network  composed: a whole network file as one neuron (entry in, first exit reply out; inside sealed)
     neuron   named by its own neuron file (0019); using entry may NARROW timeout/env/may/maxInflight only
+             and may ADD args[] to a run/serve file's command (0022 S4; an entry field, gone after the loader)
   options (10)  threshold, within, maxHops, timeout, env, cwd, cost, effect, may{connect,listen,read,write}, maxInflight (run|http|network: calls at once, rest wait in arrival order; 0021 L2)   (SPEC 2.4)
   settings      .env beside the declaring file (neuron file, or network file for inline) fills `env` names; wins over the engine's environment; never reported (0022 S6; settings.rs)
   input         {at, source, payload, replaces?, budget?}; `replaces` is the staleness key and rides the signal
