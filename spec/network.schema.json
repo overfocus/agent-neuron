@@ -457,6 +457,14 @@
             "neuron": {
               "$ref": "#/$defs/literal"
             },
+            "args": {
+              "description": "Arguments appended to the command of the neuron's file, after its own (SPEC 2.10, decision 0022). Only where that file is a `run` or `serve` neuron; `check` enforces it, as a schema cannot.",
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/literal"
+              }
+            },
             "threshold": {
               "type": "integer",
               "minimum": 1

@@ -1,0 +1,25 @@
+{
+  "version": 0,
+  "name": "refuses-args-that-are-not-literals",
+  "description": "The strings of `args` are literals, as every value in the file is (2, 2.10): one that holds `${...}` is refused by check, so the engine refuses to start.",
+  "neurons": [
+    {
+      "id": "s",
+      "source": true
+    },
+    {
+      "id": "a",
+      "neuron": "a.neuron.json",
+      "args": [
+        "--name",
+        "${NAME}"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "s",
+      "to": "a"
+    }
+  ]
+}

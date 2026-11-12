@@ -902,7 +902,9 @@ fn link(lv: &Value, i: usize, scan: &Scan, span: Span, out: &mut Vec<Diag>) -> L
 /// What is the neuron's sits in its file (the kind, `cwd`, `effect`, and
 /// `may`, `env`, `timeout`); what is the network's sits on the entry (`id`,
 /// `at`, `threshold`, `within`, `maxHops`, `cost`). The entry may restate
-/// `timeout`, `env` and `may` only to narrow them.
+/// `timeout`, `env` and `may` only to narrow them. Its `args` (decision 0022)
+/// are appended to the file's command, after its own arguments, and are gone
+/// from the neuron returned: nothing after this knows of them.
 fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: Span, out: &mut Vec<Diag>) -> Option<Value> {
     let before = out.len();
     let id = nv.get("id").and_then(|v| v.as_str()).unwrap_or("");
@@ -912,7 +914,7 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
             push(span, scan, k, &format!("{}: a neuron has exactly one kind field", what), out);
         } else if !matches!(
             k,
-            "id" | "description" | "at" | "neuron" | "threshold" | "within" | "maxHops" | "cost" | "timeout" | "env" | "may"
+            "id" | "description" | "at" | "neuron" | "args" | "threshold" | "within" | "maxHops" | "cost" | "timeout" | "env" | "may"
         ) {
             push(
                 span,
@@ -1011,6 +1013,33 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
             );
         }
     }
+    // `args` adds to a command: a non-empty array of literal strings, and
+    // only where the file has a command to add to.
+    let mut args: Vec<Value> = Vec::new();
+    if let Some(av) = nv.get("args") {
+        match av.as_arr() {
+            _ if !program => push(
+                span,
+                scan,
+                "args",
+                &format!(
+                    "{}: 'args' adds to a command, and '{}' is not a run or serve neuron: it has none (2.10)",
+                    what, rel
+                ),
+                out,
+            ),
+            Some(items) if !items.is_empty() && items.iter().all(|x| x.as_str().is_some_and(is_literal)) => {
+                args = items.to_vec();
+            }
+            _ => push(
+                span,
+                scan,
+                "args",
+                &format!("{}: args must be a non-empty array of literal strings", what),
+                out,
+            ),
+        }
+    }
     let strings = |v: Option<&Value>| -> Vec<String> {
         v.and_then(|v| v.as_arr())
             .map(|items| items.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
@@ -1046,11 +1075,18 @@ fn neuron_of_file(nv: &Value, i: usize, dir: Option<&Path>, scan: &Scan, span: S
         );
     }
     if let Value::Obj(entries) = nv {
-        for (k, v) in entries.iter().filter(|(k, _)| k != "neuron") {
+        for (k, v) in entries.iter().filter(|(k, _)| k != "neuron" && k != "args") {
             match merged.iter_mut().find(|(mk, _)| mk == k) {
                 Some(slot) => slot.1 = v.clone(),
                 None => merged.push((k.clone(), v.clone())),
             }
+        }
+    }
+    if !args.is_empty() {
+        // Appended, after the file's own arguments. A command that is not an
+        // array is left as it is, for the inline check to refuse.
+        if let Some((_, Value::Arr(command))) = merged.iter_mut().find(|(k, _)| k == kinds[0]) {
+            command.extend(args);
         }
     }
     if program {

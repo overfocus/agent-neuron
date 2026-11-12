@@ -125,7 +125,8 @@ def _ground(g, ids, path):
 
 # A neuron named by its own file (SPEC 2.10, decision 0019). The entry that names it holds what is the
 # network's, and may restate `timeout`, `env` and `may` only to narrow them; the file holds the rest.
-ENTRY = COMMON | {"neuron", "threshold", "within", "maxHops", "cost", "timeout", "env", "may"}
+# `args` (decision 0022) adds to the file's command and is no option: it is gone once the entry is resolved.
+ENTRY = COMMON | {"neuron", "args", "threshold", "within", "maxHops", "cost", "timeout", "env", "may"}
 FILE_KINDS = ("run", "serve", "http", "human")
 
 
@@ -178,8 +179,17 @@ def _resolve(n, i, base):
             listed = theirs.get(member, [])
             if not isinstance(items, list) or not isinstance(listed, list) or any(x not in listed for x in items):
                 raise CheckError(f"{what}: may.{member} is wider than the neuron's own")
+    if "args" in n:
+        if not program:
+            raise CheckError(f"{what}: args adds to a command, and {name} is not a run or serve neuron")
+        if not isinstance(n["args"], list) or not n["args"]:
+            raise CheckError(f"{what}: args must be a non-empty array of strings")
+        for a in n["args"]:
+            _literal(a, f"{what}.args")
     merged = {k: v for k, v in of.items() if k not in ("$schema", "version")}
-    merged.update({k: v for k, v in n.items() if k != "neuron"})
+    merged.update({k: v for k, v in n.items() if k not in ("neuron", "args")})
+    if "args" in n and isinstance(of[kinds[0]], list):
+        merged[kinds[0]] = of[kinds[0]] + n["args"]  # appended, after the file's own arguments
     if program:
         if "cwd" in of:
             _literal(of["cwd"], "cwd")

@@ -20,6 +20,7 @@ MODEL
     human    a person answers at the desk (page)
     network  composed: a whole network file as one neuron (entry in, first exit reply out; inside sealed)
     neuron   named by its own neuron file (0019); using entry may NARROW timeout/env/may only
+             and may ADD args[] to a run/serve file's command (0022 S4; an entry field, gone after the loader)
   options (9)   threshold, within, maxHops, timeout, env, cwd, cost, effect, may{connect,listen,read,write}   (SPEC 2.4; maxInflight would be the 10th, 0021 L2)
   input         {at, source, payload, replaces?, budget?}; `replaces` is the staleness key and rides the signal
   signal        payload + trace id + cause; link from->to carries answers; `to`-less reply routes by links

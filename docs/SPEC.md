@@ -190,7 +190,8 @@ it was written; it may become a URL later.
 `id` (required, `^[A-Za-z][A-Za-z0-9_-]{0,63}$`, unique in the file),
 `description` (string; SHOULD be set, it reaches the trace), `at` (optional), exactly one kind
 field (2.3), and the options its kind allows (2.4). An entry whose kind field is `neuron` takes the kind
-and the rest from the neuron's own file (2.10).
+and the rest from the neuron's own file (2.10). Such an entry, and no other, may carry `args`: arguments
+added to that file's command (2.10). It is not an option.
 
 `at` is `[x, y, z]`, three numbers from -1000000 to 1000000 in any unit the author
 picks: where a drawing of the network puts the neuron. It is a **descriptive
@@ -327,14 +328,18 @@ or a `network` neuron whose file has neurons costing a unit its `cost` does not 
 refused, 10.5) (warnings); an executable that cannot be found (warning); a `network` neuron whose `may` does not cover what the
 neurons of its file declare (2.4) (error); for an entry that names a neuron's file (2.10): a file that is
 missing or invalid, an option on the wrong side (one that is the network's in the file, or one that is the
-neuron's own on the entry), and a `timeout`, `env` or `may` on the entry that is wider than the file's (errors).
+neuron's own on the entry), and a `timeout`, `env` or `may` on the entry that is wider than the file's (errors);
+`args` on an entry whose file is an `http` or `human` neuron (error; on a neuron written inline `args` is an
+unknown field, and a string of it that is not a literal is a schema violation, 2).
 
 ### 2.8 Field budget (informative)
 
 10 top-level fields (`budget` is the ninth, `ground` the tenth — [decision
 0012](decisions/0012-the-ground.md)); per neuron `id`, `description`, `at`, one kind field, at most 9
 options; 2 per link. The kinds are seven: `neuron` is the seventh, admitted by
-[decision 0019](decisions/0019-the-neuron-file.md) and costing no option. A new field must answer one question: does it say how
+[decision 0019](decisions/0019-the-neuron-file.md) and costing no option. `args` (2.10,
+[decision 0022](decisions/0022-what-a-swarm-needs.md)) is a field of the entry that names a neuron's file, not an
+option: it counts against none of the nine. A new field must answer one question: does it say how
 neurons connect, or how one decides? Deciders are programs. A second, closed
 class of field is descriptive (for people and tools, acted on by no engine):
 `description` and `at` are the only two, and another needs its own decision record
@@ -430,6 +435,7 @@ written on the entry.
 | `may`, `env`, `timeout` | yes | to narrow only |
 | `description` | yes | yes; the entry's is the neuron's when both have one |
 | `id`, `at`, `threshold`, `within`, `maxHops`, `cost` | never | yes |
+| `args` | never | yes, where the file is a `run` or `serve` neuron: added to its command |
 
 Each option is allowed only where it is on an inline neuron of the file's kind (2.4). An option on the
 wrong side is an error (2.7).
@@ -439,6 +445,17 @@ wrong side is an error (2.7).
 file's names; `may`, on a `run` or `serve` neuron, for each member a subset of the file's entries,
 compared as written. An option the entry leaves out stands as the file wrote it; one the entry states
 replaces the file's. An entry that asks for more is an error (2.7), and the engine refuses to start.
+
+**`args`.** The entry may add arguments to the neuron's command:
+`{ "id": "create", "neuron": "create.neuron.json", "args": ["--apply"] }`. `args` is a non-empty array of
+literal strings (2), and the neuron's command is the file's command with them appended in order, after
+the file's own arguments, each passed verbatim (2.3). It can add and never remove or replace: the
+command is the neuron's, and what this network adds to it is the network's. It is allowed only where the
+file is a `run` or `serve` neuron; on an entry whose file is an `http` or `human` neuron, and on any
+neuron written inline, it is an error (2.7), and the engine refuses to start. It is a field of the entry,
+not an option (2.8), and it changes no rule an engine applies, only the command it starts: the run
+reports what a run with the neuron written inline, with the longer command, reports. A value known only
+when the run starts remains an `env` name ([decision 0022](decisions/0022-what-a-swarm-needs.md)).
 
 The fold of 2.4 reads the neuron as narrowed: a composed neuron's `may` covers what its neurons may
 touch after their own entries have narrowed them. A `network` neuron's own `may` is not narrowed by the
@@ -1338,7 +1355,8 @@ expressed, is in [decisions/0002](decisions/0002-alert-storm-mapping.md).
   `may` on a source that carries a program.
 - The neuron file, later ([decision 0019](decisions/0019-the-neuron-file.md)): a neuron's file on another
   machine; an entry that adds `effect` to a neuron that does not claim it; versioning a neuron file apart from
-  the network format; parameters (a neuron file is literals, so two uses that differ in an argument are two files).
+  the network format; parameters beyond the `args` of 2.10 ([decision 0022](decisions/0022-what-a-swarm-needs.md)):
+  for a composed file, and a value that reaches a program from the payload other than as its input.
 - Confinement, later ([decision 0018](decisions/0018-confining-a-program-to-its-may.md)): confinement as the
   default; a program placed on another machine; a named host for a program that does not speak HTTP; a path
   that reaches a program through a variable named in `env`.
@@ -1411,7 +1429,8 @@ any further engine is compared with (a Rust one was tried and stopped: decision 
   [decision 0021](decisions/0021-a-limit-on-calls-at-once.md)): a level 0 call over it is queued in arrival
   order, and queued means what it means at level 1 (3.2, 5.4, 10.3, 11). A network file cannot state it.
 - **A neuron named by its own file** (2.10): read when the network file is (`readNetwork`), so the engine itself
-  never sees the `neuron` kind. The Python and Rust engines do the same in their loaders.
+  never sees the `neuron` kind, nor the entry's `args`: the command it is handed is already the longer one. The
+  Python and Rust engines do the same in their loaders.
 - **`may`** (2.4): checked, the fold included. This engine does not confine (2.9): a program runs with the rights
   of whoever started it, whatever its `may` says. The Python engine starts no process. The Rust engine confines
   on macOS when a run asks (`run --confine`, `rust-engine/README.md`): files by path, loopback ports directly, a

@@ -9,6 +9,7 @@ export type NeuronSpec = {
   id: string; description?: string; at?: [number, number, number];
   source?: true; run?: string[]; serve?: string[]; http?: string; human?: true; network?: string;
   neuron?: string; // a neuron's own file (SPEC 2.10): `readNetwork` replaces the entry with the neuron it describes
+  args?: string[]; // only beside `neuron`: appended to the file's command when the entry is replaced (decision 0022)
   threshold?: number; within?: number; maxHops?: number; timeout?: number; env?: string[]; cwd?: string; cost?: Record<string, number>; effect?: true; may?: MaySpec;
 };
 /** What a neuron's program is allowed to touch (SPEC 2.4, decision 0016). A member that is absent grants nothing. */
@@ -155,8 +156,10 @@ type NeuronFile = Pick<NeuronSpec, 'description' | 'run' | 'serve' | 'http' | 'h
 function resolved(entry: NeuronSpec, of: NeuronFile, neuronFile: string): NeuronSpec {
   const { version: _version, ...own } = of as NeuronFile & { $schema?: string };
   delete (own as { $schema?: string }).$schema;
-  const { neuron: _neuron, ...mine } = entry;
-  return { ...own, ...mine, ...(of.run || of.serve ? { cwd: resolve(dirname(neuronFile), of.cwd ?? '.') } : {}) };
+  const { neuron: _neuron, args = [], ...mine } = entry;
+  // `args` adds to the file's command, after its own arguments (decision 0022); it never removes or replaces one
+  const command = of.run ? { run: [...of.run, ...args] } : of.serve ? { serve: [...of.serve, ...args] } : {};
+  return { ...own, ...mine, ...command, ...(of.run || of.serve ? { cwd: resolve(dirname(neuronFile), of.cwd ?? '.') } : {}) };
 }
 
 /**
@@ -217,6 +220,7 @@ export function check(file: string, seen: string[] = [], shown?: string): Findin
     if (wrong.length) return stop(`${at}.neuron`, `${n.neuron}: ${wrong.map((p) => `${p.path}: ${p.message}`).join('; ')} (a neuron file holds what is the neuron's own, SPEC 2.10)`);
     const program = of.run !== undefined || of.serve !== undefined;
     for (const key of ['env', 'may'] as const) if (n[key] !== undefined && !program) return stop(`${at}.${key}`, `"${key}" narrows a program's, and ${n.neuron} is not a run or serve neuron`);
+    if (n.args !== undefined && !program) return stop(`${at}.args`, `"args" adds to a command, and ${n.neuron} is not a run or serve neuron: it has none (SPEC 2.10)`);
     const limit = of.timeout ?? 30000;
     if (n.timeout !== undefined && n.timeout > limit) return stop(`${at}.timeout`, `timeout ${n.timeout} is wider than the neuron's own (${limit}, ${n.neuron}): the entry that names a neuron may only narrow it (SPEC 2.10)`);
     for (const name of n.env ?? []) if (!(of.env ?? []).includes(name)) return stop(`${at}.env`, `env "${name}" is wider than the neuron's own (${n.neuron}): the entry that names a neuron may only narrow it (SPEC 2.10)`);
